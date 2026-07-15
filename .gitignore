@@ -1,0 +1,42 @@
+# Dependencias
+/vendor/
+/node_modules/
+
+# Entorno
+.env
+.env.*
+!.env.example
+
+# Archivos de sistema
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE
+.vscode/
+.idea/
+*.sublime-workspace
+*.sublime-project
+
+# Storage (logs, cache, sesiones)
+/storage/logs/*
+/storage/cache/*
+/storage/sessions/*
+!/storage/logs/.gitkeep
+!/storage/cache/.gitkeep
+!/storage/sessions/.gitkeep
+
+# Base de datos
+*.sqlite
+*.db
+
+# Uploads de usuarios
+/public/uploads/*
+!/public/uploads/.gitkeep
+
+# Composer
+composer.lock
+
+# OS
+*.log
+error_log

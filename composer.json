@@ -1,0 +1,24 @@
+{
+    "name": "softnova/erp",
+    "description": "Software de Gestión Active - ERP SaaS Multiempresa",
+    "type": "project",
+    "require": {
+        "php": ">=8.2.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "SoftNova\\": "app/",
+            "SoftNova\\Core\\": "core/",
+            "SoftNova\\Config\\": "config/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "SoftNova\\Tests\\": "tests/"
+        }
+    },
+    "config": {
+        "optimize-autoloader": true,
+        "preferred-install": "dist"
+    }
+}
