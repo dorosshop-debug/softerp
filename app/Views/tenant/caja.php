@@ -8,6 +8,12 @@ $openSession = $openSession ?? null;
 $movements = $movements ?? [];
 $totals = $totals ?? ['incomes' => 0, 'expenses' => 0, 'balance' => 0];
 $historySessions = $historySessions ?? [];
+$currency = $currency ?? ['symbol' => '$', 'name' => 'Peso', 'decimals' => 0];
+$formatMoney = $formatMoney ?? fn($a) => '$ ' . number_format($a, 0);
+
+function fmt(float $amount, array $cur): string {
+    return $cur['symbol'] . ' ' . number_format($amount, $cur['decimals'], $cur['decimal'] ?? ',', $cur['thousands'] ?? '.');
+}
 ?>
 
 <?php echo flashMessage(); ?>
@@ -37,9 +43,9 @@ $historySessions = $historySessions ?? [];
             <?php echo \SoftNova\Core\csrf_field(); ?>
             <div class="modal-body">
                 <div class="form-group">
-                    <label>Monto de Apertura ($) *</label>
-                    <input type="number" name="opening_amount" class="form-control" 
-                           step="0.01" min="0" value="0.00" required autofocus>
+                    <label>Monto de Apertura (<?php echo $currency['symbol']; ?>) *</label>
+                    <input type="number" name="opening_amount" class="form-control"
+                           step="0.01" min="0" placeholder="0" required autofocus>
                 </div>
                 <div class="form-group">
                     <label>Notas (opcional)</label>
@@ -61,20 +67,20 @@ $historySessions = $historySessions ?? [];
 <div class="stats-grid">
     <div class="stat-card neumorphic">
         <h4>Monto Apertura</h4>
-        <div class="stat-value">$<?php echo number_format($openSession['opening_amount'], 2); ?></div>
+        <div class="stat-value"><?php echo fmt($openSession['opening_amount'], $currency); ?></div>
     </div>
     <div class="stat-card neumorphic">
         <h4>Ingresos</h4>
-        <div class="stat-value" style="color: #10B981;">+$<?php echo number_format($totals['incomes'], 2); ?></div>
+        <div class="stat-value" style="color: #10B981;">+<?php echo fmt($totals['incomes'], $currency); ?></div>
     </div>
     <div class="stat-card neumorphic">
         <h4>Egresos</h4>
-        <div class="stat-value" style="color: #DC2626;">-$<?php echo number_format($totals['expenses'], 2); ?></div>
+        <div class="stat-value" style="color: #DC2626;">-<?php echo fmt($totals['expenses'], $currency); ?></div>
     </div>
     <div class="stat-card neumorphic">
         <h4>Balance Actual</h4>
         <div class="stat-value" style="color: <?php echo $totals['balance'] >= 0 ? '#10B981' : '#DC2626'; ?>;">
-            $<?php echo number_format($totals['balance'], 2); ?>
+            <?php echo fmt($totals['balance'], $currency); ?>
         </div>
     </div>
 </div>
@@ -125,7 +131,7 @@ $historySessions = $historySessions ?? [];
                                 </td>
                                 <td><?php echo htmlspecialchars($mov['description']); ?></td>
                                 <td style="color: <?php echo $mov['type'] === 'income' ? '#10B981' : '#DC2626'; ?>; font-weight: 600;">
-                                    <?php echo $mov['type'] === 'income' ? '+' : '-'; ?>$<?php echo number_format($mov['amount'], 2); ?>
+                                    <?php echo $mov['type'] === 'income' ? '+' : '-'; ?><?php echo fmt($mov['amount'], $currency); ?>
                                 </td>
                             </tr>
                         <?php endforeach; ?>
@@ -160,9 +166,9 @@ $historySessions = $historySessions ?? [];
                            placeholder="Ej: Pago a proveedor, venta mostrador..." required>
                 </div>
                 <div class="form-group">
-                    <label>Monto ($) *</label>
-                    <input type="number" name="amount" class="form-control" 
-                           step="0.01" min="0.01" required>
+                    <label>Monto (<?php echo $currency['symbol']; ?>) *</label>
+                    <input type="number" name="amount" class="form-control"
+                           step="0.01" min="0.01" placeholder="0" required>
                 </div>
             </div>
             <div class="modal-footer">
@@ -186,13 +192,13 @@ $historySessions = $historySessions ?? [];
             <input type="hidden" name="session_id" value="<?php echo $openSession['id']; ?>">
             <div class="modal-body">
                 <p style="margin-bottom: 15px; color: var(--color-text-secondary);">
-                    Balance esperado según movimientos: 
-                    <strong style="color: #10B981;">$<?php echo number_format($totals['balance'], 2); ?></strong>
+                    Balance esperado según movimientos:
+                    <strong style="color: #10B981;"><?php echo fmt($totals['balance'], $currency); ?></strong>
                 </p>
                 <div class="form-group">
-                    <label>Monto Final Contado ($) *</label>
-                    <input type="number" name="closing_amount" class="form-control" 
-                           step="0.01" min="0" value="<?php echo number_format($totals['balance'], 2, '.', ''); ?>" required>
+                    <label>Monto Final Contado (<?php echo $currency['symbol']; ?>) *</label>
+                    <input type="number" name="closing_amount" class="form-control"
+                           step="0.01" min="0" placeholder="0" required>
                 </div>
                 <div class="form-group">
                     <label>Notas de cierre</label>

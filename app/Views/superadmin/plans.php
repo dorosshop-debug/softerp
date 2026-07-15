@@ -4,40 +4,26 @@ $title = 'Super Administrador - Planes';
 $pageTitle = 'Gestión de Planes';
 $userName = $_SESSION['super_admin_name'] ?? 'Super Admin';
 $plans = $plans ?? [];
-$availableModules = ['dashboard', 'caja', 'ventas', 'inventario', 'clientes', 'proveedores', 'cotizaciones', 'gastos', 'contabilidad', 'nomina', 'reportes'];
+$availableModules = ['dashboard', 'caja', 'ventas', 'inventario', 'clientes', 'proveedores', 'cotizaciones', 'contabilidad', 'nomina', 'reportes'];
 $moduleNames = [
-    'dashboard' => 'Dashboard',
-    'caja' => 'Caja',
-    'ventas' => 'Ventas',
-    'inventario' => 'Inventario',
-    'clientes' => 'Clientes',
-    'proveedores' => 'Proveedores',
-    'cotizaciones' => 'Cotizaciones',
-    'gastos' => 'Gastos',
-    'contabilidad' => 'Contabilidad',
-    'nomina' => 'Nómina',
-    'reportes' => 'Reportes'
+    'dashboard' => 'Dashboard', 'caja' => 'Caja', 'ventas' => 'Ventas',
+    'inventario' => 'Inventario', 'clientes' => 'Clientes', 'proveedores' => 'Proveedores',
+    'cotizaciones' => 'Cotizaciones', 'contabilidad' => 'Contabilidad',
+    'nomina' => 'Nómina', 'reportes' => 'Reportes'
+];
+$moduleIcons = [
+    'dashboard' => '📊', 'caja' => '💰', 'ventas' => '🛒', 'inventario' => '📦',
+    'clientes' => '👥', 'proveedores' => '🚚', 'cotizaciones' => '📝',
+    'contabilidad' => '🧮', 'nomina' => '💵', 'reportes' => '📋'
 ];
 ?>
 
-<?php if (isset($_SESSION['success'])): ?>
-    <div class="alert alert-success">
-        <?php echo htmlspecialchars($_SESSION['success']); unset($_SESSION['success']); ?>
-    </div>
-<?php endif; ?>
-
-<?php if (isset($_SESSION['error'])): ?>
-    <div class="alert alert-error">
-        <?php echo htmlspecialchars($_SESSION['error']); unset($_SESSION['error']); ?>
-    </div>
-<?php endif; ?>
+<?php echo flashMessage(); ?>
 
 <div class="card neumorphic">
     <div class="card-header">
         <h3>Planes de Suscripción</h3>
-        <button onclick="document.getElementById('createPlanForm').style.display='flex'" class="btn btn-primary neumorphic-btn">
-            Nuevo Plan
-        </button>
+        <button onclick="openCreateModal()" class="btn btn-primary neumorphic-btn">+ Nuevo Plan</button>
     </div>
     <div class="card-body">
         <div class="table-container">
@@ -45,11 +31,10 @@ $moduleNames = [
                 <thead>
                     <tr>
                         <th>Plan</th>
-                        <th>Descripción</th>
-                        <th>Precio Mensual</th>
-                        <th>Precio Anual</th>
-                        <th>Max Usuarios</th>
-                        <th>Max Productos</th>
+                        <th>Mensual</th>
+                        <th>Semestral</th>
+                        <th>Anual</th>
+                        <th>Usuarios</th>
                         <th>Módulos</th>
                         <th>Estado</th>
                         <th>Acciones</th>
@@ -57,43 +42,37 @@ $moduleNames = [
                 </thead>
                 <tbody>
                     <?php if (empty($plans)): ?>
-                        <tr>
-                            <td colspan="9" style="text-align: center; color: var(--color-text-secondary);">
-                                No hay planes configurados
-                            </td>
-                        </tr>
+                        <tr><td colspan="8" style="text-align:center;color:var(--color-text-secondary);">No hay planes</td></tr>
                     <?php else: ?>
                         <?php foreach ($plans as $plan): ?>
                             <tr>
-                                <td><?php echo htmlspecialchars($plan['name']); ?></td>
-                                <td><?php echo htmlspecialchars($plan['description']); ?></td>
+                                <td><strong><?php echo htmlspecialchars($plan['name']); ?></strong></td>
                                 <td>$<?php echo number_format($plan['monthly_price'], 2); ?></td>
+                                <td>$<?php echo number_format($plan['semiannual_price'] ?? $plan['monthly_price'] * 6, 2); ?></td>
                                 <td>$<?php echo number_format($plan['annual_price'], 2); ?></td>
                                 <td><?php echo $plan['max_users']; ?></td>
-                                <td><?php echo $plan['max_products']; ?></td>
                                 <td>
-                                    <?php 
-                                    $modules = json_decode($plan['modules'], true);
-                                    if (is_array($modules) && !empty($modules)): 
-                                        foreach ($modules as $module): 
-                                            echo '<span class="badge badge-info">' . ($moduleNames[$module] ?? $module) . '</span> ';
-                                        endforeach; 
-                                    else: 
-                                        echo '-'; 
-                                    endif; 
-                                    ?>
+                                    <?php $modules = json_decode($plan['modules'], true); ?>
+                                    <?php if (is_array($modules)): ?>
+                                        <?php foreach (array_slice($modules, 0, 4) as $m): ?>
+                                            <span class="badge badge-info"><?php echo $moduleNames[$m] ?? $m; ?></span>
+                                        <?php endforeach; ?>
+                                        <?php if (count($modules) > 4): ?>
+                                            <span class="badge badge-info">+<?php echo count($modules) - 4; ?></span>
+                                        <?php endif; ?>
+                                    <?php else: echo '-'; endif; ?>
                                 </td>
                                 <td>
                                     <span class="badge <?php echo $plan['status'] === 'active' ? 'badge-success' : 'badge-danger'; ?>">
                                         <?php echo $plan['status'] === 'active' ? 'Activo' : 'Inactivo'; ?>
                                     </span>
                                 </td>
-                                <td>
-                                    <button onclick="editPlan(<?php echo $plan['id']; ?>, '<?php echo htmlspecialchars($plan['name']); ?>', '<?php echo htmlspecialchars($plan['description']); ?>', <?php echo $plan['monthly_price']; ?>, <?php echo $plan['annual_price']; ?>, <?php echo $plan['max_users']; ?>, <?php echo $plan['max_products']; ?>, '<?php echo htmlspecialchars($plan['modules']); ?>', '<?php echo $plan['status']; ?>')" class="btn btn-sm btn-secondary">Editar</button>
+                                <td class="table-actions">
+                                    <button onclick="openEditModal(<?php echo htmlspecialchars(json_encode($plan)); ?>)" class="btn btn-sm btn-secondary">✏️</button>
                                     <form method="POST" action="<?php echo $viewInstance->route('superadmin/plans'); ?>?action=delete" style="display:inline;" data-ajax="true">
                                         <?php echo \SoftNova\Core\csrf_field(); ?>
                                         <input type="hidden" name="id" value="<?php echo $plan['id']; ?>">
-                                        <button type="submit" onclick="return confirm('¿Eliminar este plan?')" class="btn btn-sm btn-danger">Eliminar</button>
+                                        <button type="submit" onclick="return confirm('¿Eliminar este plan?')" class="btn btn-sm btn-danger">🗑️</button>
                                     </form>
                                 </td>
                             </tr>
@@ -105,120 +84,124 @@ $moduleNames = [
     </div>
 </div>
 
-<div id="createPlanForm" class="modal" style="display:none;">
-    <div class="modal-content">
+<!-- Modal Crear/Editar Plan -->
+<div id="planModal" class="modal-overlay" style="display:none;">
+    <div class="modal-content neumorphic" style="max-width: 600px; max-height: 85vh; overflow-y: auto;">
         <div class="modal-header">
-            <h3>Nuevo Plan</h3>
-            <button onclick="document.getElementById('createPlanForm').style.display='none'">&times;</button>
+            <h3 id="planModalTitle">Nuevo Plan</h3>
+            <button onclick="closePlanModal()" class="modal-close">&times;</button>
         </div>
-        <form method="POST" action="<?php echo $viewInstance->route('superadmin/plans'); ?>?action=create" class="settings-form" data-ajax="true">
+        <form method="POST" id="planForm" data-ajax="true">
             <?php echo \SoftNova\Core\csrf_field(); ?>
-            <div class="form-group">
-                <label>Nombre del Plan *</label>
-                <input type="text" name="name" required class="neumorphic-input">
+            <input type="hidden" name="id" id="planId">
+            
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+                <div class="form-group">
+                    <label>Nombre *</label>
+                    <input type="text" name="name" id="planName" required class="form-control" placeholder="Ej: Plan Básico">
+                </div>
+                <div class="form-group">
+                    <label>Estado</label>
+                    <select name="status" id="planStatus" class="form-control">
+                        <option value="active">Activo</option>
+                        <option value="inactive">Inactivo</option>
+                    </select>
+                </div>
             </div>
+            
             <div class="form-group">
                 <label>Descripción</label>
-                <textarea name="description" rows="3" class="neumorphic-input"></textarea>
+                <textarea name="description" id="planDescription" rows="2" class="form-control" placeholder="Descripción del plan..."></textarea>
             </div>
+            
+            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 15px;">
+                <div class="form-group">
+                    <label>Precio Mensual *</label>
+                    <input type="number" step="0.01" name="monthly_price" id="planMonthly" required class="form-control" placeholder="0.00">
+                </div>
+                <div class="form-group">
+                    <label>Precio Semestral</label>
+                    <input type="number" step="0.01" name="semiannual_price" id="planSemiannual" class="form-control" placeholder="0.00">
+                </div>
+                <div class="form-group">
+                    <label>Precio Anual *</label>
+                    <input type="number" step="0.01" name="annual_price" id="planAnnual" required class="form-control" placeholder="0.00">
+                </div>
+            </div>
+            
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+                <div class="form-group">
+                    <label>Máx. Usuarios</label>
+                    <input type="number" name="max_users" id="planMaxUsers" value="5" class="form-control">
+                </div>
+                <div class="form-group">
+                    <label>Máx. Productos</label>
+                    <input type="number" name="max_products" id="planMaxProducts" value="500" class="form-control">
+                </div>
+            </div>
+            
             <div class="form-group">
-                <label>Precio Mensual *</label>
-                <input type="number" step="0.01" name="monthly_price" required class="neumorphic-input">
+                <label>Módulos incluidos</label>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px; background: var(--bg-input); border: 1px solid var(--color-border); border-radius: 8px; padding: 12px;">
+                    <?php foreach ($availableModules as $module): ?>
+                        <label style="display: flex; align-items: center; gap: 8px; padding: 4px 0; cursor: pointer; font-size: 13px;">
+                            <input type="checkbox" name="modules[]" value="<?php echo $module; ?>" class="plan-module-cb">
+                            <?php echo $moduleIcons[$module]; ?> <?php echo $moduleNames[$module]; ?>
+                        </label>
+                    <?php endforeach; ?>
+                </div>
             </div>
-            <div class="form-group">
-                <label>Precio Anual *</label>
-                <input type="number" step="0.01" name="annual_price" required class="neumorphic-input">
+            
+            <div class="modal-footer" style="margin-top: 15px;">
+                <button type="button" class="btn btn-secondary" onclick="closePlanModal()">Cancelar</button>
+                <button type="submit" class="btn btn-primary" id="planSubmitBtn">Crear Plan</button>
             </div>
-            <div class="form-group">
-                <label>Max Usuarios</label>
-                <input type="number" name="max_users" value="5" class="neumorphic-input">
-            </div>
-            <div class="form-group">
-                <label>Max Productos</label>
-                <input type="number" name="max_products" value="500" class="neumorphic-input">
-            </div>
-            <div class="form-group">
-                <label>Módulos</label>
-                <?php foreach ($availableModules as $module): ?>
-                    <label style="display:block; margin:5px 0;">
-                        <input type="checkbox" name="modules[]" value="<?php echo $module; ?>"> <?php echo $moduleNames[$module]; ?>
-                    </label>
-                <?php endforeach; ?>
-            </div>
-            <button type="submit" class="btn btn-primary neumorphic-btn">Crear Plan</button>
-        </form>
-    </div>
-</div>
-
-<div id="editPlanForm" class="modal" style="display:none;">
-    <div class="modal-content">
-        <div class="modal-header">
-            <h3>Editar Plan</h3>
-            <button onclick="document.getElementById('editPlanForm').style.display='none'">&times;</button>
-        </div>
-        <form method="POST" action="<?php echo $viewInstance->route('superadmin/plans'); ?>?action=edit" class="settings-form" data-ajax="true">
-            <?php echo \SoftNova\Core\csrf_field(); ?>
-            <input type="hidden" name="id" id="editPlanId">
-            <div class="form-group">
-                <label>Nombre del Plan *</label>
-                <input type="text" name="name" id="editPlanName" required class="neumorphic-input">
-            </div>
-            <div class="form-group">
-                <label>Descripción</label>
-                <textarea name="description" id="editPlanDescription" rows="3" class="neumorphic-input"></textarea>
-            </div>
-            <div class="form-group">
-                <label>Precio Mensual *</label>
-                <input type="number" step="0.01" name="monthly_price" id="editPlanMonthlyPrice" required class="neumorphic-input">
-            </div>
-            <div class="form-group">
-                <label>Precio Anual *</label>
-                <input type="number" step="0.01" name="annual_price" id="editPlanAnnualPrice" required class="neumorphic-input">
-            </div>
-            <div class="form-group">
-                <label>Max Usuarios</label>
-                <input type="number" name="max_users" id="editPlanMaxUsers" class="neumorphic-input">
-            </div>
-            <div class="form-group">
-                <label>Max Productos</label>
-                <input type="number" name="max_products" id="editPlanMaxProducts" class="neumorphic-input">
-            </div>
-            <div class="form-group">
-                <label>Módulos</label>
-                <?php foreach ($availableModules as $module): ?>
-                    <label style="display:block; margin:5px 0;">
-                        <input type="checkbox" name="modules[]" id="editModule_<?php echo $module; ?>" value="<?php echo $module; ?>"> <?php echo $moduleNames[$module]; ?>
-                    </label>
-                <?php endforeach; ?>
-            </div>
-            <div class="form-group">
-                <label>Estado</label>
-                <select name="status" id="editPlanStatus" class="neumorphic-input">
-                    <option value="active">Activo</option>
-                    <option value="inactive">Inactivo</option>
-                </select>
-            </div>
-            <button type="submit" class="btn btn-primary neumorphic-btn">Actualizar Plan</button>
         </form>
     </div>
 </div>
 
 <script>
-function editPlan(id, name, description, monthlyPrice, annualPrice, maxUsers, maxProducts, modules, status) {
-    document.getElementById('editPlanId').value = id;
-    document.getElementById('editPlanName').value = name;
-    document.getElementById('editPlanDescription').value = description;
-    document.getElementById('editPlanMonthlyPrice').value = monthlyPrice;
-    document.getElementById('editPlanAnnualPrice').value = annualPrice;
-    document.getElementById('editPlanMaxUsers').value = maxUsers;
-    document.getElementById('editPlanMaxProducts').value = maxProducts;
-    document.getElementById('editPlanStatus').value = status;
+function openCreateModal() {
+    document.getElementById('planModalTitle').textContent = 'Nuevo Plan';
+    document.getElementById('planForm').action = '<?php echo $viewInstance->route('superadmin/plans'); ?>?action=create';
+    document.getElementById('planSubmitBtn').textContent = 'Crear Plan';
+    document.getElementById('planId').value = '';
+    document.getElementById('planName').value = '';
+    document.getElementById('planDescription').value = '';
+    document.getElementById('planMonthly').value = '';
+    document.getElementById('planSemiannual').value = '';
+    document.getElementById('planAnnual').value = '';
+    document.getElementById('planMaxUsers').value = '5';
+    document.getElementById('planMaxProducts').value = '500';
+    document.getElementById('planStatus').value = 'active';
+    document.querySelectorAll('.plan-module-cb').forEach(cb => cb.checked = false);
+    document.getElementById('planModal').style.display = 'flex';
+}
+
+function openEditModal(plan) {
+    document.getElementById('planModalTitle').textContent = 'Editar Plan';
+    document.getElementById('planForm').action = '<?php echo $viewInstance->route('superadmin/plans'); ?>?action=edit';
+    document.getElementById('planSubmitBtn').textContent = 'Guardar Cambios';
+    document.getElementById('planId').value = plan.id;
+    document.getElementById('planName').value = plan.name;
+    document.getElementById('planDescription').value = plan.description || '';
+    document.getElementById('planMonthly').value = plan.monthly_price;
+    document.getElementById('planSemiannual').value = plan.semiannual_price || '';
+    document.getElementById('planAnnual').value = plan.annual_price;
+    document.getElementById('planMaxUsers').value = plan.max_users || 5;
+    document.getElementById('planMaxProducts').value = plan.max_products || 500;
+    document.getElementById('planStatus').value = plan.status || 'active';
     
-    var moduleArray = JSON.parse(modules);
-    <?php foreach ($availableModules as $module): ?>
-        document.getElementById('editModule_<?php echo $module; ?>').checked = moduleArray.includes('<?php echo $module; ?>');
-    <?php endforeach; ?>
+    // Marcar módulos
+    const activeModules = JSON.parse(plan.modules || '[]');
+    document.querySelectorAll('.plan-module-cb').forEach(cb => {
+        cb.checked = activeModules.includes(cb.value);
+    });
     
-    document.getElementById('editPlanForm').style.display = 'flex';
+    document.getElementById('planModal').style.display = 'flex';
+}
+
+function closePlanModal() {
+    document.getElementById('planModal').style.display = 'none';
 }
 </script>

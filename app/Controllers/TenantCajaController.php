@@ -21,6 +21,45 @@ class TenantCajaController extends Controller
     }
     
     /**
+     * Helper: ejecutar query con parámetros (compatible con PDO crudo)
+     */
+    private function query(string $sql, array $params = []): \PDOStatement
+    {
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute($params);
+        return $stmt;
+    }
+    
+    /**
+     * Obtener la moneda configurada por el tenant
+     */
+    private function getCurrency(): array
+    {
+        $currency = $this->query(
+            "SELECT setting_value FROM settings WHERE setting_key = 'currency'"
+        )->fetch();
+        
+        $code = $currency['setting_value'] ?? 'COP';
+        
+        $currencies = [
+            'COP' => ['symbol' => '$', 'name' => 'Peso Colombiano', 'decimals' => 0, 'thousands' => '.', 'decimal' => ','],
+            'USD' => ['symbol' => 'US$', 'name' => 'Dólar Estadounidense', 'decimals' => 2, 'thousands' => ',', 'decimal' => '.'],
+            'EUR' => ['symbol' => '€', 'name' => 'Euro', 'decimals' => 2, 'thousands' => '.', 'decimal' => ','],
+        ];
+        
+        return $currencies[$code] ?? $currencies['COP'];
+    }
+    
+    /**
+     * Formatear monto según moneda
+     */
+    private function formatMoney(float $amount): string
+    {
+        $c = $this->getCurrency();
+        return $c['symbol'] . ' ' . number_format($amount, $c['decimals'], $c['decimal'], $c['thousands']);
+    }
+    
+    /**
      * Panel principal de Caja
      */
     public function index(): void
@@ -41,7 +80,7 @@ class TenantCajaController extends Controller
         }
         
         // Buscar sesión abierta hoy
-        $openSession = $this->db->query(
+        $openSession = $this->query(
             "SELECT cs.*, u.name as user_name 
              FROM cash_sessions cs 
              JOIN users u ON cs.user_id = u.id 
@@ -54,14 +93,14 @@ class TenantCajaController extends Controller
         $totals = ['incomes' => 0, 'expenses' => 0, 'balance' => 0];
         
         if ($openSession) {
-            $movements = $this->db->query(
+            $movements = $this->query(
                 "SELECT * FROM cash_movements 
                  WHERE cash_session_id = ? 
                  ORDER BY created_at DESC",
                 [$openSession['id']]
             )->fetchAll();
             
-            $totals = $this->db->query(
+            $totals = $this->query(
                 "SELECT 
                     COALESCE(SUM(CASE WHEN type = 'income' THEN amount ELSE 0 END), 0) as incomes,
                     COALESCE(SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END), 0) as expenses
@@ -74,7 +113,7 @@ class TenantCajaController extends Controller
         }
         
         // Últimas sesiones cerradas (historial)
-        $historySessions = $this->db->query(
+        $historySessions = $this->query(
             "SELECT cs.*, u.name as user_name 
              FROM cash_sessions cs 
              JOIN users u ON cs.user_id = u.id 
@@ -89,6 +128,8 @@ class TenantCajaController extends Controller
             'historySessions' => $historySessions,
             'tenantName' => $_SESSION['tenant_name'] ?? 'Mi Empresa',
             'userName' => $_SESSION['tenant_user_name'] ?? 'Usuario',
+            'currency' => $this->getCurrency(),
+            'formatMoney' => fn($a) => $this->formatMoney($a),
         ]);
     }
     
@@ -102,7 +143,7 @@ class TenantCajaController extends Controller
         }
         
         // Verificar que no haya una sesión abierta
-        $existing = $this->db->query(
+        $existing = $this->query(
             "SELECT id FROM cash_sessions WHERE status = 'open' LIMIT 1"
         )->fetch();
         
@@ -121,13 +162,13 @@ class TenantCajaController extends Controller
         
         $userId = $_SESSION['tenant_user_id'];
         
-        $this->db->query(
+        $this->query(
             "INSERT INTO cash_sessions (user_id, opening_amount, opening_date, status, notes) 
              VALUES (?, ?, NOW(), 'open', ?)",
             [$userId, $openingAmount, $notes]
         );
         
-        $this->respond(true, 'Caja abierta exitosamente con $' . number_format($openingAmount, 2), '/app/caja');
+        $this->respond(true, 'Caja abierta exitosamente con ' . $this->formatMoney($openingAmount), '/app/caja');
     }
     
     /**
@@ -144,7 +185,7 @@ class TenantCajaController extends Controller
         $notes = $this->request->post('notes', '');
         
         // Verificar que la sesión existe y está abierta
-        $session = $this->db->query(
+        $session = $this->query(
             "SELECT * FROM cash_sessions WHERE id = ? AND status = 'open'",
             [$sessionId]
         )->fetch();
@@ -155,14 +196,14 @@ class TenantCajaController extends Controller
         }
         
         // Cerrar la sesión
-        $this->db->query(
+        $this->query(
             "UPDATE cash_sessions 
              SET closing_amount = ?, closing_date = NOW(), status = 'closed', notes = CONCAT(IFNULL(notes,''), '\nCierre: ', ?) 
              WHERE id = ?",
             [$closingAmount, $notes, $sessionId]
         );
         
-        $this->respond(true, 'Caja cerrada exitosamente. Monto final: $' . number_format($closingAmount, 2), '/app/caja');
+        $this->respond(true, 'Caja cerrada exitosamente. Monto final: ' . $this->formatMoney($closingAmount), '/app/caja');
     }
     
     /**
@@ -195,7 +236,7 @@ class TenantCajaController extends Controller
         }
         
         // Verificar que la sesión esté abierta
-        $session = $this->db->query(
+        $session = $this->query(
             "SELECT id FROM cash_sessions WHERE id = ? AND status = 'open'",
             [$sessionId]
         )->fetch();
@@ -205,13 +246,13 @@ class TenantCajaController extends Controller
             return;
         }
         
-        $this->db->query(
+        $this->query(
             "INSERT INTO cash_movements (cash_session_id, type, amount, description) 
              VALUES (?, ?, ?, ?)",
             [$sessionId, $type, $amount, $description]
         );
         
         $label = $type === 'income' ? 'Ingreso' : 'Egreso';
-        $this->respond(true, "{$label} registrado: $" . number_format($amount, 2), '/app/caja');
+        $this->respond(true, "{$label} registrado: " . $this->formatMoney($amount), '/app/caja');
     }
 }

@@ -146,12 +146,21 @@ class Router
         // Rutas de módulos del tenant
         $this->get('/app/caja', 'TenantCajaController', 'index');
         $this->post('/app/caja', 'TenantCajaController', 'index');
-        $this->get('/app/ventas', 'VentasController', 'index');
-        $this->get('/app/inventario', 'InventarioController', 'index');
-        $this->get('/app/clientes', 'ClientesController', 'index');
-        $this->get('/app/proveedores', 'ProveedoresController', 'index');
-        $this->get('/app/gastos', 'GastosController', 'index');
-        $this->get('/app/reportes', 'ReportesController', 'index');
+        $this->get('/app/configuracion', 'TenantConfigController', 'index');
+        $this->post('/app/configuracion', 'TenantConfigController', 'index');
+        
+        // Módulos placeholder del tenant (ruta dinámica captura el nombre del módulo)
+        $this->get('/app/ventas', 'TenantVentasController', 'index');
+        $this->post('/app/ventas', 'TenantVentasController', 'index');
+        $this->get('/app/inventario', 'TenantInventarioController', 'index');
+        $this->post('/app/inventario', 'TenantInventarioController', 'index');
+        $this->get('/app/clientes', 'TenantClientesController', 'index');
+        $this->post('/app/clientes', 'TenantClientesController', 'index');
+        $this->get('/app/proveedores', 'TenantPlaceholderController', 'show');
+        $this->get('/app/reportes', 'TenantPlaceholderController', 'show');
+        $this->get('/app/cotizaciones', 'TenantPlaceholderController', 'show');
+        $this->get('/app/contabilidad', 'TenantPlaceholderController', 'show');
+        $this->get('/app/nomina', 'TenantPlaceholderController', 'show');
         
         // Rutas de módulos (legado)
         $this->get('/dashboard', 'DashboardController', 'index');
@@ -161,7 +170,6 @@ class Router
         $this->get('/clientes', 'ClientesController', 'index');
         $this->get('/proveedores', 'ProveedoresController', 'index');
         $this->get('/cotizaciones', 'CotizacionesController', 'index');
-        $this->get('/gastos', 'GastosController', 'index');
         $this->get('/contabilidad', 'ContabilidadController', 'index');
         $this->get('/nomina', 'NominaController', 'index');
         $this->get('/reportes', 'ReportesController', 'index');

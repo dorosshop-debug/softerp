@@ -44,10 +44,12 @@ class TenantAuthController extends Controller
         $masterDb = Database::getInstance();
         
         $user = $masterDb->query(
-            "SELECT tu.*, t.company_name, t.database_name, t.database_user, t.database_password, 
-                    t.status as tenant_status, t.id as tenant_id, t.company_name as tenant_name
+            "SELECT tu.*, t.company_name, t.database_name, t.database_user, t.database_password,
+                    t.status as tenant_status, t.id as tenant_id, t.company_name as tenant_name,
+                    sp.modules as plan_modules
              FROM tenant_users tu
              JOIN tenants t ON tu.tenant_id = t.id
+             LEFT JOIN subscription_plans sp ON t.subscription_plan_id = sp.id
              WHERE tu.email = ? AND tu.status = 'active' AND t.status = 'active'
              LIMIT 1",
             [$email]
@@ -59,22 +61,43 @@ class TenantAuthController extends Controller
             return;
         }
         
-        // Verificar que la BD del tenant existe
+        // Verificar que la BD del tenant existe y sincronizar usuario
         try {
             $tenantDb = TenantDatabase::getInstance();
-            $tenantDb->getTenantConnection(
+            $tenantConn = $tenantDb->getTenantConnection(
                 $user['database_name'],
                 $user['database_user'],
                 $user['database_password']
             );
+            
+            // Sincronizar usuario en la BD del tenant (para FKs de cash_sessions, sales, etc.)
+            $stmt = $tenantConn->prepare(
+                "SELECT id FROM users WHERE email = ? LIMIT 1"
+            );
+            $stmt->execute([$user['email']]);
+            $localUser = $stmt->fetch();
+            
+            if ($localUser) {
+                // Actualizar nombre si cambió
+                $tenantConn->prepare(
+                    "UPDATE users SET name = ?, role = ?, status = 'active' WHERE id = ?"
+                )->execute([$user['name'], $user['role'] ?? 'admin', $localUser['id']]);
+                $localUserId = $localUser['id'];
+            } else {
+                // Crear usuario en la BD del tenant
+                $tenantConn->prepare(
+                    "INSERT INTO users (name, email, password, role, status) VALUES (?, ?, ?, ?, 'active')"
+                )->execute([$user['name'], $user['email'], $user['password'], $user['role'] ?? 'admin']);
+                $localUserId = $tenantConn->lastInsertId();
+            }
         } catch (\Exception $e) {
             $_SESSION['tenant_error'] = 'Error de conexión con la base de datos del sistema';
             redirect('/app/login');
             return;
         }
         
-        // Guardar sesión del tenant
-        $_SESSION['tenant_user_id'] = $user['id'];
+        // Guardar sesión del tenant (usar ID local de la BD del tenant)
+        $_SESSION['tenant_user_id'] = $localUserId;
         $_SESSION['tenant_user_name'] = $user['name'];
         $_SESSION['tenant_user_email'] = $user['email'];
         $_SESSION['tenant_user_role'] = $user['role'];
@@ -84,6 +107,10 @@ class TenantAuthController extends Controller
         $_SESSION['tenant_db_user'] = $user['database_user'];
         $_SESSION['tenant_db_pass'] = $user['database_password'];
         $_SESSION['tenant_authenticated'] = true;
+        
+        // Guardar módulos del plan para filtrar sidebar
+        $planModules = json_decode($user['plan_modules'] ?? '[]', true) ?: [];
+        $_SESSION['tenant_modules'] = $planModules;
         
         // Actualizar último login
         $masterDb->query(
