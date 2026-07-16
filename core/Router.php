@@ -149,6 +149,10 @@ class Router
         $this->get('/app/configuracion', 'TenantConfigController', 'index');
         $this->post('/app/configuracion', 'TenantConfigController', 'index');
         
+        // Soporte del tenant
+        $this->get('/app/soporte', 'TenantTicketsController', 'index');
+        $this->post('/app/soporte', 'TenantTicketsController', 'index');
+        
         // Módulos placeholder del tenant (ruta dinámica captura el nombre del módulo)
         $this->get('/app/ventas', 'TenantVentasController', 'index');
         $this->post('/app/ventas', 'TenantVentasController', 'index');
@@ -156,7 +160,8 @@ class Router
         $this->post('/app/inventario', 'TenantInventarioController', 'index');
         $this->get('/app/clientes', 'TenantClientesController', 'index');
         $this->post('/app/clientes', 'TenantClientesController', 'index');
-        $this->get('/app/proveedores', 'TenantPlaceholderController', 'show');
+        $this->get('/app/proveedores', 'TenantProveedoresController', 'index');
+        $this->post('/app/proveedores', 'TenantProveedoresController', 'index');
         $this->get('/app/reportes', 'TenantPlaceholderController', 'show');
         $this->get('/app/cotizaciones', 'TenantPlaceholderController', 'show');
         $this->get('/app/contabilidad', 'TenantPlaceholderController', 'show');

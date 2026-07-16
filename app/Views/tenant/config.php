@@ -68,42 +68,54 @@ $currencies = $currencies ?? [];
     
     <!-- Apariencia -->
     <div class="card neumorphic">
-        <div class="card-header">
-            <h3>🎨 Apariencia</h3>
-        </div>
+        <div class="card-header"><h3>🎨 Apariencia</h3></div>
         <div class="card-body">
-            <p style="margin-bottom: 15px; color: var(--color-text-secondary);">Seleccione el tema visual del sistema.</p>
-            <div style="display: flex; gap: 15px;">
-                <button onclick="setTheme('light')" id="btnLight" class="btn btn-primary neumorphic-btn" style="flex:1;">
-                    ☀️ Modo Claro
-                </button>
-                <button onclick="setTheme('dark')" id="btnDark" class="btn btn-secondary" style="flex:1;">
-                    🌙 Modo Oscuro
-                </button>
+            <p style="margin-bottom:15px;color:var(--color-text-secondary);">Tema visual y preferencias de interfaz.</p>
+            
+            <div style="display:flex;gap:15px;margin-bottom:20px;">
+                <button onclick="setTheme('light')" id="btnLight" class="btn btn-secondary" style="flex:1;">☀️ Claro</button>
+                <button onclick="setTheme('dark')" id="btnDark" class="btn btn-secondary" style="flex:1;">🌙 Oscuro</button>
             </div>
-            <script>
-                function setTheme(theme) {
-                    if (theme === 'dark') {
-                        document.body.classList.add('dark-mode');
-                        document.getElementById('btnDark').className = 'btn btn-primary neumorphic-btn';
-                        document.getElementById('btnLight').className = 'btn btn-secondary';
-                    } else {
-                        document.body.classList.remove('dark-mode');
-                        document.getElementById('btnLight').className = 'btn btn-primary neumorphic-btn';
-                        document.getElementById('btnDark').className = 'btn btn-secondary';
-                    }
-                    localStorage.setItem('theme', theme);
-                }
-                document.addEventListener('DOMContentLoaded', function() {
-                    if (localStorage.getItem('theme') === 'dark') {
-                        setTheme('dark');
-                    } else {
-                        document.getElementById('btnLight').className = 'btn btn-primary neumorphic-btn';
-                    }
-                });
-            </script>
+            
+            <label style="font-size:13px;color:var(--color-text-secondary);margin-bottom:8px;display:block;">🌐 Idioma del Sistema</label>
+            <div style="display:flex;gap:15px;">
+                <button onclick="setLang('es')" id="btnEs" class="btn btn-primary neumorphic-btn" style="flex:1;">🇪🇸 Español</button>
+                <button onclick="setLang('en')" id="btnEn" class="btn btn-secondary" style="flex:1;">🇺🇸 English</button>
+            </div>
         </div>
     </div>
+
+    <!-- Soporte -->
+    <div class="card neumorphic">
+        <div class="card-header"><h3>🎫 Soporte Técnico</h3></div>
+        <div class="card-body">
+            <p style="margin-bottom:15px;color:var(--color-text-secondary);">¿Necesita ayuda? Envíe un ticket y nuestro equipo le responderá.</p>
+            <a href="<?php echo $viewInstance->route('app/soporte'); ?>" class="btn btn-primary neumorphic-btn" style="width:100%;margin-bottom:10px;">🎫 Ir a Tickets de Soporte</a>
+            <form method="POST" action="<?php echo $viewInstance->route('app/soporte'); ?>?action=create" data-ajax="true">
+                <?php echo \SoftNova\Core\csrf_field(); ?>
+                <div class="form-group"><input type="text" name="subject" class="form-control" placeholder="Asunto del problema" required></div>
+                <div class="form-group"><textarea name="description" class="form-control" rows="3" placeholder="Describa su problema o consulta..."></textarea></div>
+                <button type="submit" class="btn btn-secondary" style="width:100%;">📨 Enviar Ticket Rápido</button>
+            </form>
+        </div>
+    </div>
+    
+    <script>
+    function setTheme(t){
+        if(t==='dark'){document.body.classList.add('dark-mode');document.getElementById('btnDark').className='btn btn-primary neumorphic-btn';document.getElementById('btnLight').className='btn btn-secondary';}
+        else{document.body.classList.remove('dark-mode');document.getElementById('btnLight').className='btn btn-primary neumorphic-btn';document.getElementById('btnDark').className='btn btn-secondary';}
+        localStorage.setItem('theme',t);
+    }
+    function setLang(l){
+        if(l==='en'){document.getElementById('btnEn').className='btn btn-primary neumorphic-btn';document.getElementById('btnEs').className='btn btn-secondary';}
+        else{document.getElementById('btnEs').className='btn btn-primary neumorphic-btn';document.getElementById('btnEn').className='btn btn-secondary';}
+        localStorage.setItem('lang',l); alert(l==='en'?'Language set to English (page reload required)':'Idioma configurado a Español (recargue la página)');
+    }
+    (function(){
+        if(localStorage.getItem('theme')==='dark') setTheme('dark'); else document.getElementById('btnLight').className='btn btn-primary neumorphic-btn';
+        if(localStorage.getItem('lang')==='en') setLang('en'); else document.getElementById('btnEs').className='btn btn-primary neumorphic-btn';
+    })();
+    </script>
 
     <!-- Preferencias -->
     <div class="card neumorphic">

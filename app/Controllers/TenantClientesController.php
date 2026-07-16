@@ -30,6 +30,7 @@ class TenantClientesController extends Controller
         if ($action === 'create' && $this->request->method() === 'POST') { $this->create(); return; }
         if ($action === 'edit' && $this->request->method() === 'POST') { $this->edit(); return; }
         if ($action === 'delete' && $this->request->method() === 'POST') { $this->delete(); return; }
+        if ($action === 'detail' && $this->request->method() === 'GET') { $this->detail(); return; }
         
         $customers = $this->query("SELECT * FROM customers ORDER BY name ASC")->fetchAll();
         
@@ -40,21 +41,41 @@ class TenantClientesController extends Controller
         ]);
     }
     
+    public function detail(): void
+    {
+        $id = (int)$this->request->get('id');
+        $customer = $this->query("SELECT * FROM customers WHERE id=?", [$id])->fetch();
+        if (!$customer) { $this->json(['error'=>'Cliente no encontrado']); return; }
+        
+        // Historial de compras
+        $purchases = $this->query(
+            "SELECT s.*, u.name as user_name FROM sales s LEFT JOIN users u ON s.user_id=u.id 
+             WHERE s.customer_id=? AND s.status='completed' ORDER BY s.created_at DESC LIMIT 20",
+            [$id]
+        )->fetchAll();
+        
+        $this->json(['customer'=>$customer, 'purchases'=>$purchases]);
+    }
+    
     private function create(): void
     {
         if (!$this->validateCsrfOrFail('/app/clientes')) return;
         
-        $name = trim($this->request->post('name'));
-        $docType = $this->request->post('document_type', 'CC');
-        $docNum = $this->request->post('document_number');
-        $email = $this->request->post('email');
-        $phone = $this->request->post('phone');
-        $address = $this->request->post('address');
+        $name = trim($this->request->post('name') ?? '');
+        $firstName = trim($this->request->post('first_name') ?? '');
+        $lastName = trim($this->request->post('last_name') ?? '');
+        $companyName = trim($this->request->post('company_name') ?? '');
+        $source = $this->request->post('source');
         
-        if (empty($name)) { $this->respond(false, 'El nombre es requerido', '/app/clientes'); return; }
+        if (empty($name) && empty($firstName)) { $this->respond(false, 'El nombre es requerido', '/app/clientes'); return; }
         
-        $this->query("INSERT INTO customers (name, document_type, document_number, email, phone, address) VALUES (?,?,?,?,?,?)",
-            [$name, $docType, $docNum, $email, $phone, $address]);
+        // Si no hay name, construirlo con first + last
+        if (empty($name) && !empty($firstName)) {
+            $name = trim($firstName . ' ' . $lastName);
+        }
+        
+        $this->query("INSERT INTO customers (name, first_name, last_name, company_name, document_type, document_number, email, phone, address, source) VALUES (?,?,?,?,?,?,?,?,?,?)",
+            [$name, $firstName?:null, $lastName?:null, $companyName?:null, $this->request->post('document_type','CC'), $this->request->post('document_number'), $this->request->post('email'), $this->request->post('phone'), $this->request->post('address'), $source?:null]);
         
         $this->respond(true, 'Cliente creado: ' . $name, '/app/clientes');
     }
@@ -64,12 +85,15 @@ class TenantClientesController extends Controller
         if (!$this->validateCsrfOrFail('/app/clientes')) return;
         
         $id = (int)$this->request->post('id');
-        $name = trim($this->request->post('name'));
+        $name = trim($this->request->post('name') ?? '');
+        $firstName = trim($this->request->post('first_name') ?? '');
+        $lastName = trim($this->request->post('last_name') ?? '');
         
-        if (empty($name)) { $this->respond(false, 'El nombre es requerido', '/app/clientes'); return; }
+        if (empty($name) && empty($firstName)) { $this->respond(false, 'El nombre es requerido', '/app/clientes'); return; }
+        if (empty($name) && !empty($firstName)) { $name = trim($firstName . ' ' . $lastName); }
         
-        $this->query("UPDATE customers SET name=?, document_type=?, document_number=?, email=?, phone=?, address=? WHERE id=?",
-            [$name, $this->request->post('document_type','CC'), $this->request->post('document_number'), $this->request->post('email'), $this->request->post('phone'), $this->request->post('address'), $id]);
+        $this->query("UPDATE customers SET name=?, first_name=?, last_name=?, company_name=?, document_type=?, document_number=?, email=?, phone=?, address=?, source=? WHERE id=?",
+            [$name, $firstName?:null, $lastName?:null, $this->request->post('company_name')?:null, $this->request->post('document_type','CC'), $this->request->post('document_number'), $this->request->post('email'), $this->request->post('phone'), $this->request->post('address'), $this->request->post('source')?:null, $id]);
         
         $this->respond(true, 'Cliente actualizado', '/app/clientes');
     }

@@ -69,7 +69,7 @@ class TenantConfigController extends Controller
             return;
         }
         
-        $fields = ['currency', 'company_name', 'tax_name', 'tax_rate', 'invoice_prefix', 'low_stock_alert'];
+        $fields = ['currency', 'company_name', 'tax_name', 'tax_rate', 'invoice_prefix', 'low_stock_alert', 'language'];
         
         foreach ($fields as $field) {
             $value = $this->request->post($field);

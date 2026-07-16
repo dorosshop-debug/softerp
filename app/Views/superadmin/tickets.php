@@ -207,3 +207,33 @@ $filters = $filters ?? [];
         </form>
     </div>
 </div>
+
+<!-- Logs de Actividad de Clientes -->
+<?php $activityLogs = $activityLogs ?? []; ?>
+<div class="card neumorphic" style="margin-top:20px;">
+    <div class="card-header"><h3>📊 Logs de Actividad de Clientes</h3></div>
+    <div class="card-body">
+        <?php if (empty($activityLogs)): ?>
+            <p style="text-align:center;color:var(--color-text-secondary);padding:20px;">Sin actividad registrada</p>
+        <?php else: ?>
+            <div class="table-container"><table>
+                <thead><tr><th>Fecha</th><th>Cliente</th><th>Usuario</th><th>Acción</th><th>Módulo</th><th>Descripción</th><th>IP</th></tr></thead>
+                <tbody>
+                <?php foreach ($activityLogs as $log):
+                    $badgeMap = ['create'=>'badge-success','update'=>'badge-info','delete'=>'badge-danger','login'=>'badge-success','logout'=>'badge-warning'];
+                ?>
+                    <tr>
+                        <td style="font-size:12px;"><?php echo date('d/m/Y H:i', strtotime($log['created_at'])); ?></td>
+                        <td><?php echo htmlspecialchars($log['tenant_name'] ?? '-'); ?></td>
+                        <td><?php echo htmlspecialchars($log['user_name'] ?? '-'); ?></td>
+                        <td><span class="badge <?php echo $badgeMap[$log['action']]??'badge-info';?>"><?php echo $log['action'];?></span></td>
+                        <td><?php echo htmlspecialchars($log['module']??'-');?></td>
+                        <td style="font-size:12px;"><?php echo htmlspecialchars($log['description']??'-');?></td>
+                        <td style="font-size:11px;"><?php echo htmlspecialchars($log['ip_address']??'-');?></td>
+                    </tr>
+                <?php endforeach; ?>
+                </tbody>
+            </table></div>
+        <?php endif; ?>
+    </div>
+</div>

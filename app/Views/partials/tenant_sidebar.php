@@ -33,6 +33,7 @@ $allModules = [
     'inventario'=> ['route' => 'app/inventario', 'label' => 'Inventario', 'icon' => 'box'],
     'clientes'  => ['route' => 'app/clientes', 'label' => 'Clientes', 'icon' => 'users'],
     'proveedores'=>['route' => 'app/proveedores', 'label' => 'Proveedores', 'icon' => 'truck'],
+    'soporte'   => ['route' => 'app/soporte', 'label' => 'Soporte', 'icon' => 'help'],
     'reportes'  => ['route' => 'app/reportes', 'label' => 'Reportes', 'icon' => 'file'],
     'cotizaciones'=>['route' => 'app/cotizaciones', 'label' => 'Cotizaciones', 'icon' => 'file'],
     'contabilidad'=>['route' => 'app/contabilidad', 'label' => 'Contabilidad', 'icon' => 'dollar'],
@@ -49,6 +50,7 @@ function tenantIcon(string $name): string {
         'truck' => '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>',
         'file' => '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>',
         'dollar' => '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>',
+        'help' => '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>',
         default => '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle></svg>',
     };
 }

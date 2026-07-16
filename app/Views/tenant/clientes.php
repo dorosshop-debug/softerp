@@ -5,27 +5,32 @@ $pageTitle = 'Gestión de Clientes';
 $tenantName = $tenantName ?? 'Mi Empresa';
 $userName = $userName ?? 'Usuario';
 $customers = $customers ?? [];
+
+$sourceOptions = ['Facebook', 'Instagram', 'WhatsApp', 'Google', 'Recomendación', 'Tienda Física', 'Llamada', 'Email', 'Feria/Evento', 'Otro'];
 ?>
 <?php echo flashMessage(); ?>
 
 <div class="card neumorphic">
-    <div class="card-header"><h3>Lista de Clientes</h3><button onclick="openModal()" class="btn btn-primary neumorphic-btn">+ Nuevo Cliente</button></div>
+    <div class="card-header"><h3>Lista de Clientes (<?php echo count($customers); ?>)</h3><button onclick="openModal()" class="btn btn-primary neumorphic-btn">+ Nuevo Cliente</button></div>
     <div class="card-body">
         <div class="table-container"><table>
-            <thead><tr><th>ID</th><th>Nombre</th><th>Documento</th><th>Email</th><th>Teléfono</th><th>Estado</th><th>Acciones</th></tr></thead>
+            <thead><tr><th>ID</th><th>Nombre</th><th>Apellido</th><th>Empresa</th><th>Documento</th><th>Email</th><th>Teléfono</th><th>Origen</th><th>Acciones</th></tr></thead>
             <tbody>
             <?php if (empty($customers)): ?>
-                <tr><td colspan="7" style="text-align:center;color:var(--color-text-secondary);">No hay clientes</td></tr>
+                <tr><td colspan="9" style="text-align:center;color:var(--color-text-secondary);">No hay clientes</td></tr>
             <?php else: ?>
                 <?php foreach ($customers as $c): ?>
                     <tr>
                         <td><?php echo $c['id']; ?></td>
-                        <td><strong><?php echo htmlspecialchars($c['name']); ?></strong></td>
+                        <td><strong><?php echo htmlspecialchars($c['first_name'] ?? $c['name']); ?></strong></td>
+                        <td><?php echo htmlspecialchars($c['last_name'] ?? '-'); ?></td>
+                        <td><?php echo htmlspecialchars($c['company_name'] ?? '-'); ?></td>
                         <td><?php echo htmlspecialchars(($c['document_type']??'CC').' '.($c['document_number']??'')); ?></td>
                         <td><?php echo htmlspecialchars($c['email'] ?? '-'); ?></td>
                         <td><?php echo htmlspecialchars($c['phone'] ?? '-'); ?></td>
-                        <td><span class="badge <?php echo ($c['status']??'active')==='active'?'badge-success':'badge-danger'; ?>"><?php echo ($c['status']??'active')==='active'?'Activo':'Inactivo'; ?></span></td>
+                        <td><?php echo htmlspecialchars($c['source'] ?? '-'); ?></td>
                         <td class="table-actions">
+                            <button onclick="viewDetail(<?php echo $c['id']; ?>)" class="btn btn-sm btn-info" title="Ver detalle">👁️</button>
                             <button onclick='openModal(<?php echo htmlspecialchars(json_encode($c)); ?>)' class="btn btn-sm btn-secondary">✏️</button>
                             <form method="POST" action="<?php echo $viewInstance->route('app/clientes'); ?>?action=delete" style="display:inline;" data-ajax="true">
                                 <?php echo \SoftNova\Core\csrf_field(); ?><input type="hidden" name="id" value="<?php echo $c['id']; ?>">
@@ -40,13 +45,17 @@ $customers = $customers ?? [];
     </div>
 </div>
 
+<!-- Modal Crear/Editar -->
 <div id="customerModal" class="modal-overlay" style="display:none;">
-    <div class="modal-content neumorphic" style="max-width:550px;max-height:85vh;overflow-y:auto;">
+    <div class="modal-content neumorphic" style="max-width:600px;max-height:85vh;overflow-y:auto;">
         <div class="modal-header"><h3 id="modalTitle">Nuevo Cliente</h3><button onclick="closeModal()" class="modal-close">&times;</button></div>
         <form method="POST" id="customerForm" data-ajax="true">
             <?php echo \SoftNova\Core\csrf_field(); ?><input type="hidden" name="id" id="custId">
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:15px;">
-                <div class="form-group" style="grid-column:1/-1;"><label>Nombre *</label><input type="text" name="name" id="custName" required class="form-control"></div>
+                <div class="form-group"><label>Nombre</label><input type="text" name="first_name" id="custFirstName" class="form-control" placeholder="Nombres"></div>
+                <div class="form-group"><label>Apellido</label><input type="text" name="last_name" id="custLastName" class="form-control" placeholder="Apellidos"></div>
+                <div class="form-group"><label>Empresa (opcional)</label><input type="text" name="company_name" id="custCompany" class="form-control" placeholder="Nombre de empresa"></div>
+                <div class="form-group"><label>¿De dónde viene?</label><select name="source" id="custSource" class="form-control"><option value="">Seleccionar</option><?php foreach($sourceOptions as $s): ?><option value="<?php echo $s; ?>"><?php echo $s; ?></option><?php endforeach; ?></select></div>
                 <div class="form-group"><label>Tipo Doc.</label><select name="document_type" id="custDocType" class="form-control"><option value="CC">C.C</option><option value="CE">C.E</option><option value="NIT">NIT</option><option value="PPT">PPT</option><option value="OTROS">OTROS</option></select></div>
                 <div class="form-group"><label>N° Documento</label><input type="text" name="document_number" id="custDocNum" class="form-control"></div>
                 <div class="form-group"><label>Email</label><input type="email" name="email" id="custEmail" class="form-control"></div>
@@ -61,6 +70,14 @@ $customers = $customers ?? [];
     </div>
 </div>
 
+<!-- Modal Detalle -->
+<div id="detailModal" class="modal-overlay" style="display:none;">
+    <div class="modal-content neumorphic" style="max-width:700px;max-height:85vh;overflow-y:auto;">
+        <div class="modal-header"><h3 id="detailTitle">Detalle del Cliente</h3><button onclick="document.getElementById('detailModal').style.display='none'" class="modal-close">&times;</button></div>
+        <div class="modal-body" id="detailContent"></div>
+    </div>
+</div>
+
 <script>
 function openModal(data) {
     if (data) {
@@ -68,7 +85,10 @@ function openModal(data) {
         document.getElementById('customerForm').action = '<?php echo $viewInstance->route('app/clientes'); ?>?action=edit';
         document.getElementById('submitBtn').textContent = 'Guardar';
         document.getElementById('custId').value = data.id;
-        document.getElementById('custName').value = data.name||'';
+        document.getElementById('custFirstName').value = data.first_name||data.name||'';
+        document.getElementById('custLastName').value = data.last_name||'';
+        document.getElementById('custCompany').value = data.company_name||'';
+        document.getElementById('custSource').value = data.source||'';
         document.getElementById('custDocType').value = data.document_type||'CC';
         document.getElementById('custDocNum').value = data.document_number||'';
         document.getElementById('custEmail').value = data.email||'';
@@ -78,10 +98,39 @@ function openModal(data) {
         document.getElementById('modalTitle').textContent = 'Nuevo Cliente';
         document.getElementById('customerForm').action = '<?php echo $viewInstance->route('app/clientes'); ?>?action=create';
         document.getElementById('submitBtn').textContent = 'Crear Cliente';
-        ['custId','custName','custDocNum','custEmail','custPhone','custAddress'].forEach(id=>document.getElementById(id).value='');
+        ['custId','custFirstName','custLastName','custCompany','custDocNum','custEmail','custPhone','custAddress'].forEach(id=>document.getElementById(id).value='');
+        document.getElementById('custSource').value = '';
         document.getElementById('custDocType').value = 'CC';
     }
     document.getElementById('customerModal').style.display = 'flex';
 }
 function closeModal() { document.getElementById('customerModal').style.display = 'none'; }
+
+function viewDetail(id) {
+    fetch('<?php echo $viewInstance->route('app/clientes'); ?>?action=detail&id=' + id, {headers:{'X-Requested-With':'XMLHttpRequest'}})
+    .then(r=>r.json()).then(d=>{
+        if(d.error) return alert(d.error);
+        let c = d.customer, p = d.purchases||[];
+        let html = `<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:20px;">
+            <div><strong>Nombre:</strong> ${esc(c.first_name||c.name)}</div>
+            <div><strong>Apellido:</strong> ${esc(c.last_name||'-')}</div>
+            <div><strong>Empresa:</strong> ${esc(c.company_name||'-')}</div>
+            <div><strong>Origen:</strong> ${esc(c.source||'-')}</div>
+            <div><strong>Documento:</strong> ${esc((c.document_type||'')+' '+(c.document_number||''))}</div>
+            <div><strong>Email:</strong> ${esc(c.email||'-')}</div>
+            <div><strong>Teléfono:</strong> ${esc(c.phone||'-')}</div>
+            <div><strong>Dirección:</strong> ${esc(c.address||'-')}</div>
+        </div>`;
+        html += '<h4 style="margin-bottom:10px;">📋 Historial de Compras ('+p.length+')</h4>';
+        if(p.length===0) html += '<p style="color:var(--color-text-secondary);text-align:center;">Sin compras registradas</p>';
+        else {
+            html += '<div class="table-container"><table><thead><tr><th>Factura</th><th>Fecha</th><th>Total</th><th>Método</th><th>Vendedor</th></tr></thead><tbody>';
+            p.forEach(s=>{html+=`<tr><td>${esc(s.invoice_number)}</td><td>${s.sale_date?.substr(0,16)}</td><td>$${parseFloat(s.total).toFixed(0)}</td><td>${esc(s.payment_method)}</td><td>${esc(s.user_name||'-')}</td></tr>`});
+            html+='</tbody></table></div>';
+        }
+        document.getElementById('detailContent').innerHTML = html;
+        document.getElementById('detailModal').style.display = 'flex';
+    });
+}
+function esc(s) { return (s||'').replace(/</g,'<').replace(/>/g,'>'); }
 </script>

@@ -103,10 +103,21 @@ class TicketsController extends Controller
             'urgent' => $this->db->query("SELECT COUNT(*) as c FROM tickets WHERE priority = 'urgent' AND status IN ('open', 'in_progress')")->fetch()['c'],
         ];
         
+        // Logs de actividad de clientes (últimas acciones)
+        $activityLogs = $this->db->query("
+            SELECT al.*, t.company_name as tenant_name
+            FROM audit_logs al
+            LEFT JOIN tenants t ON al.tenant_id = t.id
+            WHERE al.tenant_id IS NOT NULL
+            ORDER BY al.created_at DESC
+            LIMIT 30
+        ")->fetchAll();
+        
         $this->view('superadmin.tickets', [
             'tickets' => $tickets,
             'tenants' => $tenants,
             'stats' => $stats,
+            'activityLogs' => $activityLogs,
             'filters' => [
                 'status' => $statusFilter,
                 'priority' => $priorityFilter,

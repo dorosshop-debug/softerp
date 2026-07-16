@@ -30,11 +30,15 @@ CREATE TABLE IF NOT EXISTS users (
 CREATE TABLE IF NOT EXISTS customers (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
+    first_name VARCHAR(100) NULL,
+    last_name VARCHAR(100) NULL,
+    company_name VARCHAR(255) NULL,
     document_type ENUM('CC', 'CE', 'PPT', 'NIT', 'OTROS') DEFAULT 'CC',
     document_number VARCHAR(50),
     email VARCHAR(255),
     phone VARCHAR(50),
     address TEXT,
+    source VARCHAR(100) NULL COMMENT 'De donde viene el cliente',
     city VARCHAR(100),
     state VARCHAR(100),
     country VARCHAR(100) DEFAULT 'Colombia',
@@ -89,12 +93,15 @@ CREATE TABLE IF NOT EXISTS products (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     code VARCHAR(50) UNIQUE,
     name VARCHAR(255) NOT NULL,
+    product_type ENUM('product', 'service') DEFAULT 'product',
     description TEXT,
     category_id INT UNSIGNED,
     purchase_price DECIMAL(12, 2) DEFAULT 0.00,
     sale_price DECIMAL(12, 2) NOT NULL DEFAULT 0.00,
     stock INT DEFAULT 0,
     min_stock INT DEFAULT 5,
+    last_sale_date DATETIME NULL,
+    created_by INT UNSIGNED NULL,
     unit VARCHAR(20) DEFAULT 'UNIDAD',
     image VARCHAR(255),
     status ENUM('active', 'inactive') DEFAULT 'active',
@@ -105,7 +112,27 @@ CREATE TABLE IF NOT EXISTS products (
     INDEX idx_category (category_id),
     INDEX idx_status (status),
     INDEX idx_stock (stock),
+    INDEX idx_type (product_type),
     FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ============================================
+-- Tabla: stock_movements (Trazabilidad de inventario)
+-- ============================================
+CREATE TABLE IF NOT EXISTS stock_movements (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    product_id INT UNSIGNED NOT NULL,
+    type ENUM('in', 'out', 'adjustment') NOT NULL,
+    quantity INT NOT NULL,
+    reference_type VARCHAR(50) COMMENT 'purchase, sale, return, manual',
+    reference_id INT UNSIGNED,
+    notes VARCHAR(255),
+    user_id INT UNSIGNED,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_product (product_id),
+    INDEX idx_type (type),
+    INDEX idx_created (created_at),
+    FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ============================================
