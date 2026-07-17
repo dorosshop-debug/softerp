@@ -11,13 +11,15 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
     
-    // Confirmación para acciones destructivas
-    const deleteButtons = document.querySelectorAll('.btn-danger');
-    deleteButtons.forEach(button => {
-        button.addEventListener('click', function(e) {
-            if (!confirm('¿Está seguro de realizar esta acción?')) {
-                e.preventDefault();
-            }
+    // Confirmación para acciones destructivas (modal personalizado)
+    document.addEventListener('click', function(e) {
+        var btn = e.target.closest('[data-confirm]');
+        if (!btn) return;
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        showConfirmModal(btn.dataset.confirm || '¿Está seguro?', function() {
+            btn.removeAttribute('data-confirm');
+            btn.click();
         });
     });
     
@@ -249,6 +251,23 @@ function handleAjaxSubmit(form) {
     }
 })();
 
+function showConfirmModal(message, callback) {
+    var overlay = document.createElement('div');
+    overlay.className = 'modal-overlay confirm-modal';
+    overlay.style.display = 'flex';
+    overlay.innerHTML = '<div class="modal-content neumorphic">' +
+        '<div class="confirm-icon">⚠️</div>' +
+        '<h3>Confirmar</h3>' +
+        '<p>' + escapeHtmlText(message) + '</p>' +
+        '<div class="confirm-actions">' +
+            '<button class="btn btn-secondary" id="confirmCancel">Cancelar</button>' +
+            '<button class="btn btn-danger" id="confirmOk">Confirmar</button>' +
+        '</div></div>';
+    document.body.appendChild(overlay);
+    document.getElementById('confirmCancel').onclick = function() { overlay.remove(); };
+    document.getElementById('confirmOk').onclick = function() { overlay.remove(); callback(); };
+}
+
 function clearSearch() {
     const input = document.getElementById('globalSearchInput');
     const results = document.getElementById('searchResults');
@@ -259,25 +278,28 @@ function clearSearch() {
     if (input) input.focus();
 }
 
-// Muestra una alerta temporal en la parte superior del contenido
+// Muestra una alerta tipo toast (notificación animada)
 function showAlert(message, type) {
-    const existingAlert = document.querySelector('.ajax-alert');
-    if (existingAlert) {
-        existingAlert.remove();
+    var container = document.querySelector('.toast-container');
+    if (!container) {
+        container = document.createElement('div');
+        container.className = 'toast-container';
+        document.body.appendChild(container);
     }
-    
-    const alert = document.createElement('div');
-    alert.className = 'alert alert-' + type + ' ajax-alert';
-    alert.textContent = message;
-    
-    const content = document.querySelector('.content');
-    if (content) {
-        content.insertBefore(alert, content.firstChild);
-    } else {
-        document.body.insertBefore(alert, document.body.firstChild);
-    }
-    
-    setTimeout(() => {
-        alert.remove();
-    }, 5000);
+    var toast = document.createElement('div');
+    toast.className = 'toast toast-' + (type || 'info');
+    var icons = { success: '✅', error: '❌', warning: '⚠️', info: 'ℹ️' };
+    toast.innerHTML = '<span>' + (icons[type] || '') + '</span> ' + (message || '').replace(/</g,'<');
+    container.appendChild(toast);
+    setTimeout(function() { toast.remove(); }, 5000);
+}
+
+function showConfirmModal(message, callback) {
+    var overlay = document.createElement('div');
+    overlay.className = 'modal-overlay confirm-modal';
+    overlay.style.display = 'flex';
+    overlay.innerHTML = '<div class="modal-content neumorphic"><div class="confirm-icon">⚠️</div><h3>Confirmar</h3><p>' + (message||'').replace(/</g,'<') + '</p><div class="confirm-actions"><button class="btn btn-secondary" id="confirmCancel">Cancelar</button><button class="btn btn-danger" id="confirmOk">Confirmar</button></div></div>';
+    document.body.appendChild(overlay);
+    document.getElementById('confirmCancel').onclick = function() { overlay.remove(); };
+    document.getElementById('confirmOk').onclick = function() { overlay.remove(); if(callback)callback(); };
 }

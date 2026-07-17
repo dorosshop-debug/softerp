@@ -1,10 +1,10 @@
 <?php
 $layout = 'auth';
-$title = 'Iniciar Sesión - Software de Gestión Active';
+$title = 'Iniciar Sesión - EVA ERP';
 ?>
 
 <div class="login-card">
-    <h1>Software de Gestión Active</h1>
+    <h1>EVA ERP</h1>
     
     <?php if (isset($_SESSION['error'])): ?>
         <div class="alert alert-error">

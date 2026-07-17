@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title><?php echo htmlspecialchars($title ?? 'Software de Gestión Active'); ?></title>
+    <title><?php echo htmlspecialchars($title ?? 'EVA ERP'); ?></title>
     <link rel="stylesheet" href="<?php echo $viewInstance->asset('css/style.css'); ?>">
 </head>
 <body>
@@ -37,11 +37,18 @@
             </header>
             
             <div class="content">
+                <?php if (!empty($pageTitle)): ?>
+                <div class="breadcrumbs">
+                    <a href="<?php echo $viewInstance->route('app/dashboard'); ?>">Dashboard</a>
+                    <span class="separator">›</span>
+                    <span class="current"><?php echo htmlspecialchars($pageTitle); ?></span>
+                </div>
+                <?php endif; ?>
                 <?php echo $content; ?>
             </div>
             
             <footer class="app-footer">
-                <p>desarrollado By Osgo Support | 2026</p>
+                <p>EVA ERP &copy; 2026 | Osgo Support</p>
             </footer>
         </div>
     </div>

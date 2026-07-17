@@ -1,6 +1,6 @@
 <?php
 $layout = 'superadmin';
-$title = 'Super Administrador - Dashboard';
+$title = 'EVA ERP - Super Administrador';
 $pageTitle = 'Dashboard';
 $userName = $_SESSION['super_admin_name'] ?? 'Super Admin';
 $stats = $stats ?? [];
@@ -53,7 +53,7 @@ $actionBadges = [
         </div>
         <div class="stat-info">
             <h4>Clientes Activos</h4>
-            <div class="stat-value" style="color: #10B981;"><?php echo number_format($stats['active_tenants'] ?? 0); ?></div>
+            <div class="stat-value" style="color: #10B981;"><?php echo number_format($stats['active_tenants'] ?? $stats['activeTenants'] ?? 0); ?></div>
         </div>
     </div>
     

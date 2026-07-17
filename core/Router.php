@@ -149,6 +149,10 @@ class Router
         $this->get('/app/configuracion', 'TenantConfigController', 'index');
         $this->post('/app/configuracion', 'TenantConfigController', 'index');
         
+        // Asistente IA
+        $this->get('/app/ia', 'TenantAiController', 'index');
+        $this->post('/app/ia/chat', 'TenantAiController', 'chat');
+        
         // Soporte del tenant
         $this->get('/app/soporte', 'TenantTicketsController', 'index');
         $this->post('/app/soporte', 'TenantTicketsController', 'index');
@@ -166,6 +170,9 @@ class Router
         $this->get('/app/cotizaciones', 'TenantPlaceholderController', 'show');
         $this->get('/app/contabilidad', 'TenantPlaceholderController', 'show');
         $this->get('/app/nomina', 'TenantPlaceholderController', 'show');
+        
+        // API v1
+        $this->get('/api/v1/ping', 'ApiController', 'ping');
         
         // Rutas de módulos (legado)
         $this->get('/dashboard', 'DashboardController', 'index');

@@ -99,10 +99,17 @@ class TenantInventarioController extends Controller
         
         if (empty($name)) { $this->respond(false, 'El nombre es requerido', '/app/inventario'); return; }
         
-        $this->query("INSERT INTO products (code, name, product_type, description, category_id, purchase_price, sale_price, stock, min_stock, unit, created_by) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-            [$this->request->post('code'), $name, $productType, $this->request->post('description'), $this->request->post('category_id')?:null,
+        $image = $this->uploadImage();
+        
+        $code = $this->request->post('code');
+        if (empty($code)) {
+            $code = 'SKU-' . strtoupper(substr(bin2hex(random_bytes(3)), 0, 6));
+        }
+        
+        $this->query("INSERT INTO products (code, name, product_type, description, category_id, purchase_price, sale_price, stock, min_stock, unit, image, created_by) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+            [$code, $name, $productType, $this->request->post('description'), $this->request->post('category_id')?:null,
              $this->request->post('purchase_price',0), $this->request->post('sale_price',0), $stock, $this->request->post('min_stock',5),
-             $this->request->post('unit','UNIDAD'), $_SESSION['tenant_user_id']]);
+             $this->request->post('unit','UNIDAD'), $image, $_SESSION['tenant_user_id']]);
         
         $newId = $this->db->lastInsertId();
         
@@ -126,10 +133,15 @@ class TenantInventarioController extends Controller
         $productType = $this->request->post('product_type', $oldProduct['product_type']??'product');
         $newStock = $productType === 'service' ? 0 : (int)$this->request->post('stock', 0);
         
-        $this->query("UPDATE products SET code=?, name=?, product_type=?, description=?, category_id=?, purchase_price=?, sale_price=?, stock=?, min_stock=?, unit=?, status=? WHERE id=?",
-            [$this->request->post('code'), $name, $productType, $this->request->post('description'), $this->request->post('category_id')?:null,
+        $image = $this->uploadImage();
+        $sql = "UPDATE products SET code=?, name=?, product_type=?, description=?, category_id=?, purchase_price=?, sale_price=?, stock=?, min_stock=?, unit=?, status=?";
+        $params = [$this->request->post('code'), $name, $productType, $this->request->post('description'), $this->request->post('category_id')?:null,
              $this->request->post('purchase_price',0), $this->request->post('sale_price',0), $newStock, $this->request->post('min_stock',5),
-             $this->request->post('unit','UNIDAD'), $this->request->post('status','active'), $id]);
+             $this->request->post('unit','UNIDAD'), $this->request->post('status','active')];
+        
+        if ($image) { $sql .= ", image=?"; $params[] = $image; }
+        $sql .= " WHERE id=?"; $params[] = $id;
+        $this->query($sql, $params);
         
         // Registrar ajuste de stock si cambió
         $oldStock = (int)$oldProduct['stock'];
@@ -163,5 +175,26 @@ class TenantInventarioController extends Controller
         $id = (int)$this->request->post('id');
         $this->query("DELETE FROM products WHERE id=?", [$id]);
         $this->respond(true, 'Eliminado', '/app/inventario');
+    }
+    
+    private function uploadImage(): ?string
+    {
+        if (empty($_FILES['image']['tmp_name'])) return null;
+        
+        $uploadDir = PUBLIC_PATH . '/uploads/products/';
+        if (!is_dir($uploadDir)) mkdir($uploadDir, 0777, true);
+        
+        $ext = strtolower(pathinfo($_FILES['image']['name'], PATHINFO_EXTENSION));
+        $allowed = ['jpg','jpeg','png','gif','webp'];
+        if (!in_array($ext, $allowed)) return null;
+        
+        $filename = 'prod_' . time() . '_' . bin2hex(random_bytes(4)) . '.' . $ext;
+        $dest = $uploadDir . $filename;
+        
+        if (move_uploaded_file($_FILES['image']['tmp_name'], $dest)) {
+            $baseUrl = \SoftNova\Core\config('app.url', 'http://localhost/SoftNova/public');
+            return rtrim($baseUrl, '/') . '/uploads/products/' . $filename;
+        }
+        return null;
     }
 }

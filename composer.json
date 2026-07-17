@@ -1,6 +1,6 @@
 {
     "name": "softnova/erp",
-    "description": "Software de Gestión Active - ERP SaaS Multiempresa",
+    "description": "EVA ERP - Sistema de Gestión Empresarial Multiempresa",
     "type": "project",
     "require": {
         "php": ">=8.2.0"

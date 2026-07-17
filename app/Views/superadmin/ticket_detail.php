@@ -86,7 +86,7 @@ $tenants = $tenants ?? [];
         </div>
         
         <!-- Formulario de respuesta -->
-        <form method="POST" action="<?php echo $viewInstance->route('superadmin/tickets'); ?>?action=message" class="settings-form" data-ajax="true" style="margin-top: 20px; border-top: 1px solid var(--color-border); padding-top: 20px;">
+        <form method="POST" action="<?php echo $viewInstance->route('superadmin/tickets'); ?>?action=message" data-ajax="true" style="margin-top: 20px; border-top: 1px solid var(--color-border); padding-top: 20px;">
             <?php echo \SoftNova\Core\csrf_field(); ?>
             <input type="hidden" name="ticket_id" value="<?php echo $ticket['id']; ?>">
             <div class="form-group">

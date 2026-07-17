@@ -6,7 +6,7 @@
 
 return [
     'app' => [
-        'name' => 'Software de Gestión Active',
+        'name' => 'EVA ERP',
         'version' => '1.0.0',
         'env' => 'development',
         'debug' => true,

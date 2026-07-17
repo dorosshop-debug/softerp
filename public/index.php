@@ -40,7 +40,7 @@ try {
     $app = new SoftNova\Core\App();
     $app->run();
 } catch (Exception $e) {
-    error_log($e->getMessage());
+    \SoftNova\Core\Logger::error($e->getMessage(), ['trace' => $e->getTraceAsString()]);
     http_response_code(500);
     echo '<h1>Error interno del servidor</h1>';
     if (\SoftNova\Core\config('app.debug', false)) {

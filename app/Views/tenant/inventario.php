@@ -8,6 +8,36 @@ $totalProducts = $totalProducts ?? 0; $totalServices = $totalServices ?? 0;
 $currency = $currency ?? ['symbol'=>'$','decimals'=>0]; $typeFilter = $typeFilter ?? '';
 function fmtI(float $a, array $c): string { return $c['symbol'].' '.number_format($a, $c['decimals'], $c['decimal']??',', $c['thousands']??'.'); }
 ?>
+<script>
+function openInventarioModal(){document.getElementById('modalTitle').textContent='Nuevo Producto';document.getElementById('productForm').action='<?php echo $viewInstance->route('app/inventario'); ?>?action=create';document.getElementById('submitBtn').textContent='Crear';document.getElementById('statusGroup').style.display='none';document.querySelectorAll('#prodId,#prodCode,#prodName,#prodUnit,#prodDesc').forEach(function(el){el.value='';});document.getElementById('prodType').value='product';document.getElementById('prodCat').value='';document.getElementById('prodPcompra').value='';document.getElementById('prodPventa').value='';document.getElementById('prodStock').value='0';document.getElementById('prodMinStock').value='5';onTypeChange();document.getElementById('productModal').style.display='flex';}
+function editProduct(id){var d=document.querySelector('.product-card[data-id="'+id+'"]');d=d?d.dataset:{};document.getElementById('modalTitle').textContent='Editar Producto';document.getElementById('productForm').action='<?php echo $viewInstance->route('app/inventario'); ?>?action=edit';document.getElementById('submitBtn').textContent='Guardar';document.getElementById('statusGroup').style.display='';document.getElementById('prodId').value=d.id||'';document.getElementById('prodType').value=d.type||'product';document.getElementById('prodCode').value=d.code||'';document.getElementById('prodName').value=d.name||'';document.getElementById('prodCat').value=d.cat||'';document.getElementById('prodUnit').value=d.unit||'UNIDAD';document.getElementById('prodPcompra').value=d.pcompra||0;document.getElementById('prodPventa').value=d.pventa||0;document.getElementById('prodStock').value=d.stock||0;document.getElementById('prodMinStock').value=d.minstock||5;document.getElementById('prodStatus').value=d.status||'active';onTypeChange();document.getElementById('productModal').style.display='flex';}
+function onTypeChange(){var s=document.getElementById('prodType').value==='service';['stockGroup','minStockGroup'].forEach(function(id){document.getElementById(id).style.display=s?'none':'';});}
+function closeInvModal(){document.getElementById('productModal').style.display='none';}
+function addStock(id){var d=document.querySelector('.product-card[data-id="'+id+'"]');d=d?d.dataset:{};document.getElementById('stockProdId').value=id;document.getElementById('stockProdName').textContent='📦 '+(d.name||'');document.getElementById('stockModal').style.display='flex';}
+function viewDetail(id){fetch('<?php echo $viewInstance->route('app/inventario'); ?>?action=detail&id='+id,{headers:{'X-Requested-With':'XMLHttpRequest'}}).then(function(r){return r.json();}).then(function(d){if(d.error)return showAlert(d.error,'error');var p=d.product,m=d.movements||[],s=d.lastSales||[],isSvc=p.product_type==='service';var h='<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:15px;"><div><strong>Nombre:</strong> '+esc(p.name)+'</div><div><strong>Tipo:</strong> '+(isSvc?'Servicio':'Producto')+'</div><div><strong>Codigo:</strong> '+esc(p.code||'-')+'</div><div><strong>Categoria:</strong> '+esc(p.category_name||'-')+'</div><div><strong>P. Venta:</strong> $'+parseFloat(p.sale_price).toFixed(0)+'</div><div><strong>Stock:</strong> '+(isSvc?'N/A':p.stock)+'</div><div><strong>Creado:</strong> '+(p.created_at||'').substr(0,10)+'</div><div><strong>Ultima Venta:</strong> '+(p.last_sale_date||'').substr(0,10)||'Nunca'+'</div></div>';h+='<h4>Movimientos ('+m.length+')</h4>';if(m.length===0)h+='<p style="text-align:center;color:var(--color-text-secondary);">Sin movimientos</p>';else{h+='<table><thead><tr><th>Fecha</th><th>Tipo</th><th>Cant</th><th>Notas</th></tr></thead><tbody>';m.forEach(function(x){var t=x.type==='in'?'Entrada':x.type==='out'?'Salida':'Ajuste';h+='<tr><td>'+(x.created_at||'').substr(0,16)+'</td><td><span class="badge '+(x.type==='in'?'badge-success':x.type==='out'?'badge-danger':'badge-warning')+'">'+t+'</span></td><td>'+x.quantity+'</td><td>'+esc(x.notes||'-')+'</td></tr>';});h+='</tbody></table>';}h+='<h4 style="margin-top:15px;">Ultimas Ventas</h4>';if(s.length===0)h+='<p style="text-align:center;color:var(--color-text-secondary);">Sin ventas</p>';else{h+='<table><thead><tr><th>Factura</th><th>Fecha</th><th>Cant</th></tr></thead><tbody>';s.forEach(function(x){h+='<tr><td>'+esc(x.invoice_number)+'</td><td>'+(x.sale_date||'').substr(0,16)+'</td><td>'+x.quantity+'</td></tr>';});h+='</tbody></table>';}document.getElementById('detailContent').innerHTML=h;document.getElementById('detailModal').style.display='flex';});}
+function openImageLightbox(src,name){var o=document.createElement('div');o.className='modal-overlay';o.style.display='flex';o.style.zIndex='9999';o.onclick=function(){o.remove();};o.innerHTML='<div style="position:relative;max-width:80vw;max-height:80vh;" onclick="event.stopPropagation()"><img src="'+src+'" style="max-width:100%;max-height:80vh;border-radius:16px;box-shadow:0 25px 50px rgba(0,0,0,0.3);"><div style="position:absolute;bottom:-40px;left:0;right:0;text-align:center;color:#fff;font-size:16px;font-weight:600;">'+esc(name)+'</div><button onclick="this.parentElement.parentElement.remove()" style="position:absolute;top:-15px;right:-15px;width:36px;height:36px;background:#DC2626;color:#fff;border:none;border-radius:50%;font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 12px rgba(0,0,0,0.3);">\u2715</button></div>';document.body.appendChild(o);}
+function esc(s){return(s||'').replace(/</g,'<').replace(/>/g,'>');}
+// Carrito flotante
+var cart=JSON.parse(localStorage.getItem('eva_cart')||'[]');
+function addToCart(id,name,price){var ex=cart.find(function(i){return i.id==id;});if(ex){ex.qty++;}else{cart.push({id:id,name:name,price:price,qty:1});}saveCart();showAlert(name+' agregado al carrito','success');}
+function saveCart(){localStorage.setItem('eva_cart',JSON.stringify(cart));updateCartBadge();}
+function updateCartBadge(){var b=document.getElementById('cartBadge');if(b){b.textContent=cart.reduce(function(a,i){return a+i.qty;},0);b.style.display=cart.length?'flex':'none';}}
+function clearCart(){cart=[];saveCart();}
+function showCartModal(){
+    if(cart.length===0){showAlert('Carrito vacio','warning');return;}
+    var h='<div style="max-height:50vh;overflow-y:auto;"><table style="width:100%;"><thead><tr><th>Producto</th><th>Precio</th><th>Cant</th><th>Subtotal</th><th></th></tr></thead><tbody>';
+    var total=0;
+    cart.forEach(function(it,i){var sub=it.price*it.qty;total+=sub;h+='<tr><td>'+esc(it.name)+'</td><td>'+curSym+' '+it.price.toFixed(curDec)+'</td><td><input type="number" value="'+it.qty+'" min="1" style="width:60px;" onchange="updateCartQty('+i+',this.value)"></td><td>'+curSym+' '+sub.toFixed(curDec)+'</td><td><button class="btn btn-sm btn-danger" onclick="removeCartItem('+i+')">X</button></td></tr>';});
+    h+='</tbody></table></div><p style="margin-top:15px;font-size:18px;font-weight:700;text-align:right;">Total: '+curSym+' '+total.toFixed(curDec)+'</p>';
+    h+='<div style="display:flex;gap:10px;margin-top:15px;"><button class="btn btn-secondary" onclick="clearCart();closeCartModal();">Vaciar</button><button class="btn btn-danger" onclick="document.getElementById(\'cartModal\').style.display=\'none\'">Cerrar</button><button class="btn btn-primary" style="flex:1;" onclick="checkoutCart()">Ir a Ventas</button></div>';
+    document.getElementById('cartContent').innerHTML=h;document.getElementById('cartModal').style.display='flex';
+}
+function closeCartModal(){document.getElementById('cartModal').style.display='none';}
+function updateCartQty(i,q){var n=parseInt(q);if(n<1)return;cart[i].qty=n;saveCart();showCartModal();}
+function removeCartItem(i){cart.splice(i,1);saveCart();if(cart.length===0){closeCartModal();}else{showCartModal();}}
+function checkoutCart(){closeCartModal();window.location='<?php echo $viewInstance->route('app/ventas'); ?>?fromCart=1';}
+document.addEventListener('DOMContentLoaded',function(){updateCartBadge();});
+</script>
 <?php echo flashMessage(); ?>
 
 <div class="stats-grid">
@@ -17,167 +47,66 @@ function fmtI(float $a, array $c): string { return $c['symbol'].' '.number_forma
     <div class="stat-card neumorphic"><h4>Total Ítems</h4><div class="stat-value"><?php echo $totalProducts+$totalServices; ?></div></div>
 </div>
 
-<div class="card neumorphic">
-    <div class="card-header">
-        <h3>Lista de Ítems</h3>
-        <div style="display:flex;gap:10px;">
-            <select onchange="window.location='<?php echo $viewInstance->route('app/inventario'); ?>?type='+this.value" class="form-control" style="width:auto;">
-                <option value="">Todos</option>
-                <option value="product" <?php echo $typeFilter==='product'?'selected':''; ?>>📦 Productos</option>
-                <option value="service" <?php echo $typeFilter==='service'?'selected':''; ?>>🔧 Servicios</option>
-            </select>
-            <button onclick="openModal()" class="btn btn-primary neumorphic-btn">+ Nuevo</button>
-        </div>
-    </div>
-    <div class="card-body">
-        <div class="table-container"><table>
-            <thead><tr><th>ID</th><th>Nombre</th><th>Tipo</th><th>P. Venta</th><th>Stock</th><th>Última Venta</th><th>Días en Inv.</th><th>Acciones</th></tr></thead>
-            <tbody>
-            <?php if (empty($products)): ?>
-                <tr><td colspan="8" style="text-align:center;color:var(--color-text-secondary);">No hay ítems</td></tr>
-            <?php else: ?>
-                <?php foreach ($products as $p): ?>
-                    <?php $isService = ($p['product_type']??'product') === 'service'; ?>
-                    <tr>
-                        <td><?php echo $p['id']; ?></td>
-                        <td><strong><?php echo htmlspecialchars($p['name']); ?></strong></td>
-                        <td><span class="badge <?php echo $isService?'badge-info':'badge-success'; ?>"><?php echo $isService?'Servicio':'Producto'; ?></span></td>
-                        <td><?php echo fmtI($p['sale_price'], $currency); ?></td>
-                        <td><?php if($isService): ?><span style="color:var(--color-text-secondary);">N/A</span><?php else: ?><span class="badge <?php echo $p['stock']<=$p['min_stock']?'badge-danger':'badge-success'; ?>"><?php echo $p['stock']; ?></span><?php endif; ?></td>
-                        <td style="font-size:12px;"><?php echo $p['last_sale_date'] ? date('d/m/Y', strtotime($p['last_sale_date'])) : '<span style="color:var(--color-text-secondary);">Nunca</span>'; ?></td>
-                        <td style="font-size:12px;"><?php echo $isService ? '-' : ($p['days_in_inventory']??0).' días'; ?></td>
-                        <td class="table-actions">
-                            <button onclick="viewDetail(<?php echo $p['id']; ?>)" class="btn btn-sm btn-info" title="Trazabilidad">📊</button>
-                            <button onclick='openModal(<?php echo htmlspecialchars(json_encode($p)); ?>)' class="btn btn-sm btn-secondary">✏️</button>
-                            <?php if (!$isService): ?>
-                            <button onclick='openStockModal(<?php echo $p['id']; ?>, "<?php echo htmlspecialchars($p['name']); ?>")' class="btn btn-sm btn-success" title="Agregar stock">📥</button>
-                            <?php endif; ?>
-                            <form method="POST" action="<?php echo $viewInstance->route('app/inventario'); ?>?action=delete" style="display:inline;" data-ajax="true">
-                                <?php echo \SoftNova\Core\csrf_field(); ?><input type="hidden" name="id" value="<?php echo $p['id']; ?>">
-                                <button type="submit" onclick="return confirm('¿Eliminar?')" class="btn btn-sm btn-danger">🗑️</button>
-                            </form>
-                        </td>
-                    </tr>
-                <?php endforeach; ?>
-            <?php endif; ?>
-            </tbody>
-        </table></div>
-    </div>
+<div style="display:flex;gap:10px;margin-bottom:20px;flex-wrap:wrap;align-items:center;">
+    <select onchange="window.location='<?php echo $viewInstance->route('app/inventario'); ?>?type='+this.value" class="form-control" style="width:auto;">
+        <option value="">Todos</option><option value="product" <?php echo $typeFilter==='product'?'selected':''; ?>>📦 Productos</option><option value="service" <?php echo $typeFilter==='service'?'selected':''; ?>>🔧 Servicios</option>
+    </select>
+    <button onclick="openInventarioModal()" class="btn btn-primary neumorphic-btn">+ Nuevo Producto</button>
 </div>
 
-<!-- Modal Crear/Editar -->
-<div id="productModal" class="modal-overlay" style="display:none;">
-    <div class="modal-content neumorphic" style="max-width:600px;max-height:85vh;overflow-y:auto;">
-        <div class="modal-header"><h3 id="modalTitle">Nuevo Ítem</h3><button onclick="closeModal()" class="modal-close">&times;</button></div>
-        <form method="POST" id="productForm" data-ajax="true">
-            <?php echo \SoftNova\Core\csrf_field(); ?><input type="hidden" name="id" id="prodId">
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:15px;">
-                <div class="form-group"><label>Tipo *</label><select name="product_type" id="prodType" class="form-control" onchange="onTypeChange()"><option value="product">📦 Producto</option><option value="service">🔧 Servicio</option></select></div>
-                <div class="form-group"><label>Código</label><input type="text" name="code" id="prodCode" class="form-control" placeholder="Auto-generado"></div>
-                <div class="form-group" style="grid-column:1/-1;"><label>Nombre *</label><input type="text" name="name" id="prodName" required class="form-control"></div>
-                <div class="form-group"><label>Categoría</label><select name="category_id" id="prodCat" class="form-control"><option value="">Sin categoría</option><?php foreach($categories as $cat): ?><option value="<?php echo $cat['id']; ?>"><?php echo htmlspecialchars($cat['name']); ?></option><?php endforeach; ?></select></div>
-                <div class="form-group"><label>Unidad</label><input type="text" name="unit" id="prodUnit" class="form-control" placeholder="UNIDAD"></div>
-                <div class="form-group"><label>Precio Compra</label><input type="number" step="0.01" name="purchase_price" id="prodPcompra" class="form-control" placeholder="0"></div>
-                <div class="form-group"><label>Precio Venta *</label><input type="number" step="0.01" name="sale_price" id="prodPventa" required class="form-control" placeholder="0"></div>
-                <div class="form-group" id="stockGroup"><label>Stock Inicial</label><input type="number" name="stock" id="prodStock" class="form-control" placeholder="0"></div>
-                <div class="form-group" id="minStockGroup"><label>Stock Mínimo</label><input type="number" name="min_stock" id="prodMinStock" class="form-control" placeholder="5"></div>
-                <div class="form-group" id="statusGroup"><label>Estado</label><select name="status" id="prodStatus" class="form-control"><option value="active">Activo</option><option value="inactive">Inactivo</option></select></div>
+<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:20px;">
+    <?php if (empty($products)): ?>
+        <div class="card neumorphic" style="text-align:center;padding:40px;grid-column:1/-1;"><p style="color:var(--color-text-secondary);">No hay ítems registrados</p></div>
+    <?php else: ?>
+        <?php foreach ($products as $p): ?>
+            <?php $isService = ($p['product_type']??'product') === 'service'; ?>
+            <div class="card neumorphic product-card" style="border-left:5px solid <?php echo $isService?'#3B82F6':'var(--color-primary)';?>;padding:20px;" data-id="<?php echo $p['id']; ?>" data-name="<?php echo htmlspecialchars($p['name']); ?>" data-code="<?php echo htmlspecialchars($p['code']??''); ?>" data-cat="<?php echo $p['category_id']??''; ?>" data-unit="<?php echo htmlspecialchars($p['unit']??'UNIDAD'); ?>" data-pcompra="<?php echo $p['purchase_price']??0; ?>" data-pventa="<?php echo $p['sale_price']??0; ?>" data-stock="<?php echo $p['stock']??0; ?>" data-minstock="<?php echo $p['min_stock']??5; ?>" data-status="<?php echo $p['status']??'active'; ?>" data-type="<?php echo $p['product_type']??'product'; ?>">
+                <div style="display:flex;align-items:flex-start;gap:18px;">
+                    <div style="width:90px;height:90px;border-radius:14px;overflow:hidden;flex-shrink:0;background:var(--bg-input);display:flex;align-items:center;justify-content:center;border:2px solid var(--color-border);box-shadow:0 2px 8px rgba(0,0,0,0.06);">
+                        <?php if(!empty($p['image'])): ?>
+                            <img src="<?php echo htmlspecialchars($p['image']); ?>" style="width:100%;height:100%;object-fit:cover;cursor:pointer;" onclick="openImageLightbox('<?php echo htmlspecialchars($p['image']); ?>','<?php echo htmlspecialchars(addslashes($p['name'])); ?>')" onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
+                            <span style="display:none;font-size:36px;"><?php echo $isService?'🔧':'📦'; ?></span>
+                        <?php else: ?>
+                            <span style="font-size:36px;"><?php echo $isService?'🔧':'📦'; ?></span>
+                        <?php endif; ?>
+                    </div>
+                    <div style="flex:1;min-width:0;">
+                        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;">
+                            <h4 style="margin:0;font-size:15px;color:var(--color-primary);"><?php echo htmlspecialchars($p['name']); ?></h4>
+                            <span class="badge <?php echo $isService?'badge-info':'badge-success'; ?>" style="flex-shrink:0;"><?php echo $isService?'Servicio':'Producto'; ?></span>
+                        </div>
+                        <?php if(!empty($p['code'])): ?><div style="font-size:11px;color:var(--color-text-secondary);margin:3px 0;">Cód: <?php echo htmlspecialchars($p['code']); ?></div><?php endif; ?>
+                        <?php if(!empty($p['category_name'])): ?><div style="font-size:12px;color:var(--color-text-secondary);margin-bottom:2px;">📂 <?php echo htmlspecialchars($p['category_name']); ?></div><?php endif; ?>
+                        <div style="font-size:13px;margin:4px 0;"><span style="color:var(--color-text-secondary);">Venta:</span><strong style="color:#10B981;"><?php echo fmtI($p['sale_price'], $currency); ?></strong></div>
+                        <?php if (!$isService): ?><div style="margin:4px 0;"><span class="badge <?php echo $p['stock']<=$p['min_stock']?'badge-danger':'badge-success'; ?>">📦 Stock: <?php echo $p['stock']; ?></span></div><?php endif; ?>
+                        <div style="margin-top:10px;display:flex;gap:5px;flex-wrap:wrap;">
+                            <?php if (!$isService && ($p['stock']??0)>0): ?><button onclick="addToCart(<?php echo $p['id']; ?>,'<?php echo htmlspecialchars(addslashes($p['name'])); ?>',<?php echo $p['sale_price']; ?>)" class="btn btn-sm btn-info">🛒</button><?php endif; ?>
+                            <button onclick="viewDetail(<?php echo $p['id']; ?>)" class="btn btn-sm btn-info">📊</button>
+                            <button onclick="editProduct(<?php echo $p['id']; ?>)" class="btn btn-sm btn-secondary">✏️</button>
+                            <?php if (!$isService): ?><button onclick="addStock(<?php echo $p['id']; ?>)" class="btn btn-sm btn-success">📥</button><?php endif; ?>
+                            <form method="POST" action="<?php echo $viewInstance->route('app/inventario'); ?>?action=delete" style="display:inline;" data-ajax="true"><?php echo \SoftNova\Core\csrf_field(); ?><input type="hidden" name="id" value="<?php echo $p['id']; ?>"><button type="submit" onclick="return confirm('¿Eliminar?')" class="btn btn-sm btn-danger">🗑️</button></form>
+                        </div>
+                    </div>
+                </div>
             </div>
-            <div class="form-group"><label>Descripción</label><textarea name="description" id="prodDesc" rows="2" class="form-control"></textarea></div>
-            <div class="modal-footer" style="margin-top:15px;"><button type="button" class="btn btn-secondary" onclick="closeModal()">Cancelar</button><button type="submit" class="btn btn-primary" id="submitBtn">Crear</button></div>
-        </form>
-    </div>
+        <?php endforeach; ?>
+    <?php endif; ?>
 </div>
 
-<!-- Modal Agregar Stock -->
-<div id="stockModal" class="modal-overlay" style="display:none;">
-    <div class="modal-content neumorphic" style="max-width:400px;">
-        <div class="modal-header"><h3>Agregar Stock</h3><button onclick="document.getElementById('stockModal').style.display='none'" class="modal-close">&times;</button></div>
-        <form method="POST" action="<?php echo $viewInstance->route('app/inventario'); ?>?action=add_stock" data-ajax="true">
-            <?php echo \SoftNova\Core\csrf_field(); ?><input type="hidden" name="id" id="stockProdId">
-            <p id="stockProdName" style="margin-bottom:10px;font-weight:600;"></p>
-            <div class="form-group"><label>Cantidad a agregar *</label><input type="number" name="quantity" class="form-control" min="1" required placeholder="1"></div>
-            <div class="form-group"><label>Notas</label><input type="text" name="notes" class="form-control" placeholder="Ej: Compra a proveedor"></div>
-            <div class="modal-footer" style="margin-top:15px;"><button type="button" class="btn btn-secondary" onclick="document.getElementById('stockModal').style.display='none'">Cancelar</button><button type="submit" class="btn btn-success">Agregar Stock</button></div>
-        </form>
-    </div>
+<!-- Modales: Crear/Editar, Stock, Trazabilidad -->
+<div id="productModal" class="modal-overlay" style="display:none;"><div class="modal-content neumorphic" style="max-width:600px;max-height:85vh;overflow-y:auto;"><div class="modal-header"><h3 id="modalTitle">Nuevo Ítem</h3><button onclick="closeInvModal()" class="modal-close">&times;</button></div><form method="POST" id="productForm" enctype="multipart/form-data" action="<?php echo $viewInstance->route('app/inventario'); ?>?action=create" data-ajax="true"><?php echo \SoftNova\Core\csrf_field(); ?><input type="hidden" name="id" id="prodId"><div style="display:grid;grid-template-columns:1fr 1fr;gap:15px;"><div class="form-group"><label>Tipo *</label><select name="product_type" id="prodType" class="form-control" onchange="onTypeChange()"><option value="product">📦 Producto</option><option value="service">🔧 Servicio</option></select></div><div class="form-group"><label>Código</label><input type="text" name="code" id="prodCode" class="form-control" placeholder="Auto-generado"></div><div class="form-group" style="grid-column:1/-1;"><label>Nombre *</label><input type="text" name="name" id="prodName" required class="form-control"></div><div class="form-group"><label>Categoría</label><select name="category_id" id="prodCat" class="form-control"><option value="">Sin categoría</option><?php foreach($categories as $cat): ?><option value="<?php echo $cat['id']; ?>"><?php echo htmlspecialchars($cat['name']); ?></option><?php endforeach; ?></select></div><div class="form-group"><label>Unidad</label><input type="text" name="unit" id="prodUnit" class="form-control" placeholder="UNIDAD"></div><div class="form-group"><label>Precio Compra</label><input type="number" step="0.01" name="purchase_price" id="prodPcompra" class="form-control" placeholder="0"></div><div class="form-group"><label>Precio Venta *</label><input type="number" step="0.01" name="sale_price" id="prodPventa" required class="form-control" placeholder="0"></div><div class="form-group" id="stockGroup"><label>Stock Inicial</label><input type="number" name="stock" id="prodStock" class="form-control" placeholder="0"></div><div class="form-group" id="minStockGroup"><label>Stock Mínimo</label><input type="number" name="min_stock" id="prodMinStock" class="form-control" placeholder="5"></div><div class="form-group" id="statusGroup"><label>Estado</label><select name="status" id="prodStatus" class="form-control"><option value="active">Activo</option><option value="inactive">Inactivo</option></select></div></div><div class="form-group"><label>Descripción</label><textarea name="description" id="prodDesc" rows="2" class="form-control"></textarea></div><div class="form-group"><label>Imagen</label><input type="file" name="image" id="prodImageFile" class="form-control" accept="image/*" style="padding:8px;"></div><div class="modal-footer" style="margin-top:15px;"><button type="button" class="btn btn-secondary" onclick="closeInvModal()">Cancelar</button><button type="submit" class="btn btn-primary" id="submitBtn">Crear</button></div></form></div></div>
+<div id="stockModal" class="modal-overlay" style="display:none;"><div class="modal-content neumorphic" style="max-width:400px;"><div class="modal-header"><h3>Agregar Stock</h3><button onclick="document.getElementById('stockModal').style.display='none'" class="modal-close">&times;</button></div><form method="POST" action="<?php echo $viewInstance->route('app/inventario'); ?>?action=add_stock" data-ajax="true"><?php echo \SoftNova\Core\csrf_field(); ?><input type="hidden" name="id" id="stockProdId"><p id="stockProdName" style="margin-bottom:10px;font-weight:600;"></p><div class="form-group"><label>Cantidad a agregar *</label><input type="number" name="quantity" class="form-control" min="1" required placeholder="1"></div><div class="form-group"><label>Notas</label><input type="text" name="notes" class="form-control" placeholder="Ej: Compra a proveedor"></div><div class="modal-footer"><button type="button" class="btn btn-secondary" onclick="document.getElementById('stockModal').style.display='none'">Cancelar</button><button type="submit" class="btn btn-success">Agregar Stock</button></div></form></div></div>
+<div id="detailModal" class="modal-overlay" style="display:none;"><div class="modal-content neumorphic" style="max-width:700px;max-height:85vh;overflow-y:auto;"><div class="modal-header"><h3>Trazabilidad del Producto</h3><button onclick="document.getElementById('detailModal').style.display='none'" class="modal-close">&times;</button></div><div class="modal-body" id="detailContent"></div></div></div>
+<div id="cartModal" class="modal-overlay" style="display:none;"><div class="modal-content neumorphic" style="max-width:500px;"><div class="modal-header"><h3>🛒 Carrito de Compras</h3><button onclick="closeCartModal()" class="modal-close">&times;</button></div><div id="cartContent"></div></div></div>
+
+<!-- Carrito Flotante -->
+<div style="position:fixed;bottom:25px;right:25px;z-index:998;">
+    <button onclick="showCartModal()" style="width:60px;height:60px;border-radius:50%;background:var(--bg-btn-primary);color:#fff;border:none;font-size:24px;cursor:pointer;box-shadow:0 8px 24px rgba(0,0,0,0.25);position:relative;transition:transform 0.2s;" onmouseover="this.style.transform='scale(1.1)'" onmouseout="this.style.transform='scale(1)'">🛒</button>
+    <span id="cartBadge" style="position:absolute;top:-5px;right:-5px;background:#DC2626;color:#fff;width:24px;height:24px;border-radius:50%;font-size:12px;display:none;align-items:center;justify-content:center;font-weight:700;">0</span>
 </div>
 
-<!-- Modal Trazabilidad -->
-<div id="detailModal" class="modal-overlay" style="display:none;">
-    <div class="modal-content neumorphic" style="max-width:700px;max-height:85vh;overflow-y:auto;">
-        <div class="modal-header"><h3>Trazabilidad del Producto</h3><button onclick="document.getElementById('detailModal').style.display='none'" class="modal-close">&times;</button></div>
-        <div class="modal-body" id="detailContent"></div>
-    </div>
+<!-- Carrito Flotante -->
+<div id="cartFloat" style="position:fixed;bottom:25px;right:25px;z-index:999;">
+    <button onclick="goToCart()" style="width:60px;height:60px;border-radius:50%;background:var(--bg-btn-primary);color:#fff;border:none;font-size:24px;cursor:pointer;box-shadow:0 8px 24px rgba(0,0,0,0.25);position:relative;transition:transform 0.2s;" onmouseover="this.style.transform='scale(1.1)'" onmouseout="this.style.transform='scale(1)'">🛒</button>
+    <span id="cartBadge" style="position:absolute;top:-5px;right:-5px;background:#DC2626;color:#fff;width:24px;height:24px;border-radius:50%;font-size:12px;display:none;align-items:center;justify-content:center;font-weight:700;">0</span>
 </div>
-
-<script>
-function onTypeChange(){
-    const isSvc = document.getElementById('prodType').value === 'service';
-    ['stockGroup','minStockGroup'].forEach(id=>document.getElementById(id).style.display=isSvc?'none':'');
-}
-function openModal(data){
-    if(data){
-        document.getElementById('modalTitle').textContent='Editar Ítem';
-        document.getElementById('productForm').action='<?php echo $viewInstance->route('app/inventario'); ?>?action=edit';
-        document.getElementById('submitBtn').textContent='Guardar';
-        document.getElementById('statusGroup').style.display='';
-        document.getElementById('prodId').value=data.id; document.getElementById('prodType').value=data.product_type||'product';
-        document.getElementById('prodCode').value=data.code||''; document.getElementById('prodName').value=data.name||'';
-        document.getElementById('prodCat').value=data.category_id||''; document.getElementById('prodUnit').value=data.unit||'';
-        document.getElementById('prodPcompra').value=data.purchase_price||0; document.getElementById('prodPventa').value=data.sale_price||0;
-        document.getElementById('prodStock').value=data.stock||0; document.getElementById('prodMinStock').value=data.min_stock||5;
-        document.getElementById('prodStatus').value=data.status||'active'; document.getElementById('prodDesc').value=data.description||'';
-        onTypeChange();
-    }else{
-        document.getElementById('modalTitle').textContent='Nuevo Ítem';
-        document.getElementById('productForm').action='<?php echo $viewInstance->route('app/inventario'); ?>?action=create';
-        document.getElementById('submitBtn').textContent='Crear';
-        document.getElementById('statusGroup').style.display='none';
-        ['prodId','prodCode','prodName','prodUnit','prodDesc'].forEach(id=>document.getElementById(id).value='');
-        document.getElementById('prodType').value='product'; document.getElementById('prodCat').value='';
-        document.getElementById('prodPcompra').value=''; document.getElementById('prodPventa').value='';
-        document.getElementById('prodStock').value='0'; document.getElementById('prodMinStock').value='5';
-        onTypeChange();
-    }
-    document.getElementById('productModal').style.display='flex';
-}
-function closeModal(){document.getElementById('productModal').style.display='none';}
-function openStockModal(id, name){
-    document.getElementById('stockProdId').value=id;
-    document.getElementById('stockProdName').textContent='📦 '+name;
-    document.getElementById('stockModal').style.display='flex';
-}
-
-function viewDetail(id){
-    fetch('<?php echo $viewInstance->route('app/inventario'); ?>?action=detail&id='+id,{headers:{'X-Requested-With':'XMLHttpRequest'}})
-    .then(r=>r.json()).then(d=>{
-        if(d.error) return alert(d.error);
-        let p=d.product, m=d.movements||[], s=d.lastSales||[];
-        let isSvc = p.product_type==='service';
-        let html=`<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:15px;">
-            <div><strong>Nombre:</strong> ${esc(p.name)}</div><div><strong>Tipo:</strong> ${isSvc?'🔧 Servicio':'📦 Producto'}</div>
-            <div><strong>Código:</strong> ${esc(p.code||'-')}</div><div><strong>Categoría:</strong> ${esc(p.category_name||'-')}</div>
-            <div><strong>P. Venta:</strong> $${parseFloat(p.sale_price).toFixed(0)}</div><div><strong>Stock Actual:</strong> ${isSvc?'N/A':p.stock}</div>
-            <div><strong>Creado:</strong> ${p.created_at?.substr(0,10)}</div><div><strong>Última Venta:</strong> ${p.last_sale_date?.substr(0,10)||'Nunca'}</div>
-            <div><strong>Días en inventario:</strong> ${isSvc?'N/A':(p.days_in_inventory||0)+' días'}</div><div><strong>Días desde última venta:</strong> ${p.last_sale_date?(p.days_since_last_sale||0)+' días':'N/A'}</div>
-        </div>`;
-        
-        html+='<h4>📊 Movimientos de Stock ('+m.length+')</h4>';
-        if(m.length===0) html+='<p style="color:var(--color-text-secondary);text-align:center;">Sin movimientos</p>';
-        else{html+='<div class="table-container"><table><thead><tr><th>Fecha</th><th>Tipo</th><th>Cant</th><th>Ref</th><th>Notas</th><th>Usuario</th></tr></thead><tbody>';
-        m.forEach(x=>{let t=x.type==='in'?'Entrada':x.type==='out'?'Salida':'Ajuste';html+=`<tr><td>${x.created_at?.substr(0,16)}</td><td><span class="badge ${x.type==='in'?'badge-success':x.type==='out'?'badge-danger':'badge-warning'}">${t}</span></td><td>${x.quantity}</td><td>${esc(x.reference_type||'-')}</td><td>${esc(x.notes||'-')}</td><td>${esc(x.user_name||'-')}</td></tr>`});
-        html+='</tbody></table></div>';}
-        
-        html+='<h4 style="margin-top:15px;">🛒 Últimas Ventas</h4>';
-        if(s.length===0) html+='<p style="color:var(--color-text-secondary);text-align:center;">Sin ventas registradas</p>';
-        else{html+='<div class="table-container"><table><thead><tr><th>Factura</th><th>Fecha</th><th>Cant</th><th>P.Unit</th></tr></thead><tbody>';
-        s.forEach(x=>{html+=`<tr><td>${esc(x.invoice_number)}</td><td>${x.sale_date?.substr(0,16)}</td><td>${x.quantity}</td><td>$${parseFloat(x.unit_price).toFixed(0)}</td></tr>`});
-        html+='</tbody></table></div>';}
-        
-        document.getElementById('detailContent').innerHTML=html;
-        document.getElementById('detailModal').style.display='flex';
-    });
-}
-function esc(s){return(s||'').replace(/</g,'<').replace(/>/g,'>');}
-</script>

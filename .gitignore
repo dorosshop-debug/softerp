@@ -35,7 +35,7 @@ desktop.ini
 !/public/uploads/.gitkeep
 
 # Composer
-composer.lock
+# composer.lock debe versionarse para consistencia (NO ignorar)
 
 # OS
 *.log

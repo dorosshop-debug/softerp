@@ -24,57 +24,30 @@ class SuperAdminController extends Controller
     
     public function index(): void
     {
-        // Estadísticas generales
-        $stats = [
-            'total_tenants' => $this->db->query("SELECT COUNT(*) as count FROM tenants")->fetch()['count'],
-            'active_tenants' => $this->db->query("SELECT COUNT(*) as count FROM tenants WHERE status = 'active'")->fetch()['count'],
-            'suspended_tenants' => $this->db->query("SELECT COUNT(*) as count FROM tenants WHERE status = 'suspended'")->fetch()['count'],
-            'total_plans' => $this->db->query("SELECT COUNT(*) as count FROM subscription_plans")->fetch()['count'],
-            'total_users' => $this->db->query("SELECT COUNT(*) as count FROM tenant_users")->fetch()['count'],
-        ];
+        $cache = new \SoftNova\Core\Cache();
+        $data = $cache->remember('superadmin_dashboard', 300, function() {
+            return [
+                'stats' => [
+                    'total_tenants' => $this->db->query("SELECT COUNT(*) as count FROM tenants")->fetch()['count'],
+                    'active_tenants' => $this->db->query("SELECT COUNT(*) as count FROM tenants WHERE status = 'active'")->fetch()['count'],
+                    'suspended_tenants' => $this->db->query("SELECT COUNT(*) as count FROM tenants WHERE status = 'suspended'")->fetch()['count'],
+                    'total_plans' => $this->db->query("SELECT COUNT(*) as count FROM subscription_plans")->fetch()['count'],
+                    'total_users' => $this->db->query("SELECT COUNT(*) as count FROM tenant_users")->fetch()['count'],
+                    'open_tickets' => $this->db->query("SELECT COUNT(*) as c FROM tickets WHERE status = 'open'")->fetch()['c'],
+                    'in_progress_tickets' => $this->db->query("SELECT COUNT(*) as c FROM tickets WHERE status = 'in_progress'")->fetch()['c'],
+                    'urgent_tickets' => $this->db->query("SELECT COUNT(*) as c FROM tickets WHERE priority = 'urgent' AND status IN ('open','in_progress')")->fetch()['c'],
+                    'active_licenses' => $this->db->query("SELECT COUNT(*) as c FROM license_sales WHERE status='active'")->fetch()['c'],
+                    'total_revenue' => $this->db->query("SELECT COALESCE(SUM(amount),0) as t FROM license_sales WHERE status='active'")->fetch()['t'],
+                    'pending_payments' => $this->db->query("SELECT COUNT(*) as c FROM license_sales WHERE payment_status='pending'")->fetch()['c'],
+                    'active_subscriptions' => $this->db->query("SELECT COUNT(*) as c FROM license_sales WHERE status='active' AND end_date>=CURDATE()")->fetch()['c'],
+                ]
+            ];
+        });
         
-        // Estadísticas de tickets
-        $ticketStats = [
-            'total' => $this->db->query("SELECT COUNT(*) as c FROM tickets")->fetch()['c'],
-            'open' => $this->db->query("SELECT COUNT(*) as c FROM tickets WHERE status = 'open'")->fetch()['c'],
-            'in_progress' => $this->db->query("SELECT COUNT(*) as c FROM tickets WHERE status = 'in_progress'")->fetch()['c'],
-            'urgent' => $this->db->query("SELECT COUNT(*) as c FROM tickets WHERE priority = 'urgent' AND status IN ('open', 'in_progress')")->fetch()['c'],
-        ];
+        $recentActivity = $this->db->query("SELECT * FROM audit_logs ORDER BY created_at DESC LIMIT 10")->fetchAll();
+        $expiringTenants = $this->db->query("SELECT t.company_name, t.subscription_end_date, sp.name as plan_name FROM tenants t LEFT JOIN subscription_plans sp ON t.subscription_plan_id=sp.id WHERE t.status='active' AND t.subscription_end_date IS NOT NULL AND t.subscription_end_date BETWEEN CURDATE() AND DATE_ADD(CURDATE(),INTERVAL 7 DAY) ORDER BY t.subscription_end_date ASC LIMIT 5")->fetchAll();
         
-        // Estadísticas de licencias
-        $licenseStats = [
-            'active_sales' => $this->db->query("SELECT COUNT(*) as c FROM license_sales WHERE status = 'active'")->fetch()['c'],
-            'total_revenue' => $this->db->query("SELECT COALESCE(SUM(amount), 0) as t FROM license_sales WHERE status = 'active'")->fetch()['t'],
-            'pending_payments' => $this->db->query("SELECT COUNT(*) as c FROM license_sales WHERE payment_status = 'pending'")->fetch()['c'],
-            'active_subscriptions' => $this->db->query("SELECT COUNT(*) as c FROM license_sales WHERE status = 'active' AND end_date >= CURDATE()")->fetch()['c'],
-        ];
-        
-        // Actividad reciente (últimos 10 registros de auditoría)
-        $recentActivity = $this->db->query("
-            SELECT * FROM audit_logs
-            ORDER BY created_at DESC
-            LIMIT 10
-        ")->fetchAll();
-        
-        // Tenants próximos a vencer (7 días)
-        $expiringTenants = $this->db->query("
-            SELECT t.company_name, t.subscription_end_date, sp.name as plan_name
-            FROM tenants t
-            LEFT JOIN subscription_plans sp ON t.subscription_plan_id = sp.id
-            WHERE t.status = 'active'
-              AND t.subscription_end_date IS NOT NULL
-              AND t.subscription_end_date BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 7 DAY)
-            ORDER BY t.subscription_end_date ASC
-            LIMIT 5
-        ")->fetchAll();
-        
-        $this->view('superadmin.dashboard', [
-            'stats' => $stats,
-            'ticketStats' => $ticketStats,
-            'licenseStats' => $licenseStats,
-            'recentActivity' => $recentActivity,
-            'expiringTenants' => $expiringTenants,
-        ]);
+        $this->view('superadmin.dashboard', ['stats'=>$data['stats'], 'recentActivity'=>$recentActivity, 'expiringTenants'=>$expiringTenants]);
     }
     
     public function tenants(): void

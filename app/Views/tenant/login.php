@@ -4,7 +4,7 @@ $title = 'Acceso al Sistema - Software de Gestión Active';
 ?>
 
 <div class="login-card">
-    <h1>Software de Gestión Active</h1>
+    <h1>EVA ERP</h1>
     <p style="text-align:center; color: var(--color-text-secondary); margin-bottom: 20px;">
         Acceda a su sistema de gestión
     </p>
