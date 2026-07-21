@@ -6,7 +6,7 @@
 
 return [
     'app' => [
-        'name' => 'EVA ERP',
+        'name' => 'Seri ERP',
         'version' => '1.0.0',
         'env' => 'development',
         'debug' => true,

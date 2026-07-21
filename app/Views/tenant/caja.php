@@ -4,6 +4,7 @@ $title = 'Caja - ' . ($tenantName ?? 'Sistema');
 $pageTitle = 'Control de Caja';
 $tenantName = $tenantName ?? 'Mi Empresa'; $userName = $userName ?? 'Usuario';
 $openSession = $openSession ?? null; $movements = $movements ?? [];
+$todaySales = $todaySales ?? [];
 $totals = $totals ?? ['incomes'=>0,'expenses'=>0,'balance'=>0];
 $historySessions = $historySessions ?? [];
 $currency = $currency ?? ['symbol'=>'$','name'=>'Peso','decimals'=>0];
@@ -62,6 +63,29 @@ function hoursOpen(string $date): float { return round((time()-strtotime($date))
     <button onclick="document.getElementById('movementModal').style.display='flex'" class="btn btn-primary neumorphic-btn">+ Registrar Movimiento</button>
     <button onclick="document.getElementById('closeCashModal').style.display='flex'" class="btn btn-danger">Cerrar Caja</button>
 </div>
+
+<!-- Ventas del Día -->
+<?php if (!empty($todaySales)): ?>
+<div class="card neumorphic" style="margin-bottom:20px;">
+    <div class="card-header"><h3>🛒 Ventas del Día (<?php echo count($todaySales); ?>)</h3></div>
+    <div class="card-body">
+        <div class="table-container"><table>
+            <thead><tr><th>Factura</th><th>Cliente</th><th>Hora</th><th>Método</th><th>Total</th></tr></thead>
+            <tbody>
+            <?php foreach($todaySales as $sale): ?>
+                <tr>
+                    <td><strong><?php echo htmlspecialchars($sale['invoice_number']); ?></strong></td>
+                    <td><?php echo htmlspecialchars($sale['customer_name'] ?? 'Cliente general'); ?></td>
+                    <td><?php echo date('H:i', strtotime($sale['sale_date'])); ?></td>
+                    <td><span class="badge badge-info"><?php echo htmlspecialchars($sale['payment_method'] ?? 'cash'); ?></span></td>
+                    <td style="color:#10B981;font-weight:600;">+<?php echo fmt((float)$sale['total'], $currency); ?></td>
+                </tr>
+            <?php endforeach; ?>
+            </tbody>
+        </table></div>
+    </div>
+</div>
+<?php endif; ?>
 
 <div class="card neumorphic">
     <div class="card-header"><h3>📋 Movimientos del Día (<?php echo count($movements); ?>)</h3></div>

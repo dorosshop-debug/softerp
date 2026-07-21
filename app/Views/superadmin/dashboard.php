@@ -1,6 +1,6 @@
 <?php
 $layout = 'superadmin';
-$title = 'EVA ERP - Super Administrador';
+$title = 'Seri ERP - Super Administrador';
 $pageTitle = 'Dashboard';
 $userName = $_SESSION['super_admin_name'] ?? 'Super Admin';
 $stats = $stats ?? [];

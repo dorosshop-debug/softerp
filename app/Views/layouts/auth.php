@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title><?php echo htmlspecialchars($title ?? 'EVA ERP'); ?></title>
+    <title><?php echo htmlspecialchars($title ?? 'Seri ERP'); ?></title>
     <link rel="stylesheet" href="<?php echo $viewInstance->asset('css/style.css'); ?>">
 </head>
 <body>

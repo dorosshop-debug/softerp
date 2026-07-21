@@ -15,7 +15,7 @@ class ApiController extends Controller
     public function ping(): void
     {
         $this->json([
-            'app' => config('app.name', 'EVA ERP'),
+            'app' => config('app.name', 'Seri ERP'),
             'version' => config('app.version', '1.0.0'),
             'timestamp' => date('c'),
             'status' => 'ok',

@@ -303,3 +303,8 @@ function showConfirmModal(message, callback) {
     document.getElementById('confirmCancel').onclick = function() { overlay.remove(); };
     document.getElementById('confirmOk').onclick = function() { overlay.remove(); if(callback)callback(); };
 }
+
+// Utilidad global: escapar HTML para prevenir XSS
+function esc(s) {
+    return (s || '').replace(/</g, '<').replace(/>/g, '>');
+}

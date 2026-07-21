@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title><?php echo $viewInstance->escape($title ?? 'Super Administrador - EVA ERP'); ?></title>
+    <title><?php echo $viewInstance->escape($title ?? 'Super Administrador - Seri ERP'); ?></title>
     <link rel="stylesheet" href="<?php echo $viewInstance->asset('css/style.css'); ?>">
 </head>
 <body>
@@ -18,7 +18,7 @@
             </div>
             
             <footer class="app-footer">
-                <p>EVA ERP &copy; 2026 | Osgo Support</p>
+                <p>Seri ERP &copy; 2026 | Osgo Support</p>
             </footer>
         </div>
     </div>

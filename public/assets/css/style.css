@@ -1,4 +1,4 @@
-/* Software de Gestión Active - ERP SaaS */
+/* Seri ERP - Sistema de Gestión SaaS */
 
 /* Reset y base */
 * {
@@ -452,18 +452,96 @@ body.dark-mode .sidebar-toggle {
     color: var(--color-text-primary);
 }
 
-.logout-btn {
-    padding: 8px 16px;
-    background-color: var(--color-primary);
-    color: var(--color-white);
-    border: none;
-    border-radius: 4px;
+/* Header Icon Buttons (Soporte, IA) */
+.header-icon-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border-radius: 8px;
+    color: var(--color-text-secondary);
+    text-decoration: none;
+    transition: all 0.2s;
+    font-size: 13px;
+    white-space: nowrap;
+}
+
+.header-icon-btn:hover {
+    color: var(--color-primary);
+    background-color: var(--color-secondary);
+}
+
+.header-icon-label {
+    font-weight: 500;
+}
+
+/* User Dropdown */
+.user-dropdown {
+    position: relative;
+}
+
+.user-dropdown-btn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px;
+    background: none;
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
     cursor: pointer;
+    color: var(--color-text-primary);
+    font-size: 13px;
+    transition: all 0.2s;
+}
+
+.user-dropdown-btn:hover {
+    border-color: var(--color-primary);
+    background-color: var(--color-secondary);
+}
+
+.user-avatar {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    background-color: var(--color-primary);
+    color: #fff;
+    font-weight: 700;
     font-size: 13px;
 }
 
-.logout-btn:hover {
-    opacity: 0.9;
+.user-dropdown-menu {
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 0;
+    min-width: 200px;
+    background-color: var(--bg-card);
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.12);
+    z-index: 1000;
+    overflow: hidden;
+}
+
+.user-dropdown-menu a {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 16px;
+    color: var(--color-text-primary);
+    text-decoration: none;
+    font-size: 13px;
+    transition: background-color 0.15s;
+}
+
+.user-dropdown-menu a:hover {
+    background-color: var(--color-secondary);
+}
+
+.user-dropdown-menu a:first-child {
+    border-bottom: 1px solid var(--color-border);
 }
 
 /* Content area */

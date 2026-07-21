@@ -53,7 +53,8 @@ class TenantInventarioController extends Controller
         $products = $this->query(
             "SELECT p.*, c.name as category_name,
                     DATEDIFF(NOW(), p.created_at) as days_in_inventory,
-                    DATEDIFF(NOW(), p.last_sale_date) as days_since_last_sale
+                    DATEDIFF(NOW(), p.last_sale_date) as days_since_last_sale,
+                    COALESCE((SELECT SUM(qi.quantity) FROM quote_items qi JOIN quotes q ON qi.quote_id=q.id WHERE qi.product_id=p.id AND q.status IN ('pending','accepted')), 0) as reserved_qty
              FROM products p LEFT JOIN categories c ON p.category_id = c.id {$where} ORDER BY p.name ASC",
             $params
         )->fetchAll();

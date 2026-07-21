@@ -166,8 +166,9 @@ class Router
         $this->post('/app/clientes', 'TenantClientesController', 'index');
         $this->get('/app/proveedores', 'TenantProveedoresController', 'index');
         $this->post('/app/proveedores', 'TenantProveedoresController', 'index');
-        $this->get('/app/reportes', 'TenantPlaceholderController', 'show');
-        $this->get('/app/cotizaciones', 'TenantPlaceholderController', 'show');
+        $this->get('/app/reportes', 'TenantReportesController', 'index');
+        $this->get('/app/cotizaciones', 'TenantCotizacionesController', 'index');
+        $this->post('/app/cotizaciones', 'TenantCotizacionesController', 'index');
         $this->get('/app/contabilidad', 'TenantPlaceholderController', 'show');
         $this->get('/app/nomina', 'TenantPlaceholderController', 'show');
         

@@ -77,6 +77,11 @@ class TenantClientesController extends Controller
         $this->query("INSERT INTO customers (name, first_name, last_name, company_name, document_type, document_number, email, phone, address, source) VALUES (?,?,?,?,?,?,?,?,?,?)",
             [$name, $firstName?:null, $lastName?:null, $companyName?:null, $this->request->post('document_type','CC'), $this->request->post('document_number'), $this->request->post('email'), $this->request->post('phone'), $this->request->post('address'), $source?:null]);
         
+        $newId = $this->db->lastInsertId();
+        if ($this->wantsJson()) {
+            $this->json(['success' => true, 'message' => 'Cliente creado: ' . $name, 'data' => ['id' => $newId, 'name' => $name]]);
+            return;
+        }
         $this->respond(true, 'Cliente creado: ' . $name, '/app/clientes');
     }
     

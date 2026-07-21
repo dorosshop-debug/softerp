@@ -4,7 +4,7 @@ $isSuperAdmin = $isSuperAdmin ?? false;
 
 <aside class="sidebar <?php echo $isSuperAdmin ? 'superadmin-sidebar' : ''; ?>" id="sidebar">
     <div class="sidebar-header">
-        <h1>EVA ERP</h1>
+        <h1>Seri ERP</h1>
         <button class="sidebar-toggle" onclick="toggleSidebar()">
             <span id="sidebarToggleIcon">«</span>
         </button>

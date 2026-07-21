@@ -235,10 +235,27 @@ CREATE TABLE IF NOT EXISTS cash_movements (
     description VARCHAR(255),
     reference_type VARCHAR(50),
     reference_id INT UNSIGNED,
+    user_id INT UNSIGNED,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_session (cash_session_id),
     INDEX idx_type (type),
     FOREIGN KEY (cash_session_id) REFERENCES cash_sessions(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ============================================
+-- Tabla: sale_payments (Pagos/Abonos de ventas a crédito)
+-- ============================================
+CREATE TABLE IF NOT EXISTS sale_payments (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    sale_id INT UNSIGNED NOT NULL,
+    amount DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+    payment_date DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    payment_method ENUM('cash','card','transfer','other') DEFAULT 'cash',
+    notes VARCHAR(255),
+    user_id INT UNSIGNED,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_sale (sale_id),
+    FOREIGN KEY (sale_id) REFERENCES sales(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ============================================

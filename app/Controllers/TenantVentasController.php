@@ -23,6 +23,47 @@ class TenantVentasController extends Controller
         return $stmt;
     }
     
+    /**
+     * Registra automáticamente un movimiento en caja (si hay sesión abierta)
+     */
+    private function registerCashMovement(float $amount, string $description, string $referenceType = 'sale', ?int $referenceId = null): void
+    {
+        try {
+            $openSession = $this->query(
+                "SELECT id FROM cash_sessions WHERE status = 'open' ORDER BY opening_date DESC LIMIT 1"
+            )->fetch();
+            
+            if ($openSession) {
+                $userId = $_SESSION['tenant_user_id'] ?? null;
+                
+                // Verificar si la columna user_id existe en cash_movements
+                $hasUserId = true;
+                try {
+                    $this->query("SELECT user_id FROM cash_movements LIMIT 0");
+                } catch (\Exception $e) {
+                    $hasUserId = false;
+                }
+                
+                if ($hasUserId && $userId) {
+                    $this->query(
+                        "INSERT INTO cash_movements (cash_session_id, type, amount, description, reference_type, reference_id, user_id, created_at)
+                         VALUES (?, 'income', ?, ?, ?, ?, ?, NOW())",
+                        [$openSession['id'], $amount, $description, $referenceType, $referenceId, $userId]
+                    );
+                } else {
+                    $this->query(
+                        "INSERT INTO cash_movements (cash_session_id, type, amount, description, reference_type, reference_id, created_at)
+                         VALUES (?, 'income', ?, ?, ?, ?, NOW())",
+                        [$openSession['id'], $amount, $description, $referenceType, $referenceId]
+                    );
+                }
+            }
+        } catch (\Exception $e) {
+            // No interrumpir el flujo principal si falla el registro en caja
+            error_log('registerCashMovement error: ' . $e->getMessage());
+        }
+    }
+    
     private function getCurrency(): array
     {
         $c = $this->query("SELECT setting_value FROM settings WHERE setting_key = 'currency'")->fetch();
@@ -120,6 +161,14 @@ class TenantVentasController extends Controller
             }
             
             $this->db->commit();
+            
+            // Registrar en caja
+            if ($paymentStatus === 'paid') {
+                $this->registerCashMovement($total, 'Venta: ' . $invoiceNumber, 'sale', (int)$saleId);
+            } elseif ($initialPayment > 0) {
+                $this->registerCashMovement($initialPayment, 'Abono inicial: ' . $invoiceNumber, 'sale', (int)$saleId);
+            }
+            
             $msg = $paymentType==='credit'?'Venta a credito creada: '.$invoiceNumber.' (Pendiente: $'.number_format($total-$initialPayment,0).')':'Venta creada: '.$invoiceNumber;
             $this->respond(true,$msg,'/app/ventas');
         }catch(\Exception $e){
@@ -157,6 +206,10 @@ class TenantVentasController extends Controller
             }
             
             $this->db->commit();
+            
+            // Registrar en caja
+            $this->registerCashMovement($amount, 'Abono: ' . $sale['invoice_number'], 'sale_payment', $saleId);
+            
             $this->respond(true,'Abono registrado. Pendiente: $'.number_format(max(0,$remaining),0),'/app/ventas');
         }catch(\Exception $e){
             $this->db->rollBack();

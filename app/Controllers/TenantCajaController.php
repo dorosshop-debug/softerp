@@ -81,49 +81,80 @@ class TenantCajaController extends Controller
         
         // Buscar sesión abierta hoy
         $openSession = $this->query(
-            "SELECT cs.*, u.name as user_name 
-             FROM cash_sessions cs 
-             JOIN users u ON cs.user_id = u.id 
-             WHERE cs.status = 'open' 
+            "SELECT cs.*, u.name as user_name
+             FROM cash_sessions cs
+             JOIN users u ON cs.user_id = u.id
+             WHERE cs.status = 'open'
              ORDER BY cs.opening_date DESC LIMIT 1"
         )->fetch();
         
         // Movimientos del día
         $movements = [];
+        $todaySales = [];
         $totals = ['incomes' => 0, 'expenses' => 0, 'balance' => 0];
+        $salesIncome = 0;
         
         if ($openSession) {
             $movements = $this->query(
-                "SELECT * FROM cash_movements 
-                 WHERE cash_session_id = ? 
+                "SELECT * FROM cash_movements
+                 WHERE cash_session_id = ?
                  ORDER BY created_at DESC",
                 [$openSession['id']]
             )->fetchAll();
             
             $totals = $this->query(
-                "SELECT 
+                "SELECT
                     COALESCE(SUM(CASE WHEN type = 'income' THEN amount ELSE 0 END), 0) as incomes,
                     COALESCE(SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END), 0) as expenses
-                 FROM cash_movements 
+                 FROM cash_movements
                  WHERE cash_session_id = ?",
                 [$openSession['id']]
             )->fetch();
             
-            $totals['balance'] = $openSession['opening_amount'] + $totals['incomes'] - $totals['expenses'];
+            // Ventas del día (completadas, desde apertura de caja)
+            $todaySales = $this->query(
+                "SELECT s.id, s.invoice_number, s.total, s.sale_date, s.payment_method,
+                        c.name as customer_name, u.name as user_name,
+                        COALESCE((SELECT SUM(sp.amount) FROM sale_payments sp WHERE sp.sale_id = s.id), 0) as paid_amount
+                 FROM sales s
+                 LEFT JOIN customers c ON s.customer_id = c.id
+                 LEFT JOIN users u ON s.user_id = u.id
+                 WHERE s.status = 'completed'
+                   AND s.sale_date >= ?
+                 ORDER BY s.sale_date DESC",
+                [$openSession['opening_date']]
+            )->fetchAll();
+            
+            // Sumar ventas que no estén ya en cash_movements como income
+            $movementSaleIds = [];
+            foreach ($movements as $mov) {
+                if ($mov['reference_type'] === 'sale' && $mov['reference_id']) {
+                    $movementSaleIds[] = (int)$mov['reference_id'];
+                }
+            }
+            foreach ($todaySales as $sale) {
+                if (!in_array((int)$sale['id'], $movementSaleIds)) {
+                    $salesIncome += (float)$sale['total'];
+                }
+            }
+            
+            $totals['incomes'] = (float)$totals['incomes'] + $salesIncome;
+            $totals['balance'] = $openSession['opening_amount'] + $totals['incomes'] - (float)$totals['expenses'];
         }
         
         // Últimas sesiones cerradas (historial)
         $historySessions = $this->query(
-            "SELECT cs.*, u.name as user_name 
-             FROM cash_sessions cs 
-             JOIN users u ON cs.user_id = u.id 
-             WHERE cs.status = 'closed' 
+            "SELECT cs.*, u.name as user_name
+             FROM cash_sessions cs
+             JOIN users u ON cs.user_id = u.id
+             WHERE cs.status = 'closed'
              ORDER BY cs.closing_date DESC LIMIT 10"
         )->fetchAll();
         
         $this->view('tenant.caja', [
             'openSession' => $openSession,
             'movements' => $movements,
+            'todaySales' => $todaySales,
             'totals' => $totals,
             'historySessions' => $historySessions,
             'tenantName' => $_SESSION['tenant_name'] ?? 'Mi Empresa',
