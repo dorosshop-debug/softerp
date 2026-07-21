@@ -3,7 +3,8 @@
     "description": "EVA ERP - Sistema de Gestión Empresarial Multiempresa",
     "type": "project",
     "require": {
-        "php": ">=8.2.0"
+        "php": ">=8.2.0",
+        "dompdf/dompdf": "^3.1"
     },
     "autoload": {
         "psr-4": {

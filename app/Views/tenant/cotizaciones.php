@@ -38,6 +38,7 @@ function fmtQ(float $a, array $c): string { return $c['symbol'].' '.number_forma
                         </td>
                         <td class="table-actions">
                             <button onclick="viewQuoteDetail(<?php echo $q['id']; ?>)" class="btn btn-sm btn-info">👁️</button>
+                            <a href="<?php echo $viewInstance->route('app/cotizaciones'); ?>?action=pdf&id=<?php echo $q['id']; ?>" class="btn btn-sm btn-secondary" target="_blank">📄 PDF</a>
                             <?php if (in_array($q['status'], ['pending', 'accepted'])): ?>
                                 <button onclick="openConvertModal(<?php echo $q['id']; ?>,<?php echo $q['total']; ?>)" class="btn btn-sm btn-success">💰 Convertir</button>
                             <?php endif; ?>

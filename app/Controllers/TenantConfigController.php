@@ -33,9 +33,12 @@ class TenantConfigController extends Controller
      */
     public function index(): void
     {
+        \SoftNova\Core\TenantMiddleware::authorize('configuracion');
+        
         $action = $this->request->get('action');
         
         if ($action === 'save' && $this->request->method() === 'POST') {
+            \SoftNova\Core\TenantMiddleware::authorize('configuracion', 'edit');
             $this->saveSettings();
             return;
         }

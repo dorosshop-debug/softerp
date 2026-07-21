@@ -1,0 +1,367 @@
+<?php
+
+namespace SoftNova\Services;
+
+use Dompdf\Dompdf;
+use Dompdf\Options;
+
+/**
+ * Servicio de generación de PDF para facturas, cotizaciones y reportes
+ */
+class PdfService
+{
+    private Dompdf $dompdf;
+    private array $company;
+    private array $currency;
+    
+    public function __construct(array $company = [], array $currency = [])
+    {
+        $options = new Options();
+        $options->set('isRemoteEnabled', true);
+        $options->set('defaultFont', 'Helvetica');
+        $options->set('isHtml5ParserEnabled', true);
+        
+        $this->dompdf = new Dompdf($options);
+        $this->company = $company;
+        $this->currency = $currency;
+    }
+    
+    /**
+     * Generar PDF de factura de venta
+     */
+    public function generateInvoice(array $sale, array $items, array $payments = []): string
+    {
+        $currency = $this->currency['symbol'] ?? '$';
+        $decimals = $this->currency['decimals'] ?? 0;
+        $thousands = $this->currency['thousands'] ?? '.';
+        $decimal = $this->currency['decimal'] ?? ',';
+        
+        $fmt = fn($n) => $currency . ' ' . number_format($n, $decimals, $decimal, $thousands);
+        
+        $companyName = htmlspecialchars($this->company['company_name'] ?? 'Mi Empresa');
+        $taxName = htmlspecialchars($this->company['tax_name'] ?? 'IVA');
+        
+        $itemsHtml = '';
+        foreach ($items as $item) {
+            $itemsHtml .= '<tr>
+                <td>' . htmlspecialchars($item['product_name']) . '</td>
+                <td style="text-align:center;">' . (int)$item['quantity'] . '</td>
+                <td style="text-align:right;">' . $fmt($item['unit_price']) . '</td>
+                <td style="text-align:right;">' . $fmt($item['subtotal']) . '</td>
+            </tr>';
+        }
+        
+        $paymentsHtml = '';
+        if (!empty($payments)) {
+            $paymentsHtml = '<h3 style="margin-top:20px;">Pagos Registrados</h3>
+            <table width="100%" cellpadding="6" cellspacing="0" style="border-collapse:collapse;margin-top:8px;">
+                <tr style="background:#f5f5f5;">
+                    <th style="border-bottom:1px solid #ddd;text-align:left;">Fecha</th>
+                    <th style="border-bottom:1px solid #ddd;text-align:left;">Método</th>
+                    <th style="border-bottom:1px solid #ddd;text-align:right;">Monto</th>
+                </tr>';
+            foreach ($payments as $p) {
+                $paymentsHtml .= '<tr>
+                    <td>' . date('d/m/Y H:i', strtotime($p['payment_date'])) . '</td>
+                    <td>' . ucfirst($p['payment_method'] ?? 'cash') . '</td>
+                    <td style="text-align:right;">' . $fmt($p['amount']) . '</td>
+                </tr>';
+            }
+            $paymentsHtml .= '</table>';
+        }
+        
+        $paidAmount = array_sum(array_column($payments, 'amount'));
+        $remaining = max(0, $sale['total'] - $paidAmount);
+        
+        $html = $this->wrapHtml('FACTURA DE VENTA', $companyName, '
+            <div style="margin-bottom:20px;">
+                <table width="100%" cellpadding="4" cellspacing="0">
+                    <tr>
+                        <td width="50%">
+                            <strong>Factura:</strong> ' . htmlspecialchars($sale['invoice_number']) . '<br>
+                            <strong>Fecha:</strong> ' . date('d/m/Y H:i', strtotime($sale['sale_date'])) . '<br>
+                            <strong>Cliente:</strong> ' . htmlspecialchars($sale['customer_name'] ?? 'Cliente general') . '
+                        </td>
+                        <td width="50%" style="text-align:right;">
+                            <strong>Método de pago:</strong> ' . ucfirst($sale['payment_method'] ?? 'cash') . '<br>
+                            <strong>Estado:</strong> ' . ($sale['payment_status'] === 'paid' ? 'Pagado' : ($sale['payment_status'] === 'partial' ? 'Parcial' : 'Pendiente')) . '
+                        </td>
+                    </tr>
+                </table>
+            </div>
+            
+            <table width="100%" cellpadding="8" cellspacing="0" style="border-collapse:collapse;">
+                <tr style="background:#0D7C4A;color:#fff;">
+                    <th style="text-align:left;padding:10px;">Producto</th>
+                    <th style="text-align:center;padding:10px;">Cant.</th>
+                    <th style="text-align:right;padding:10px;">Precio Unit.</th>
+                    <th style="text-align:right;padding:10px;">Subtotal</th>
+                </tr>
+                ' . $itemsHtml . '
+            </table>
+            
+            <table width="100%" cellpadding="6" cellspacing="0" style="margin-top:15px;">
+                <tr>
+                    <td width="70%" style="text-align:right;"><strong>Subtotal:</strong></td>
+                    <td width="30%" style="text-align:right;">' . $fmt($sale['subtotal']) . '</td>
+                </tr>
+                <tr>
+                    <td style="text-align:right;"><strong>' . $taxName . ' (' . number_format(($sale['tax'] / max($sale['subtotal'], 1)) * 100, 1) . '%):</strong></td>
+                    <td style="text-align:right;">' . $fmt($sale['tax']) . '</td>
+                </tr>
+                <tr style="font-size:16px;font-weight:bold;">
+                    <td style="text-align:right;border-top:2px solid #0D7C4A;padding-top:8px;"><strong>TOTAL:</strong></td>
+                    <td style="text-align:right;border-top:2px solid #0D7C4A;padding-top:8px;color:#0D7C4A;">' . $fmt($sale['total']) . '</td>
+                </tr>
+                ' . ($remaining > 0 ? '<tr><td style="text-align:right;color:#DC2626;"><strong>Saldo Pendiente:</strong></td><td style="text-align:right;color:#DC2626;">' . $fmt($remaining) . '</td></tr>' : '') . '
+            </table>
+            
+            ' . $paymentsHtml . '
+            
+            ' . (!empty($sale['notes']) ? '<p style="margin-top:20px;color:#666;"><strong>Notas:</strong> ' . htmlspecialchars($sale['notes']) . '</p>' : '') . '
+        ');
+        
+        return $this->generate($html);
+    }
+    
+    /**
+     * Generar PDF de cotización
+     */
+    public function generateQuote(array $quote, array $items): string
+    {
+        $currency = $this->currency['symbol'] ?? '$';
+        $decimals = $this->currency['decimals'] ?? 0;
+        $thousands = $this->currency['thousands'] ?? '.';
+        $decimal = $this->currency['decimal'] ?? ',';
+        
+        $fmt = fn($n) => $currency . ' ' . number_format($n, $decimals, $decimal, $thousands);
+        
+        $companyName = htmlspecialchars($this->company['company_name'] ?? 'Mi Empresa');
+        $taxName = htmlspecialchars($this->company['tax_name'] ?? 'IVA');
+        
+        $itemsHtml = '';
+        foreach ($items as $item) {
+            $itemsHtml .= '<tr>
+                <td>' . htmlspecialchars($item['product_name']) . '</td>
+                <td style="text-align:center;">' . (int)$item['quantity'] . '</td>
+                <td style="text-align:right;">' . $fmt($item['unit_price']) . '</td>
+                <td style="text-align:right;">' . $fmt($item['subtotal']) . '</td>
+            </tr>';
+        }
+        
+        $validDays = !empty($quote['valid_days']) ? (int)$quote['valid_days'] : 15;
+        $validUntil = date('d/m/Y', strtotime('+' . $validDays . ' days', strtotime($quote['created_at'])));
+        
+        $html = $this->wrapHtml('COTIZACIÓN', $companyName, '
+            <div style="margin-bottom:20px;padding:15px;background:#FFF3E0;border-left:4px solid #FF9800;border-radius:4px;">
+                <strong>📝 Documento informativo — No es una factura</strong><br>
+                <span style="font-size:12px;color:#666;">Válida hasta: ' . $validUntil . ' (' . $validDays . ' días)</span>
+            </div>
+            
+            <div style="margin-bottom:20px;">
+                <table width="100%" cellpadding="4" cellspacing="0">
+                    <tr>
+                        <td width="50%">
+                            <strong>Cotización #:</strong> ' . htmlspecialchars($quote['quote_number'] ?? 'N/A') . '<br>
+                            <strong>Fecha:</strong> ' . date('d/m/Y', strtotime($quote['created_at'])) . '<br>
+                            <strong>Cliente:</strong> ' . htmlspecialchars($quote['customer_name'] ?? 'Cliente general') . '
+                        </td>
+                        <td width="50%" style="text-align:right;">
+                            <strong>Estado:</strong> ' . ucfirst($quote['status'] ?? 'pending') . '<br>
+                            <strong>Válida hasta:</strong> ' . $validUntil . '
+                        </td>
+                    </tr>
+                </table>
+            </div>
+            
+            <table width="100%" cellpadding="8" cellspacing="0" style="border-collapse:collapse;">
+                <tr style="background:#7C3AED;color:#fff;">
+                    <th style="text-align:left;padding:10px;">Producto</th>
+                    <th style="text-align:center;padding:10px;">Cant.</th>
+                    <th style="text-align:right;padding:10px;">Precio Unit.</th>
+                    <th style="text-align:right;padding:10px;">Subtotal</th>
+                </tr>
+                ' . $itemsHtml . '
+            </table>
+            
+            <table width="100%" cellpadding="6" cellspacing="0" style="margin-top:15px;">
+                <tr>
+                    <td width="70%" style="text-align:right;"><strong>Subtotal:</strong></td>
+                    <td width="30%" style="text-align:right;">' . $fmt($quote['subtotal'] ?? 0) . '</td>
+                </tr>
+                <tr>
+                    <td style="text-align:right;"><strong>' . $taxName . ':</strong></td>
+                    <td style="text-align:right;">' . $fmt($quote['tax'] ?? 0) . '</td>
+                </tr>
+                <tr style="font-size:16px;font-weight:bold;">
+                    <td style="text-align:right;border-top:2px solid #7C3AED;padding-top:8px;"><strong>TOTAL:</strong></td>
+                    <td style="text-align:right;border-top:2px solid #7C3AED;padding-top:8px;color:#7C3AED;">' . $fmt($quote['total'] ?? 0) . '</td>
+                </tr>
+            </table>
+            
+            ' . (!empty($quote['notes']) ? '<p style="margin-top:20px;color:#666;"><strong>Notas:</strong> ' . htmlspecialchars($quote['notes']) . '</p>' : '') . '
+        ');
+        
+        return $this->generate($html);
+    }
+    
+    /**
+     * Generar PDF de cierre de caja
+     */
+    public function generateCashClosing(array $session, array $movements, array $totals): string
+    {
+        $currency = $this->currency['symbol'] ?? '$';
+        $decimals = $this->currency['decimals'] ?? 0;
+        $thousands = $this->currency['thousands'] ?? '.';
+        $decimal = $this->currency['decimal'] ?? ',';
+        
+        $fmt = fn($n) => $currency . ' ' . number_format($n, $decimals, $decimal, $thousands);
+        
+        $companyName = htmlspecialchars($this->company['company_name'] ?? 'Mi Empresa');
+        $diff = ($session['closing_amount'] ?? 0) - ($session['opening_amount'] ?? 0) - ($totals['incomes'] ?? 0) + ($totals['expenses'] ?? 0);
+        
+        $movementsHtml = '';
+        foreach ($movements as $mov) {
+            $color = $mov['type'] === 'income' ? '#10B981' : '#DC2626';
+            $prefix = $mov['type'] === 'income' ? '+' : '-';
+            $movementsHtml .= '<tr>
+                <td>' . date('H:i', strtotime($mov['created_at'])) . '</td>
+                <td>' . ($mov['type'] === 'income' ? 'Ingreso' : 'Egreso') . '</td>
+                <td>' . htmlspecialchars($mov['description']) . '</td>
+                <td style="text-align:right;color:' . $color . ';">' . $prefix . $fmt($mov['amount']) . '</td>
+            </tr>';
+        }
+        
+        $html = $this->wrapHtml('CIERRE DE CAJA', $companyName, '
+            <div style="margin-bottom:20px;">
+                <table width="100%" cellpadding="4" cellspacing="0">
+                    <tr>
+                        <td width="50%">
+                            <strong>Caja #:</strong> ' . $session['id'] . '<br>
+                            <strong>Apertura:</strong> ' . date('d/m/Y H:i', strtotime($session['opening_date'])) . '<br>
+                            <strong>Cierre:</strong> ' . date('d/m/Y H:i', strtotime($session['closing_date'] ?? 'now')) . '
+                        </td>
+                        <td width="50%" style="text-align:right;">
+                            <strong>Usuario:</strong> ' . htmlspecialchars($session['user_name'] ?? 'N/A') . '
+                        </td>
+                    </tr>
+                </table>
+            </div>
+            
+            <table width="100%" cellpadding="8" cellspacing="0" style="border-collapse:collapse;margin-bottom:20px;">
+                <tr style="background:#f5f5f5;">
+                    <th style="text-align:left;padding:10px;border-bottom:2px solid #ddd;">Concepto</th>
+                    <th style="text-align:right;padding:10px;border-bottom:2px solid #ddd;">Monto</th>
+                </tr>
+                <tr>
+                    <td>Monto de Apertura</td>
+                    <td style="text-align:right;">' . $fmt($session['opening_amount'] ?? 0) . '</td>
+                </tr>
+                <tr>
+                    <td>Total Ingresos</td>
+                    <td style="text-align:right;color:#10B981;">+' . $fmt($totals['incomes'] ?? 0) . '</td>
+                </tr>
+                <tr>
+                    <td>Total Egresos</td>
+                    <td style="text-align:right;color:#DC2626;">-' . $fmt($totals['expenses'] ?? 0) . '</td>
+                </tr>
+                <tr style="font-weight:bold;font-size:14px;">
+                    <td style="border-top:2px solid #333;padding-top:8px;">Balance Esperado</td>
+                    <td style="text-align:right;border-top:2px solid #333;padding-top:8px;">' . $fmt(($session['opening_amount'] ?? 0) + ($totals['incomes'] ?? 0) - ($totals['expenses'] ?? 0)) . '</td>
+                </tr>
+                <tr style="font-weight:bold;font-size:14px;">
+                    <td style="border-top:2px solid #333;padding-top:8px;">Monto Final Contado</td>
+                    <td style="text-align:right;border-top:2px solid #333;padding-top:8px;">' . $fmt($session['closing_amount'] ?? 0) . '</td>
+                </tr>
+                <tr style="font-weight:bold;font-size:14px;">
+                    <td style="border-top:2px solid #333;padding-top:8px;">Diferencia</td>
+                    <td style="text-align:right;border-top:2px solid #333;padding-top:8px;color:' . ($diff == 0 ? '#10B981' : '#DC2626') . ';">' . ($diff >= 0 ? '+' : '') . $fmt($diff) . '</td>
+                </tr>
+            </table>
+            
+            ' . (!empty($movements) ? '
+            <h3 style="margin-top:20px;">Movimientos del Día</h3>
+            <table width="100%" cellpadding="6" cellspacing="0" style="border-collapse:collapse;font-size:11px;">
+                <tr style="background:#f5f5f5;">
+                    <th style="text-align:left;border-bottom:1px solid #ddd;">Hora</th>
+                    <th style="text-align:left;border-bottom:1px solid #ddd;">Tipo</th>
+                    <th style="text-align:left;border-bottom:1px solid #ddd;">Descripción</th>
+                    <th style="text-align:right;border-bottom:1px solid #ddd;">Monto</th>
+                </tr>
+                ' . $movementsHtml . '
+            </table>' : '') . '
+        ');
+        
+        return $this->generate($html);
+    }
+    
+    /**
+     * Envolver contenido en HTML completo con estilos
+     */
+    private function wrapHtml(string $title, string $companyName, string $body): string
+    {
+        return '<!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="UTF-8">
+            <title>' . $title . ' - ' . $companyName . '</title>
+            <style>
+                body { font-family: Helvetica, Arial, sans-serif; font-size: 12px; color: #333; margin: 0; padding: 20px; }
+                .header { text-align: center; margin-bottom: 25px; border-bottom: 3px solid #0D7C4A; padding-bottom: 15px; }
+                .header h1 { color: #0D7C4A; margin: 0; font-size: 24px; }
+                .header p { color: #666; margin: 5px 0 0 0; font-size: 11px; }
+                .footer { text-align: center; margin-top: 30px; padding-top: 15px; border-top: 1px solid #ddd; font-size: 10px; color: #999; }
+                table { width: 100%; }
+                @page { margin: 15mm; }
+            </style>
+        </head>
+        <body>
+            <div class="header">
+                <h1>' . $companyName . '</h1>
+                <p>' . $title . ' — Generado el ' . date('d/m/Y H:i') . '</p>
+            </div>
+            ' . $body . '
+            <div class="footer">
+                <p>Seri ERP &copy; ' . date('Y') . ' — Documento generado electrónicamente</p>
+            </div>
+        </body>
+        </html>';
+    }
+    
+    /**
+     * Renderizar HTML a PDF y retornar como string
+     */
+    private function generate(string $html): string
+    {
+        $this->dompdf->loadHtml($html);
+        $this->dompdf->setPaper('A4', 'portrait');
+        $this->dompdf->render();
+        return $this->dompdf->output();
+    }
+    
+    /**
+     * Enviar PDF como descarga al navegador
+     */
+    public function download(string $pdfContent, string $filename): void
+    {
+        header('Content-Type: application/pdf');
+        header('Content-Disposition: attachment; filename="' . $filename . '"');
+        header('Content-Length: ' . strlen($pdfContent));
+        header('Cache-Control: no-cache');
+        echo $pdfContent;
+        exit;
+    }
+    
+    /**
+     * Mostrar PDF inline en el navegador
+     */
+    public function inline(string $pdfContent, string $filename): void
+    {
+        header('Content-Type: application/pdf');
+        header('Content-Disposition: inline; filename="' . $filename . '"');
+        header('Content-Length: ' . strlen($pdfContent));
+        header('Cache-Control: no-cache');
+        echo $pdfContent;
+        exit;
+    }
+}

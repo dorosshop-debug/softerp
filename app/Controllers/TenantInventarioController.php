@@ -13,6 +13,7 @@ class TenantInventarioController extends Controller
     {
         parent::__construct();
         TenantMiddleware::auth();
+        TenantMiddleware::authorize('inventario');
         $this->db = TenantMiddleware::getDb();
     }
     

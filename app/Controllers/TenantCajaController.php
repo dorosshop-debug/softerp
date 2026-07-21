@@ -64,18 +64,27 @@ class TenantCajaController extends Controller
      */
     public function index(): void
     {
+        \SoftNova\Core\TenantMiddleware::authorize('caja');
+        
         $action = $this->request->get('action');
         
         if ($action === 'open' && $this->request->method() === 'POST') {
+            \SoftNova\Core\TenantMiddleware::authorize('caja', 'create');
             $this->openCash();
             return;
         }
         if ($action === 'close' && $this->request->method() === 'POST') {
+            \SoftNova\Core\TenantMiddleware::authorize('caja', 'edit');
             $this->closeCash();
             return;
         }
         if ($action === 'movement' && $this->request->method() === 'POST') {
+            \SoftNova\Core\TenantMiddleware::authorize('caja', 'create');
             $this->addMovement();
+            return;
+        }
+        if ($action === 'pdf' && $this->request->method() === 'GET') {
+            $this->closingPdf();
             return;
         }
         
@@ -285,5 +294,33 @@ class TenantCajaController extends Controller
         
         $label = $type === 'income' ? 'Ingreso' : 'Egreso';
         $this->respond(true, "{$label} registrado: " . $this->formatMoney($amount), '/app/caja');
+    }
+    
+    /**
+     * Generar PDF de cierre de caja
+     */
+    private function closingPdf(): void
+    {
+        $id = (int)$this->request->get('id');
+        $session = $this->query(
+            "SELECT cs.*, u.name as user_name FROM cash_sessions cs JOIN users u ON cs.user_id=u.id WHERE cs.id=?", [$id]
+        )->fetch();
+        if (!$session) { echo 'Sesión no encontrada'; exit; }
+        
+        $movements = $this->query("SELECT * FROM cash_movements WHERE cash_session_id=? ORDER BY created_at DESC", [$id])->fetchAll();
+        
+        $totals = $this->query(
+            "SELECT COALESCE(SUM(CASE WHEN type='income' THEN amount ELSE 0 END),0) as incomes,
+                    COALESCE(SUM(CASE WHEN type='expense' THEN amount ELSE 0 END),0) as expenses
+             FROM cash_movements WHERE cash_session_id=?", [$id]
+        )->fetch();
+        
+        $company = [];
+        $rows = $this->query("SELECT setting_key, setting_value FROM settings")->fetchAll();
+        foreach ($rows as $row) { $company[$row['setting_key']] = $row['setting_value']; }
+        
+        $pdf = new \SoftNova\Services\PdfService($company, $this->getCurrency());
+        $content = $pdf->generateCashClosing($session, $movements, $totals);
+        $pdf->download($content, 'Cierre_Caja_' . $id . '.pdf');
     }
 }

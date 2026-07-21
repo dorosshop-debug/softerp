@@ -48,4 +48,86 @@ class TenantMiddleware
         $permissions = $_SESSION['tenant_permissions'] ?? [];
         return in_array($module, $permissions);
     }
+    
+    /**
+     * Mapa de permisos por rol para módulos del tenant
+     */
+    private static function rolePermissions(): array
+    {
+        return [
+            'admin' => [
+                'modules' => ['dashboard', 'caja', 'ventas', 'inventario', 'clientes', 'proveedores', 'cotizaciones', 'reportes', 'configuracion'],
+                'actions' => ['create', 'edit', 'delete', 'view', 'export'],
+            ],
+            'manager' => [
+                'modules' => ['dashboard', 'caja', 'ventas', 'inventario', 'clientes', 'proveedores', 'cotizaciones', 'reportes'],
+                'actions' => ['create', 'edit', 'view', 'export'],
+            ],
+            'cashier' => [
+                'modules' => ['dashboard', 'caja', 'ventas', 'clientes'],
+                'actions' => ['create', 'view'],
+            ],
+            'viewer' => [
+                'modules' => ['dashboard', 'reportes'],
+                'actions' => ['view'],
+            ],
+        ];
+    }
+    
+    /**
+     * Obtener el rol del usuario actual
+     */
+    public static function getRole(): string
+    {
+        return $_SESSION['tenant_user_role'] ?? 'viewer';
+    }
+    
+    /**
+     * Verificar si el usuario puede acceder a un módulo
+     */
+    public static function canAccess(string $module): bool
+    {
+        $role = self::getRole();
+        $perms = self::rolePermissions();
+        
+        if (!isset($perms[$role])) {
+            return false;
+        }
+        
+        return in_array($module, $perms[$role]['modules']);
+    }
+    
+    /**
+     * Verificar si el usuario puede realizar una acción
+     */
+    public static function canDo(string $action): bool
+    {
+        $role = self::getRole();
+        $perms = self::rolePermissions();
+        
+        if (!isset($perms[$role])) {
+            return false;
+        }
+        
+        return in_array($action, $perms[$role]['actions']);
+    }
+    
+    /**
+     * Verificar acceso a módulo y acción, redirigir si no tiene permiso
+     */
+    public static function authorize(string $module, string $action = 'view'): bool
+    {
+        if (!self::canAccess($module)) {
+            redirect('/app/dashboard');
+            return false;
+        }
+        
+        if (!self::canDo($action)) {
+            $_SESSION['error'] = 'No tienes permisos para realizar esta acción';
+            redirect('/app/' . $module);
+            return false;
+        }
+        
+        return true;
+    }
 }

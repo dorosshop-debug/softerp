@@ -13,6 +13,7 @@ class TenantClientesController extends Controller
     {
         parent::__construct();
         TenantMiddleware::auth();
+        TenantMiddleware::authorize('clientes');
         $this->db = TenantMiddleware::getDb();
     }
     

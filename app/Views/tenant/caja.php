@@ -151,7 +151,7 @@ function hoursOpen(string $date): float { return round((time()-strtotime($date))
                     <td><?php echo fmt($h['opening_amount'],$currency);?></td>
                     <td><?php echo fmt($h['closing_amount']??0,$currency);?></td>
                     <td style="color:<?php echo $diff>=0?'#10B981':'#DC2626';?>;"><?php echo ($diff>=0?'+':'').fmt($diff,$currency);?></td>
-                    <td><button onclick="printClosing(<?php echo $h['id'];?>)" class="btn btn-sm btn-info">📄 PDF</button></td>
+                    <td><a href="<?php echo $viewInstance->route('app/caja'); ?>?action=pdf&id=<?php echo $h['id']; ?>" class="btn btn-sm btn-info" target="_blank">📄 PDF</a></td>
                 </tr>
             <?php endforeach; ?></tbody>
         </table></div>

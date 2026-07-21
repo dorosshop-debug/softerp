@@ -56,7 +56,7 @@ function fmtV(float $a, array $c): string
                         </td>
                         <td class="table-actions">
                             <button onclick="viewDetail(<?php echo $sale['id']; ?>)" class="btn btn-sm btn-info">👁️</button>
-                            <button onclick="printInvoice(<?php echo $sale['id']; ?>)" class="btn btn-sm btn-secondary">🖨️</button>
+                            <a href="<?php echo $viewInstance->route('app/ventas'); ?>?action=pdf&id=<?php echo $sale['id']; ?>" class="btn btn-sm btn-secondary" target="_blank">📄 PDF</a>
                             <?php if (in_array($sale['payment_status'], ['pending', 'partial'])): ?>
                                 <button onclick="openPaymentModal(<?php echo $sale['id']; ?>,<?php echo $sale['total']; ?>,<?php echo ($sale['paid_amount'] ?? 0); ?>)" class="btn btn-sm btn-success">💰</button>
                             <?php endif; ?>

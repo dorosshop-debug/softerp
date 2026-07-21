@@ -73,12 +73,26 @@ class TenantVentasController extends Controller
     
     public function index(): void
     {
+        \SoftNova\Core\TenantMiddleware::authorize('ventas');
+        
         $action = $this->request->get('action');
         
-        if ($action === 'create' && $this->request->method() === 'POST') { $this->createSale(); return; }
+        if ($action === 'create' && $this->request->method() === 'POST') {
+            \SoftNova\Core\TenantMiddleware::authorize('ventas', 'create');
+            $this->createSale(); return;
+        }
         if ($action === 'detail' && $this->request->method() === 'GET') { $this->detail(); return; }
-        if ($action === 'cancel' && $this->request->method() === 'POST') { $this->cancelSale(); return; }
-        if ($action === 'payment' && $this->request->method() === 'POST') { $this->registerPayment(); return; }
+        if ($action === 'cancel' && $this->request->method() === 'POST') {
+            \SoftNova\Core\TenantMiddleware::authorize('ventas', 'delete');
+            $this->cancelSale(); return;
+        }
+        if ($action === 'payment' && $this->request->method() === 'POST') {
+            \SoftNova\Core\TenantMiddleware::authorize('ventas', 'create');
+            $this->registerPayment(); return;
+        }
+        if ($action === 'pdf' && $this->request->method() === 'GET') {
+            $this->invoicePdf(); return;
+        }
         
         $sales = $this->query("SELECT s.*, c.name as customer_name, u.name as user_name, COALESCE((SELECT SUM(sp.amount) FROM sale_payments sp WHERE sp.sale_id=s.id),0) as paid_amount FROM sales s LEFT JOIN customers c ON s.customer_id=c.id LEFT JOIN users u ON s.user_id=u.id ORDER BY s.created_at DESC LIMIT 50")->fetchAll();
         $todayTotal = $this->query("SELECT COALESCE(SUM(total),0) as t FROM sales WHERE DATE(sale_date)=CURDATE() AND status='completed'")->fetch()['t'];
@@ -238,5 +252,26 @@ class TenantVentasController extends Controller
             $this->db->rollBack();
             $this->respond(false,'Error: '.$e->getMessage(),'/app/ventas');
         }
+    }
+    
+    /**
+     * Generar PDF de factura
+     */
+    private function invoicePdf(): void
+    {
+        $id = (int)$this->request->get('id');
+        $sale = $this->query("SELECT s.*, c.name as customer_name FROM sales s LEFT JOIN customers c ON s.customer_id=c.id WHERE s.id=?", [$id])->fetch();
+        if (!$sale) { echo 'Venta no encontrada'; exit; }
+        
+        $items = $this->query("SELECT * FROM sale_items WHERE sale_id=?", [$id])->fetchAll();
+        $payments = $this->query("SELECT * FROM sale_payments WHERE sale_id=? ORDER BY payment_date DESC", [$id])->fetchAll();
+        
+        $company = [];
+        $rows = $this->query("SELECT setting_key, setting_value FROM settings")->fetchAll();
+        foreach ($rows as $row) { $company[$row['setting_key']] = $row['setting_value']; }
+        
+        $pdf = new \SoftNova\Services\PdfService($company, $this->getCurrency());
+        $content = $pdf->generateInvoice($sale, $items, $payments);
+        $pdf->download($content, 'Factura_' . ($sale['invoice_number'] ?? $id) . '.pdf');
     }
 }

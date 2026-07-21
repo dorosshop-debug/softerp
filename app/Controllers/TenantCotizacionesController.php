@@ -17,6 +17,7 @@ class TenantCotizacionesController extends Controller
     {
         parent::__construct();
         TenantMiddleware::auth();
+        TenantMiddleware::authorize('cotizaciones');
         $this->db = TenantMiddleware::getDb();
     }
     
@@ -80,6 +81,7 @@ class TenantCotizacionesController extends Controller
         if ($action === 'detail' && $this->request->method() === 'GET') { $this->detail(); return; }
         if ($action === 'delete' && $this->request->method() === 'POST') { $this->deleteQuote(); return; }
         if ($action === 'convert' && $this->request->method() === 'POST') { $this->convertToSale(); return; }
+        if ($action === 'pdf' && $this->request->method() === 'GET') { $this->quotePdf(); return; }
         
         // Crear tabla de cotizaciones si no existe
         $this->ensureTable();
@@ -255,5 +257,25 @@ class TenantCotizacionesController extends Controller
             $this->db->rollBack();
             $this->respond(false,'Error: '.$e->getMessage(),'/app/cotizaciones');
         }
+    }
+    
+    /**
+     * Generar PDF de cotización
+     */
+    private function quotePdf(): void
+    {
+        $id = (int)$this->request->get('id');
+        $quote = $this->query("SELECT q.*, c.name as customer_name FROM quotes q LEFT JOIN customers c ON q.customer_id=c.id WHERE q.id=?", [$id])->fetch();
+        if (!$quote) { echo 'Cotización no encontrada'; exit; }
+        
+        $items = $this->query("SELECT * FROM quote_items WHERE quote_id=?", [$id])->fetchAll();
+        
+        $company = [];
+        $rows = $this->query("SELECT setting_key, setting_value FROM settings")->fetchAll();
+        foreach ($rows as $row) { $company[$row['setting_key']] = $row['setting_value']; }
+        
+        $pdf = new \SoftNova\Services\PdfService($company, $this->getCurrency());
+        $content = $pdf->generateQuote($quote, $items);
+        $pdf->download($content, 'Cotizacion_' . ($quote['quote_number'] ?? $id) . '.pdf');
     }
 }

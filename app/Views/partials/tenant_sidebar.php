@@ -39,6 +39,9 @@ $allModules = [
     'nomina'    => ['route' => 'app/nomina', 'label' => 'Nómina', 'icon' => 'payroll'],
 ];
 
+// Filtrar módulos por rol del usuario
+$userRole = \SoftNova\Core\TenantMiddleware::getRole();
+
 // IA y Soporte ahora están en el header
 
 function tenantIcon(string $name): string {
@@ -70,7 +73,12 @@ function tenantIcon(string $name): string {
     <nav class="sidebar-nav">
         <ul>
             <?php foreach ($allModules as $key => $mod): ?>
-                <?php if ($showAll || in_array($key, $allowedModules)): ?>
+                <?php
+                // Verificar acceso por plan Y por rol
+                $planAccess = $showAll || in_array($key, $allowedModules);
+                $roleAccess = \SoftNova\Core\TenantMiddleware::canAccess($key);
+                if ($planAccess && $roleAccess):
+                ?>
                     <li>
                         <a href="<?php echo $viewInstance->route($mod['route']); ?>" 
                            class="<?php echo str_contains($currentUri, '/app/' . $key) || ($key === 'dashboard' && str_ends_with($currentUri, '/app/dashboard')) ? 'active' : ''; ?>">
