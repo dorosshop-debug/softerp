@@ -308,3 +308,26 @@ function showConfirmModal(message, callback) {
 function esc(s) {
     return (s || '').replace(/</g, '<').replace(/>/g, '>');
 }
+
+// Filtro de clientes en dropdowns con buscador
+function filterCustomers(selectId, searchId) {
+    var search = document.getElementById(searchId);
+    var select = document.getElementById(selectId);
+    if (!search || !select) return;
+    
+    var query = search.value.toLowerCase().trim();
+    var options = select.options;
+    
+    for (var i = 0; i < options.length; i++) {
+        if (i === 0 && options[i].value === '') {
+            options[i].style.display = ''; // Siempre mostrar "Consumidor Final"
+            continue;
+        }
+        var searchData = options[i].getAttribute('data-search') || '';
+        if (query === '' || searchData.indexOf(query) !== -1) {
+            options[i].style.display = '';
+        } else {
+            options[i].style.display = 'none';
+        }
+    }
+}

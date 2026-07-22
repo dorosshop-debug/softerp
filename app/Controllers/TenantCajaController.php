@@ -42,7 +42,7 @@ class TenantCajaController extends Controller
         $code = $currency['setting_value'] ?? 'COP';
         
         $currencies = [
-            'COP' => ['symbol' => '$', 'name' => 'Peso Colombiano', 'decimals' => 0, 'thousands' => '.', 'decimal' => ','],
+            'COP' => ['symbol' => '$', 'name' => 'Peso Colombiano', 'decimals' => 2, 'thousands' => '.', 'decimal' => ','],
             'USD' => ['symbol' => 'US$', 'name' => 'Dólar Estadounidense', 'decimals' => 2, 'thousands' => ',', 'decimal' => '.'],
             'EUR' => ['symbol' => '€', 'name' => 'Euro', 'decimals' => 2, 'thousands' => '.', 'decimal' => ','],
         ];

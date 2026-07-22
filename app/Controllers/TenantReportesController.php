@@ -32,13 +32,13 @@ class TenantReportesController extends Controller
         $row = $this->query("SELECT setting_value FROM settings WHERE setting_key = 'currency'")->fetch();
         $code = $row['setting_value'] ?? 'COP';
         $currencies = [
-            'COP' => ['symbol' => '$', 'decimals' => 0, 'decimal' => ',', 'thousands' => '.'],
+            'COP' => ['symbol' => '$', 'decimals' => 2, 'decimal' => ',', 'thousands' => '.'],
             'USD' => ['symbol' => 'US$', 'decimals' => 2, 'decimal' => '.', 'thousands' => ','],
             'EUR' => ['symbol' => '€', 'decimals' => 2, 'decimal' => ',', 'thousands' => '.'],
             'MXN' => ['symbol' => 'MX$', 'decimals' => 2, 'decimal' => '.', 'thousands' => ','],
             'ARS' => ['symbol' => 'AR$', 'decimals' => 2, 'decimal' => ',', 'thousands' => '.'],
             'PEN' => ['symbol' => 'S/', 'decimals' => 2, 'decimal' => '.', 'thousands' => ','],
-            'CLP' => ['symbol' => 'CL$', 'decimals' => 0, 'decimal' => ',', 'thousands' => '.'],
+            'CLP' => ['symbol' => 'CL$', 'decimals' => 2, 'decimal' => ',', 'thousands' => '.'],
         ];
         return $currencies[$code] ?? $currencies['COP'];
     }

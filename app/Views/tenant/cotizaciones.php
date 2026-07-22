@@ -64,10 +64,11 @@ function fmtQ(float $a, array $c): string { return $c['symbol'].' '.number_forma
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:15px;">
                 <div class="form-group">
                     <label>Cliente</label>
-                    <select name="customer_id" id="customerSelect" class="form-control">
+                    <input type="text" id="customerSearch" class="form-control" placeholder="🔍 Buscar cliente..." oninput="filterCustomers('customerSelect','customerSearch')" autocomplete="off" style="margin-bottom:5px;">
+                    <select name="customer_id" id="customerSelect" class="form-control" size="1">
                         <option value="">Consumidor Final</option>
                         <?php foreach($customers as $c): ?>
-                            <option value="<?php echo $c['id']; ?>"><?php echo htmlspecialchars($c['first_name']??$c['name']); ?> <?php echo htmlspecialchars($c['last_name']??''); ?></option>
+                            <option value="<?php echo $c['id']; ?>" data-search="<?php echo htmlspecialchars(strtolower(($c['first_name']??$c['name']).' '.($c['last_name']??'').' '.($c['document_number']??''))); ?>"><?php echo htmlspecialchars(($c['first_name']??$c['name']).' '.($c['last_name']??'')); ?></option>
                         <?php endforeach; ?>
                     </select>
                     <button type="button" onclick="(function(){var m=document.getElementById('quickCustomerModal');if(m)m.style.display='flex';})()" style="margin-top:5px;font-size:12px;color:var(--color-primary);background:none;border:none;cursor:pointer;text-decoration:underline;">+ Nuevo Cliente</button>

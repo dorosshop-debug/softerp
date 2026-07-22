@@ -28,7 +28,7 @@ class TenantInventarioController extends Controller
     {
         $c = $this->query("SELECT setting_value FROM settings WHERE setting_key = 'currency'")->fetch();
         $code = $c['setting_value'] ?? 'COP';
-        return ['COP'=>['symbol'=>'$','decimals'=>0,'thousands'=>'.','decimal'=>','],'USD'=>['symbol'=>'US$','decimals'=>2,'thousands'=>',','decimal'=>'.'],'EUR'=>['symbol'=>'€','decimals'=>2,'thousands'=>'.','decimal'=>',']][$code]??['symbol'=>'$','decimals'=>0,'thousands'=>'.','decimal'=>','];
+        return ['COP'=>['symbol'=>'$','decimals'=>2,'thousands'=>'.','decimal'=>','],'USD'=>['symbol'=>'US$','decimals'=>2,'thousands'=>',','decimal'=>'.'],'EUR'=>['symbol'=>'€','decimals'=>2,'thousands'=>'.','decimal'=>',']][$code]??['symbol'=>'$','decimals'=>2,'thousands'=>'.','decimal'=>','];
     }
     
     private function addStockMovement(int $productId, string $type, int $qty, string $refType='', ?int $refId=null, string $notes=''): void
