@@ -117,17 +117,17 @@ function fmtI(float $a, array $c): string
                         <?php endif; ?>
                         <div style="margin-top:10px;display:flex;gap:5px;flex-wrap:wrap;">
                             <?php if (!$isService && ($p['stock'] ?? 0) > 0): ?>
-                                <button onclick="addToCart(<?php echo $p['id']; ?>,'<?php echo htmlspecialchars(addslashes($p['name'])); ?>',<?php echo $p['sale_price']; ?>)" class="btn btn-sm btn-info">🛒</button>
+                                <button onclick="addToCart(<?php echo $p['id']; ?>,'<?php echo htmlspecialchars(addslashes($p['name'])); ?>',<?php echo $p['sale_price']; ?>)" class="btn btn-sm btn-info" title="Agregar al carrito"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="21" r="1"></circle><circle cx="20" cy="21" r="1"></circle><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"></path></svg></button>
                             <?php endif; ?>
-                            <button onclick="viewDetail(<?php echo $p['id']; ?>)" class="btn btn-sm btn-info">📊</button>
-                            <button onclick="editProduct(<?php echo $p['id']; ?>)" class="btn btn-sm btn-secondary">✏️</button>
+                            <button onclick="viewDetail(<?php echo $p['id']; ?>)" class="btn btn-sm btn-info" title="Ver movimientos"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"></line><line x1="12" y1="20" x2="12" y2="4"></line><line x1="6" y1="20" x2="6" y2="14"></line></svg></button>
+                            <button onclick="editProduct(<?php echo $p['id']; ?>)" class="btn btn-sm btn-secondary" title="Editar"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg></button>
                             <?php if (!$isService): ?>
-                                <button onclick="addStock(<?php echo $p['id']; ?>)" class="btn btn-sm btn-success">📥</button>
+                                <button onclick="addStock(<?php echo $p['id']; ?>)" class="btn btn-sm btn-success" title="Agregar stock"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg></button>
                             <?php endif; ?>
                             <form method="POST" action="<?php echo $viewInstance->route('app/inventario'); ?>?action=delete" style="display:inline;" data-ajax="true">
                                 <?php echo \SoftNova\Core\csrf_field(); ?>
                                 <input type="hidden" name="id" value="<?php echo $p['id']; ?>">
-                                <button type="submit" onclick="return confirm('¿Eliminar?')" class="btn btn-sm btn-danger">🗑️</button>
+                                <button type="submit" onclick="return confirm('¿Eliminar?')" class="btn btn-sm btn-danger" title="Eliminar"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg></button>
                             </form>
                         </div>
                     </div>

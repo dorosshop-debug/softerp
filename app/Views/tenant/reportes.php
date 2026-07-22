@@ -54,7 +54,7 @@ foreach ($productTrend as $t) { $trendLabels[] = $t['name']; $trendCurrent[] = (
             <a href="<?php echo $viewInstance->route('app/reportes'); ?>" class="btn btn-secondary" style="font-size:12px;">↻ Reset</a>
         </form>
         <div style="display:flex;gap:8px;">
-            <button onclick="exportPDF()" class="btn btn-secondary" style="font-size:12px;" title="Imprimir / Guardar PDF">🖨️ PDF</button>
+            <button onclick="exportPDF()" class="btn btn-secondary" style="font-size:12px;" title="Imprimir / Guardar PDF"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:middle;margin-right:4px;"><polyline points="6 9 6 2 18 2 18 9"></polyline><path d="M6 12H4a2 2 0 0 0-2 2v4a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-4a2 2 0 0 0-2-2h-2"></path><rect x="6" y="14" width="12" height="8"></rect></svg> PDF</button>
         </div>
     </div>
 </div>

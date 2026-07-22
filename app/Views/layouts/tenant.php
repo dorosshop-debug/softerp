@@ -31,12 +31,13 @@
                     </div>
                 </div>
                 <div class="header-right">
-                    <a href="<?php echo $viewInstance->route('app/soporte'); ?>" class="header-icon-btn ticket-notification" title="Soporte Técnico">
+                    <!-- Campana de notificaciones -->
+                    <a href="<?php echo $viewInstance->route('app/soporte'); ?>" class="header-icon-btn notification-bell" title="Notificaciones">
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+                            <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
+                            <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
                         </svg>
                         <?php
-                        // Contar tickets abiertos/en progreso para este tenant
                         $tenantTicketCount = 0;
                         try {
                             $masterDb = \SoftNova\Core\Database::getInstance();
@@ -50,6 +51,11 @@
                         if ($tenantTicketCount > 0): ?>
                             <span class="notification-badge"><?php echo $tenantTicketCount; ?></span>
                         <?php endif; ?>
+                    </a>
+                    <a href="<?php echo $viewInstance->route('app/soporte'); ?>" class="header-icon-btn ticket-notification" title="Soporte Técnico">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+                        </svg>
                         <span class="header-icon-label">Soporte</span>
                     </a>
                     <a href="<?php echo $viewInstance->route('app/ia'); ?>" class="header-icon-btn" title="Asistente IA">

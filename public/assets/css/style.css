@@ -687,6 +687,16 @@ table tr:hover {
     font-size: 12px;
 }
 
+/* Botones con iconos SVG */
+.btn svg {
+    vertical-align: middle;
+    margin-right: 3px;
+}
+
+.btn-sm svg {
+    vertical-align: middle;
+}
+
 .btn-primary {
     background-color: var(--color-primary);
     color: var(--color-white);

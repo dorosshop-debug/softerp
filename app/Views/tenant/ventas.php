@@ -55,16 +55,16 @@ function fmtV(float $a, array $c): string
                             </span>
                         </td>
                         <td class="table-actions">
-                            <button onclick="viewDetail(<?php echo $sale['id']; ?>)" class="btn btn-sm btn-info">👁️</button>
-                            <a href="<?php echo $viewInstance->route('app/ventas'); ?>?action=pdf&id=<?php echo $sale['id']; ?>" class="btn btn-sm btn-secondary" target="_blank">📄 PDF</a>
+                            <button onclick="viewDetail(<?php echo $sale['id']; ?>)" class="btn btn-sm btn-info" title="Ver detalle"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg></button>
+                            <a href="<?php echo $viewInstance->route('app/ventas'); ?>?action=pdf&id=<?php echo $sale['id']; ?>" class="btn btn-sm btn-secondary" target="_blank" title="Descargar PDF"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line></svg></a>
                             <?php if (in_array($sale['payment_status'], ['pending', 'partial'])): ?>
-                                <button onclick="openPaymentModal(<?php echo $sale['id']; ?>,<?php echo $sale['total']; ?>,<?php echo ($sale['paid_amount'] ?? 0); ?>)" class="btn btn-sm btn-success">💰</button>
+                                <button onclick="openPaymentModal(<?php echo $sale['id']; ?>,<?php echo $sale['total']; ?>,<?php echo ($sale['paid_amount'] ?? 0); ?>)" class="btn btn-sm btn-success" title="Registrar abono"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg></button>
                             <?php endif; ?>
                             <?php if ($sale['status'] !== 'cancelled'): ?>
                                 <form method="POST" action="<?php echo $viewInstance->route('app/ventas'); ?>?action=cancel" style="display:inline;" data-ajax="true">
                                     <?php echo \SoftNova\Core\csrf_field(); ?>
                                     <input type="hidden" name="id" value="<?php echo $sale['id']; ?>">
-                                    <button type="submit" onclick="return confirm('¿Cancelar?')" class="btn btn-sm btn-danger">↩️</button>
+                                    <button type="submit" onclick="return confirm('¿Cancelar?')" class="btn btn-sm btn-danger" title="Cancelar venta"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg></button>
                                 </form>
                             <?php endif; ?>
                         </td>
