@@ -32,6 +32,7 @@ $moduleIcons = [
                     <tr>
                         <th>Plan</th>
                         <th>Mensual</th>
+                        <th>Semestral</th>
                         <th>Anual</th>
                         <th>Usuarios</th>
                         <th>Módulos</th>
@@ -47,6 +48,7 @@ $moduleIcons = [
                             <tr>
                                 <td><strong><?php echo htmlspecialchars($plan['name']); ?></strong></td>
                                 <td>$<?php echo number_format($plan['monthly_price'], 2); ?></td>
+                                <td>$<?php echo number_format($plan['semiannual_price'] ?? $plan['monthly_price'] * 6, 2); ?></td>
                                 <td>$<?php echo number_format($plan['annual_price'], 2); ?></td>
                                 <td><?php echo $plan['max_users']; ?></td>
                                 <td>
@@ -104,10 +106,14 @@ $moduleIcons = [
                     <textarea name="description" id="planDescription" rows="2" class="form-control" placeholder="Describe las características de este plan..."></textarea>
                 </div>
                 
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+                <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 15px;">
                     <div class="form-group">
                         <label>💵 Precio Mensual *</label>
                         <input type="number" step="0.01" name="monthly_price" id="planMonthly" required class="form-control" placeholder="0.00">
+                    </div>
+                    <div class="form-group">
+                        <label>📆 Precio Semestral</label>
+                        <input type="number" step="0.01" name="semiannual_price" id="planSemiannual" class="form-control" placeholder="0.00">
                     </div>
                     <div class="form-group">
                         <label>📅 Precio Anual *</label>
@@ -163,6 +169,7 @@ function openCreateModal() {
     document.getElementById('planName').value = '';
     document.getElementById('planDescription').value = '';
     document.getElementById('planMonthly').value = '';
+    document.getElementById('planSemiannual').value = '';
     document.getElementById('planAnnual').value = '';
     document.getElementById('planMaxUsers').value = '5';
     document.getElementById('planMaxProducts').value = '500';
@@ -179,6 +186,7 @@ function openEditModal(plan) {
     document.getElementById('planName').value = plan.name;
     document.getElementById('planDescription').value = plan.description || '';
     document.getElementById('planMonthly').value = plan.monthly_price;
+    document.getElementById('planSemiannual').value = plan.semiannual_price || '';
     document.getElementById('planAnnual').value = plan.annual_price;
     document.getElementById('planMaxUsers').value = plan.max_users || 5;
     document.getElementById('planMaxProducts').value = plan.max_products || 500;

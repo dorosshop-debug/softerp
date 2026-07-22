@@ -153,13 +153,31 @@ class LicenciasController extends Controller
         }
         
         $tenantId = $this->request->post('tenant_id') ? (int) $this->request->post('tenant_id') : null;
+        
+        // Crear nuevo cliente inline si se solicitó
+        $newCompanyName = $this->request->post('new_company_name');
+        $newEmail = $this->request->post('new_email');
+        if ($tenantId === null && !empty($newCompanyName) && !empty($newEmail)) {
+            try {
+                $this->db->query("INSERT INTO tenants (company_name, email, status, created_at) VALUES (?, ?, 'active', NOW())", [$newCompanyName, $newEmail]);
+                $tenantId = (int)$this->db->lastInsertId();
+                // Crear BD del tenant
+                $tenantDb = \SoftNova\Core\TenantDatabase::getInstance();
+                $dbName = 'softnova__' . strtolower(preg_replace('/[^a-z0-9]/', '_', $newCompanyName)) . '_' . time();
+                $this->db->query("UPDATE tenants SET database_name = ? WHERE id = ?", [$dbName, $tenantId]);
+                $tenantDb->createTenantDatabase($dbName);
+            } catch (\Exception $e) {
+                $this->respond(false, 'Error al crear cliente: ' . $e->getMessage(), '/superadmin/licencias');
+                return;
+            }
+        }
+        
         $planId = (int) $this->request->post('plan_id');
         $saleDate = $this->request->post('sale_date') ?: date('Y-m-d');
         $startDate = $this->request->post('start_date') ?: date('Y-m-d');
         $billingCycle = $this->request->post('billing_cycle') ?: 'monthly';
-        $paymentStatus = $this->request->post('payment_status') ?: 'pending';
-        $paymentMethod = $this->request->post('payment_method') ?: 'other';
-        $referenceNumber = $this->request->post('reference_number');
+        $paymentStatus = $this->request->post('payment_status') ?: 'paid';
+        $paymentMethod = $this->request->post('payment_method') ?: 'transfer';
         $notes = $this->request->post('notes');
         
         if ($planId <= 0) {
@@ -170,6 +188,7 @@ class LicenciasController extends Controller
         $endDate = $this->calculateEndDate($startDate, $billingCycle);
         $amount = $this->calculateAmount($planId, $billingCycle);
         $saleCode = $this->generateSaleCode();
+        $referenceNumber = $saleCode; // Auto-generado = mismo código de licencia
         $createdBy = $_SESSION['super_admin_id'] ?? null;
         
         try {
@@ -230,7 +249,6 @@ class LicenciasController extends Controller
         $billingCycle = $this->request->post('billing_cycle');
         $paymentStatus = $this->request->post('payment_status');
         $paymentMethod = $this->request->post('payment_method');
-        $referenceNumber = $this->request->post('reference_number');
         $notes = $this->request->post('notes');
         $status = $this->request->post('status');
         
@@ -242,11 +260,11 @@ class LicenciasController extends Controller
                 UPDATE license_sales
                 SET tenant_id = ?, plan_id = ?, sale_date = ?, start_date = ?, end_date = ?,
                     billing_cycle = ?, amount = ?, payment_status = ?, payment_method = ?,
-                    reference_number = ?, notes = ?, status = ?
+                    notes = ?, status = ?
                 WHERE id = ?
             ", [
                 $tenantId, $planId, $saleDate, $startDate, $endDate, $billingCycle, $amount,
-                $paymentStatus, $paymentMethod, $referenceNumber, $notes, $status, $id
+                $paymentStatus, $paymentMethod, $notes, $status, $id
             ]);
             
             AuditService::log(
