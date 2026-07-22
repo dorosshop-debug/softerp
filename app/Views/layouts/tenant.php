@@ -31,10 +31,25 @@
                     </div>
                 </div>
                 <div class="header-right">
-                    <a href="<?php echo $viewInstance->route('app/soporte'); ?>" class="header-icon-btn" title="Soporte Técnico">
+                    <a href="<?php echo $viewInstance->route('app/soporte'); ?>" class="header-icon-btn ticket-notification" title="Soporte Técnico">
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                             <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
                         </svg>
+                        <?php
+                        // Contar tickets abiertos/en progreso para este tenant
+                        $tenantTicketCount = 0;
+                        try {
+                            $masterDb = \SoftNova\Core\Database::getInstance();
+                            $tid = $_SESSION['tenant_id'] ?? 0;
+                            if ($tid > 0) {
+                                $tenantTicketCount = (int)$masterDb->query(
+                                    "SELECT COUNT(*) FROM tickets WHERE tenant_id = ? AND status IN ('open','in_progress')", [$tid]
+                                )->fetchColumn();
+                            }
+                        } catch (\Exception $e) { /* silencioso */ }
+                        if ($tenantTicketCount > 0): ?>
+                            <span class="notification-badge"><?php echo $tenantTicketCount; ?></span>
+                        <?php endif; ?>
                         <span class="header-icon-label">Soporte</span>
                     </a>
                     <a href="<?php echo $viewInstance->route('app/ia'); ?>" class="header-icon-btn" title="Asistente IA">

@@ -1,5 +1,16 @@
 <?php
 $isSuperAdmin = $isSuperAdmin ?? false;
+
+// Obtener conteo de tickets pendientes para notificaciones
+$pendingTickets = 0;
+$urgentTickets = 0;
+if ($isSuperAdmin) {
+    try {
+        $masterDb = \SoftNova\Core\Database::getInstance();
+        $pendingTickets = (int)$masterDb->query("SELECT COUNT(*) FROM tickets WHERE status IN ('open','in_progress')")->fetchColumn();
+        $urgentTickets = (int)$masterDb->query("SELECT COUNT(*) FROM tickets WHERE priority='urgent' AND status IN ('open','in_progress')")->fetchColumn();
+    } catch (\Exception $e) { /* silencioso */ }
+}
 ?>
 
 <header class="header <?php echo $isSuperAdmin ? 'superadmin-header' : ''; ?>">
@@ -32,6 +43,20 @@ $isSuperAdmin = $isSuperAdmin ?? false;
     <?php endif; ?>
     
     <div class="header-right">
+        <?php if ($isSuperAdmin): ?>
+        <!-- Notificaciones de Tickets -->
+        <a href="<?php echo $viewInstance->route('superadmin/tickets'); ?>" class="header-icon-btn notification-bell" title="Tickets de soporte">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
+                <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
+            </svg>
+            <?php if ($pendingTickets > 0): ?>
+                <span class="notification-badge <?php echo $urgentTickets > 0 ? 'badge-urgent' : ''; ?>"><?php echo $pendingTickets; ?></span>
+            <?php endif; ?>
+            <span class="header-icon-label">Tickets</span>
+        </a>
+        <?php endif; ?>
+        
         <div class="datetime-info">
             <div class="datetime-icon">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">

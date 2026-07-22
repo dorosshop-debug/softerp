@@ -32,7 +32,6 @@ $moduleIcons = [
                     <tr>
                         <th>Plan</th>
                         <th>Mensual</th>
-                        <th>Semestral</th>
                         <th>Anual</th>
                         <th>Usuarios</th>
                         <th>Módulos</th>
@@ -48,7 +47,6 @@ $moduleIcons = [
                             <tr>
                                 <td><strong><?php echo htmlspecialchars($plan['name']); ?></strong></td>
                                 <td>$<?php echo number_format($plan['monthly_price'], 2); ?></td>
-                                <td>$<?php echo number_format($plan['semiannual_price'] ?? $plan['monthly_price'] * 6, 2); ?></td>
                                 <td>$<?php echo number_format($plan['annual_price'], 2); ?></td>
                                 <td><?php echo $plan['max_users']; ?></td>
                                 <td>
@@ -86,75 +84,71 @@ $moduleIcons = [
 
 <!-- Modal Crear/Editar Plan -->
 <div id="planModal" class="modal-overlay" style="display:none;">
-    <div class="modal-content neumorphic" style="max-width: 600px; max-height: 85vh; overflow-y: auto;">
+    <div class="modal-content neumorphic" style="max-width: 580px; max-height: 85vh; overflow-y: auto;">
         <div class="modal-header">
-            <h3 id="planModalTitle">Nuevo Plan</h3>
+            <h3 id="planModalTitle">📦 Nuevo Plan</h3>
             <button onclick="closePlanModal()" class="modal-close">&times;</button>
         </div>
         <form method="POST" id="planForm" data-ajax="true">
             <?php echo \SoftNova\Core\csrf_field(); ?>
             <input type="hidden" name="id" id="planId">
             
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+            <div class="modal-body">
                 <div class="form-group">
-                    <label>Nombre *</label>
-                    <input type="text" name="name" id="planName" required class="form-control" placeholder="Ej: Plan Básico">
+                    <label>Nombre del Plan *</label>
+                    <input type="text" name="name" id="planName" required class="form-control" placeholder="Ej: Plan Básico, Plan Premium...">
                 </div>
+                
                 <div class="form-group">
-                    <label>Estado</label>
-                    <select name="status" id="planStatus" class="form-control">
-                        <option value="active">Activo</option>
-                        <option value="inactive">Inactivo</option>
-                    </select>
+                    <label>Descripción</label>
+                    <textarea name="description" id="planDescription" rows="2" class="form-control" placeholder="Describe las características de este plan..."></textarea>
+                </div>
+                
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+                    <div class="form-group">
+                        <label>💵 Precio Mensual *</label>
+                        <input type="number" step="0.01" name="monthly_price" id="planMonthly" required class="form-control" placeholder="0.00">
+                    </div>
+                    <div class="form-group">
+                        <label>📅 Precio Anual *</label>
+                        <input type="number" step="0.01" name="annual_price" id="planAnnual" required class="form-control" placeholder="0.00">
+                    </div>
+                </div>
+                
+                <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 15px;">
+                    <div class="form-group">
+                        <label>👥 Máx. Usuarios</label>
+                        <input type="number" name="max_users" id="planMaxUsers" value="5" class="form-control">
+                    </div>
+                    <div class="form-group">
+                        <label>📦 Máx. Productos</label>
+                        <input type="number" name="max_products" id="planMaxProducts" value="500" class="form-control">
+                    </div>
+                    <div class="form-group">
+                        <label>Estado</label>
+                        <select name="status" id="planStatus" class="form-control">
+                            <option value="active">✅ Activo</option>
+                            <option value="inactive">❌ Inactivo</option>
+                        </select>
+                    </div>
+                </div>
+                
+                <div class="form-group">
+                    <label>🧩 Módulos incluidos</label>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; background: var(--bg-input); border: 1px solid var(--color-border); border-radius: 8px; padding: 12px;">
+                        <?php foreach ($availableModules as $module): ?>
+                            <label style="display: flex; align-items: center; gap: 8px; padding: 4px 0; cursor: pointer; font-size: 13px;">
+                                <input type="checkbox" name="modules[]" value="<?php echo $module; ?>" class="plan-module-cb" style="accent-color: var(--color-primary);">
+                                <?php echo $moduleIcons[$module]; ?> <?php echo $moduleNames[$module]; ?>
+                            </label>
+                        <?php endforeach; ?>
+                    </div>
                 </div>
             </div>
             
-            <div class="form-group">
-                <label>Descripción</label>
-                <textarea name="description" id="planDescription" rows="2" class="form-control" placeholder="Descripción del plan..."></textarea>
-            </div>
-            
-            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 15px;">
-                <div class="form-group">
-                    <label>Precio Mensual *</label>
-                    <input type="number" step="0.01" name="monthly_price" id="planMonthly" required class="form-control" placeholder="0.00">
-                </div>
-                <div class="form-group">
-                    <label>Precio Semestral</label>
-                    <input type="number" step="0.01" name="semiannual_price" id="planSemiannual" class="form-control" placeholder="0.00">
-                </div>
-                <div class="form-group">
-                    <label>Precio Anual *</label>
-                    <input type="number" step="0.01" name="annual_price" id="planAnnual" required class="form-control" placeholder="0.00">
-                </div>
-            </div>
-            
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
-                <div class="form-group">
-                    <label>Máx. Usuarios</label>
-                    <input type="number" name="max_users" id="planMaxUsers" value="5" class="form-control">
-                </div>
-                <div class="form-group">
-                    <label>Máx. Productos</label>
-                    <input type="number" name="max_products" id="planMaxProducts" value="500" class="form-control">
-                </div>
-            </div>
-            
-            <div class="form-group">
-                <label>Módulos incluidos</label>
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px; background: var(--bg-input); border: 1px solid var(--color-border); border-radius: 8px; padding: 12px;">
-                    <?php foreach ($availableModules as $module): ?>
-                        <label style="display: flex; align-items: center; gap: 8px; padding: 4px 0; cursor: pointer; font-size: 13px;">
-                            <input type="checkbox" name="modules[]" value="<?php echo $module; ?>" class="plan-module-cb">
-                            <?php echo $moduleIcons[$module]; ?> <?php echo $moduleNames[$module]; ?>
-                        </label>
-                    <?php endforeach; ?>
-                </div>
-            </div>
-            
-            <div class="modal-footer" style="margin-top: 15px;">
+            <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" onclick="closePlanModal()">Cancelar</button>
-                <button type="submit" class="btn btn-primary" id="planSubmitBtn">Crear Plan</button>
+                <button type="submit" class="btn btn-primary neumorphic-btn" id="planSubmitBtn">💾 Crear Plan</button>
             </div>
         </form>
     </div>
@@ -162,14 +156,13 @@ $moduleIcons = [
 
 <script>
 function openCreateModal() {
-    document.getElementById('planModalTitle').textContent = 'Nuevo Plan';
+    document.getElementById('planModalTitle').textContent = '📦 Nuevo Plan';
     document.getElementById('planForm').action = '<?php echo $viewInstance->route('superadmin/plans'); ?>?action=create';
-    document.getElementById('planSubmitBtn').textContent = 'Crear Plan';
+    document.getElementById('planSubmitBtn').textContent = '💾 Crear Plan';
     document.getElementById('planId').value = '';
     document.getElementById('planName').value = '';
     document.getElementById('planDescription').value = '';
     document.getElementById('planMonthly').value = '';
-    document.getElementById('planSemiannual').value = '';
     document.getElementById('planAnnual').value = '';
     document.getElementById('planMaxUsers').value = '5';
     document.getElementById('planMaxProducts').value = '500';
@@ -179,14 +172,13 @@ function openCreateModal() {
 }
 
 function openEditModal(plan) {
-    document.getElementById('planModalTitle').textContent = 'Editar Plan';
+    document.getElementById('planModalTitle').textContent = '✏️ Editar Plan';
     document.getElementById('planForm').action = '<?php echo $viewInstance->route('superadmin/plans'); ?>?action=edit';
-    document.getElementById('planSubmitBtn').textContent = 'Guardar Cambios';
+    document.getElementById('planSubmitBtn').textContent = '💾 Guardar Cambios';
     document.getElementById('planId').value = plan.id;
     document.getElementById('planName').value = plan.name;
     document.getElementById('planDescription').value = plan.description || '';
     document.getElementById('planMonthly').value = plan.monthly_price;
-    document.getElementById('planSemiannual').value = plan.semiannual_price || '';
     document.getElementById('planAnnual').value = plan.annual_price;
     document.getElementById('planMaxUsers').value = plan.max_users || 5;
     document.getElementById('planMaxProducts').value = plan.max_products || 500;

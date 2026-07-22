@@ -475,6 +475,47 @@ body.dark-mode .sidebar-toggle {
     font-weight: 500;
 }
 
+/* Notification Badge */
+.notification-bell,
+.ticket-notification {
+    position: relative;
+}
+
+.notification-badge {
+    position: absolute;
+    top: -4px;
+    right: -4px;
+    min-width: 18px;
+    height: 18px;
+    padding: 0 5px;
+    background-color: #DC2626;
+    color: #fff;
+    font-size: 10px;
+    font-weight: 700;
+    border-radius: 9px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+    animation: pulse-badge 2s infinite;
+}
+
+.notification-badge.badge-urgent {
+    background-color: #DC2626;
+    animation: pulse-urgent 1s infinite;
+}
+
+@keyframes pulse-badge {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.1); }
+}
+
+@keyframes pulse-urgent {
+    0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.7); }
+    50% { transform: scale(1.15); box-shadow: 0 0 0 6px rgba(220, 38, 38, 0); }
+}
+
 /* User Dropdown */
 .user-dropdown {
     position: relative;

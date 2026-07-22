@@ -343,7 +343,6 @@ class SuperAdminController extends Controller
         $name = $this->request->post('name');
         $description = $this->request->post('description');
         $monthly_price = $this->request->post('monthly_price');
-        $semiannual_price = $this->request->post('semiannual_price');
         $annual_price = $this->request->post('annual_price');
         $max_users = $this->request->post('max_users');
         $max_products = $this->request->post('max_products');
@@ -357,9 +356,9 @@ class SuperAdminController extends Controller
         
         $this->db->query("
             UPDATE subscription_plans
-            SET name = ?, description = ?, monthly_price = ?, semiannual_price = ?, annual_price = ?, max_users = ?, max_products = ?, modules = ?, status = ?, updated_at = NOW()
+            SET name = ?, description = ?, monthly_price = ?, annual_price = ?, max_users = ?, max_products = ?, modules = ?, status = ?, updated_at = NOW()
             WHERE id = ?
-        ", [$name, $description, $monthly_price, $semiannual_price ?: null, $annual_price, $max_users, $max_products, $modules, $status, $id]);
+        ", [$name, $description, $monthly_price, $annual_price, $max_users, $max_products, $modules, $status, $id]);
         
         AuditService::log(
             'update',

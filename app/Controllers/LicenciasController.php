@@ -43,9 +43,6 @@ class LicenciasController extends Controller
             case 'monthly':
                 $start->modify('+1 month');
                 break;
-            case 'quarterly':
-                $start->modify('+3 months');
-                break;
             case 'semiannual':
                 $start->modify('+6 months');
                 break;
@@ -72,7 +69,6 @@ class LicenciasController extends Controller
         
         return match ($billingCycle) {
             'annual' => (float) $plan['annual_price'],
-            'quarterly' => (float) $plan['monthly_price'] * 3,
             'semiannual' => (float) $plan['monthly_price'] * 6,
             default => (float) $plan['monthly_price'],
         };
