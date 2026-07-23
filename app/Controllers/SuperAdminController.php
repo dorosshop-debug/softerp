@@ -47,7 +47,23 @@ class SuperAdminController extends Controller
         $recentActivity = $this->db->query("SELECT * FROM audit_logs ORDER BY created_at DESC LIMIT 10")->fetchAll();
         $expiringTenants = $this->db->query("SELECT t.company_name, t.subscription_end_date, sp.name as plan_name FROM tenants t LEFT JOIN subscription_plans sp ON t.subscription_plan_id=sp.id WHERE t.status='active' AND t.subscription_end_date IS NOT NULL AND t.subscription_end_date BETWEEN CURDATE() AND DATE_ADD(CURDATE(),INTERVAL 7 DAY) ORDER BY t.subscription_end_date ASC LIMIT 5")->fetchAll();
         
-        $this->view('superadmin.dashboard', ['stats'=>$data['stats'], 'recentActivity'=>$recentActivity, 'expiringTenants'=>$expiringTenants]);
+        $s = $data['stats'];
+        $this->view('superadmin.dashboard', [
+            'stats' => $s,
+            'ticketStats' => [
+                'open' => $s['open_tickets'] ?? 0,
+                'in_progress' => $s['in_progress_tickets'] ?? 0,
+                'urgent' => $s['urgent_tickets'] ?? 0,
+            ],
+            'licenseStats' => [
+                'active_subscriptions' => $s['active_subscriptions'] ?? $s['active_licenses'] ?? 0,
+                'total_revenue' => $s['total_revenue'] ?? 0,
+                'pending_payments' => $s['pending_payments'] ?? 0,
+                'active_sales' => $s['active_licenses'] ?? 0,
+            ],
+            'recentActivity' => $recentActivity,
+            'expiringTenants' => $expiringTenants,
+        ]);
     }
     
     public function tenants(): void
@@ -147,15 +163,17 @@ class SuperAdminController extends Controller
         $name = $this->request->post('name');
         $razon_social = $this->request->post('razon_social');
         $documento_tipo = $this->request->post('documento_tipo');
-        $documento_numero = $this->request->post('documento_numero');
+        $documento_numero = trim((string)$this->request->post('documento_numero'));
         $email = $this->request->post('email');
-        $phone = $this->request->post('phone');
+        $phone = trim((string)$this->request->post('phone'));
         $address = $this->request->post('address');
         $subscription_plan_id = $this->request->post('plan_id');
         $billing_cycle = $this->request->post('billing_cycle');
+        $adminName = trim((string)$this->request->post('admin_name'));
+        $adminPassword = trim((string)$this->request->post('admin_password'));
         
-        if (empty($name) || empty($email) || empty($subscription_plan_id)) {
-            $this->respond(false, 'Por favor complete todos los campos requeridos', '/superadmin/tenants');
+        if (empty($name) || empty($email) || empty($subscription_plan_id) || $documento_numero === '' || $phone === '' || empty($documento_tipo)) {
+            $this->respond(false, 'Complete los campos obligatorios: empresa, email, documento, teléfono y plan', '/superadmin/tenants');
             return;
         }
         
@@ -171,7 +189,9 @@ class SuperAdminController extends Controller
         $subscription_start_date = date('Y-m-d');
         $subscription_end_date = $billing_cycle === 'annual'
             ? date('Y-m-d', strtotime('+1 year'))
-            : date('Y-m-d', strtotime('+1 month'));
+            : ($billing_cycle === 'semiannual'
+                ? date('Y-m-d', strtotime('+6 months'))
+                : date('Y-m-d', strtotime('+1 month')));
         
         // Generar nombre de base de datos único
         $company_slug = strtolower(preg_replace('/[^a-z0-9]+/', '_', $name));
@@ -186,7 +206,7 @@ class SuperAdminController extends Controller
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'localhost', 3306, ?, ?, ?, ?, ?, 'active', NOW())
         ", [$name, $razon_social, $documento_tipo, $documento_numero, $email, $phone, $address, $database_name, $database_user, $database_password, $subscription_plan_id, $subscription_start_date, $subscription_end_date]);
         
-        $tenant_id = $this->db->lastInsertId();
+        $tenant_id = (int)$this->db->lastInsertId();
         
         // Crear base de datos automáticamente para el tenant
         $tenantDb = TenantDatabase::getInstance();
@@ -199,6 +219,22 @@ class SuperAdminController extends Controller
             return;
         }
         
+        $generatedPass = false;
+        if ($adminPassword === '') {
+            $adminPassword = substr(bin2hex(random_bytes(6)), 0, 10);
+            $generatedPass = true;
+        }
+        if (strlen($adminPassword) < 8) {
+            $this->db->query("DELETE FROM tenants WHERE id = ?", [$tenant_id]);
+            $this->respond(false, 'La contraseña del admin debe tener al menos 8 caracteres', '/superadmin/tenants');
+            return;
+        }
+        if ($adminName === '') {
+            $adminName = 'Admin ' . $name;
+        }
+        
+        $this->provisionTenantAdminUser($tenant_id, $adminName, $email, $adminPassword);
+        
         AuditService::log(
             'create',
             'tenants',
@@ -206,7 +242,32 @@ class SuperAdminController extends Controller
             (int) $tenant_id
         );
         
-        $this->respond(true, 'Cliente creado exitosamente. Base de datos configurada.', '/superadmin/tenants');
+        $msg = 'Cliente creado. Base de datos y usuario admin listos.';
+        if ($generatedPass) {
+            $msg .= ' Contraseña temporal del admin (' . $email . '): ' . $adminPassword;
+        }
+        $this->respond(true, $msg, '/superadmin/tenants');
+    }
+    
+    /**
+     * Crea el usuario administrador inicial en master (tenant_users)
+     */
+    private function provisionTenantAdminUser(int $tenantId, string $name, string $email, string $plainPassword): void
+    {
+        $existing = $this->db->query(
+            "SELECT id FROM tenant_users WHERE tenant_id = ? AND email = ? LIMIT 1",
+            [$tenantId, $email]
+        )->fetch();
+        if ($existing) {
+            return;
+        }
+        
+        $hashed = password_hash($plainPassword, PASSWORD_ARGON2ID);
+        $this->db->query(
+            "INSERT INTO tenant_users (tenant_id, name, email, password, role, permissions, status, created_at)
+             VALUES (?, ?, ?, ?, 'admin', '{}', 'active', NOW())",
+            [$tenantId, $name, $email, $hashed]
+        );
     }
     
     private function editTenant(): void
@@ -220,15 +281,15 @@ class SuperAdminController extends Controller
         $name = $this->request->post('name');
         $razon_social = $this->request->post('razon_social');
         $documento_tipo = $this->request->post('documento_tipo');
-        $documento_numero = $this->request->post('documento_numero');
+        $documento_numero = trim((string)$this->request->post('documento_numero'));
         $email = $this->request->post('email');
-        $phone = $this->request->post('phone');
+        $phone = trim((string)$this->request->post('phone'));
         $address = $this->request->post('address');
         $subscription_plan_id = $this->request->post('plan_id');
         $status = $this->request->post('status');
         
-        if (empty($name) || empty($email) || empty($subscription_plan_id)) {
-            $this->respond(false, 'Por favor complete todos los campos requeridos', '/superadmin/tenants');
+        if (empty($name) || empty($email) || empty($subscription_plan_id) || $documento_numero === '' || $phone === '' || empty($documento_tipo)) {
+            $this->respond(false, 'Complete los campos obligatorios: empresa, email, documento, teléfono y plan', '/superadmin/tenants');
             return;
         }
         
@@ -312,16 +373,25 @@ class SuperAdminController extends Controller
         $max_users = $this->request->post('max_users');
         $max_products = $this->request->post('max_products');
         $modules = json_encode($this->request->post('modules', []));
+        $features = $this->buildPlanFeaturesJson();
         
         if (empty($name) || empty($monthly_price) || empty($annual_price)) {
             $this->respond(false, 'Por favor complete todos los campos requeridos', '/superadmin/plans');
             return;
         }
         
-        $this->db->query("
-            INSERT INTO subscription_plans (name, description, monthly_price, semiannual_price, annual_price, max_users, max_products, modules, status, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', NOW())
-        ", [$name, $description, $monthly_price, $semiannual_price ?: null, $annual_price, $max_users, $max_products, $modules]);
+        try {
+            $this->db->query("
+                INSERT INTO subscription_plans (name, description, monthly_price, semiannual_price, annual_price, max_users, max_products, modules, features, status, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', NOW())
+            ", [$name, $description, $monthly_price, $semiannual_price ?: null, $annual_price, $max_users, $max_products, $modules, $features]);
+        } catch (\Throwable $e) {
+            // Compatibilidad si aun no existe la columna features
+            $this->db->query("
+                INSERT INTO subscription_plans (name, description, monthly_price, semiannual_price, annual_price, max_users, max_products, modules, status, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', NOW())
+            ", [$name, $description, $monthly_price, $semiannual_price ?: null, $annual_price, $max_users, $max_products, $modules]);
+        }
         
         AuditService::log(
             'create',
@@ -348,6 +418,7 @@ class SuperAdminController extends Controller
         $max_users = $this->request->post('max_users');
         $max_products = $this->request->post('max_products');
         $modules = json_encode($this->request->post('modules', []));
+        $features = $this->buildPlanFeaturesJson();
         $status = $this->request->post('status');
         
         if (empty($name) || empty($monthly_price) || empty($annual_price)) {
@@ -355,11 +426,19 @@ class SuperAdminController extends Controller
             return;
         }
         
-        $this->db->query("
-            UPDATE subscription_plans
-            SET name = ?, description = ?, monthly_price = ?, semiannual_price = ?, annual_price = ?, max_users = ?, max_products = ?, modules = ?, status = ?, updated_at = NOW()
-            WHERE id = ?
-        ", [$name, $description, $monthly_price, $semiannual_price ?: null, $annual_price, $max_users, $max_products, $modules, $status, $id]);
+        try {
+            $this->db->query("
+                UPDATE subscription_plans
+                SET name = ?, description = ?, monthly_price = ?, semiannual_price = ?, annual_price = ?, max_users = ?, max_products = ?, modules = ?, features = ?, status = ?, updated_at = NOW()
+                WHERE id = ?
+            ", [$name, $description, $monthly_price, $semiannual_price ?: null, $annual_price, $max_users, $max_products, $modules, $features, $status, $id]);
+        } catch (\Throwable $e) {
+            $this->db->query("
+                UPDATE subscription_plans
+                SET name = ?, description = ?, monthly_price = ?, semiannual_price = ?, annual_price = ?, max_users = ?, max_products = ?, modules = ?, status = ?, updated_at = NOW()
+                WHERE id = ?
+            ", [$name, $description, $monthly_price, $semiannual_price ?: null, $annual_price, $max_users, $max_products, $modules, $status, $id]);
+        }
         
         AuditService::log(
             'update',
@@ -368,6 +447,29 @@ class SuperAdminController extends Controller
         );
         
         $this->respond(true, 'Plan actualizado exitosamente', '/superadmin/plans');
+    }
+    
+    /**
+     * JSON de features del plan (reportes basic/full + export)
+     */
+    private function buildPlanFeaturesJson(): string
+    {
+        $tier = strtolower(trim((string)$this->request->post('plan_tier', 'basic')));
+        if (!in_array($tier, ['basic', 'pro', 'premium', 'custom'], true)) {
+            $tier = 'basic';
+        }
+        
+        $reports = strtolower(trim((string)$this->request->post('reports_level', 'basic')));
+        $reports = $reports === 'full' ? 'full' : 'basic';
+        
+        // Checkbox solo llega si esta marcado
+        $export = (string)$this->request->post('export_reports', '') === '1';
+        
+        return json_encode([
+            'tier' => $tier,
+            'reports' => $reports,
+            'export' => $export,
+        ], JSON_UNESCAPED_UNICODE);
     }
     
     private function deletePlan(): void
@@ -429,7 +531,12 @@ class SuperAdminController extends Controller
         $name = $this->request->post('name');
         $email = $this->request->post('email');
         $password = $this->request->post('password');
-        $role = $this->request->post('role');
+        $role = strtolower(trim((string)$this->request->post('role')));
+        $allowedRoles = ['admin', 'user', 'auxiliar'];
+        if (!in_array($role, $allowedRoles, true)) {
+            $this->respond(false, 'Rol no valido', '/superadmin/tenants/' . $tenant_id . '/users');
+            return;
+        }
         $permissions = $this->request->post('permissions', []);
         
         if (empty($name) || empty($email) || empty($password)) {
@@ -465,12 +572,41 @@ class SuperAdminController extends Controller
             }
         }
         
+        // Auxiliar: permisos fijos (ventas + inventario limitado)
+        if ($role === 'auxiliar') {
+            $processedPermissions = [
+                'ventas' => ['view' => true, 'edit' => true],
+                'inventario' => ['view' => true, 'edit' => false],
+            ];
+        }
+        
         $permissionsJson = json_encode($processedPermissions);
         
-        $this->db->query("
-            INSERT INTO tenant_users (tenant_id, name, email, password, role, permissions, status, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, 'active', NOW())
-        ", [$tenant_id, $name, $email, $hashed_password, $role, $permissionsJson]);
+        try {
+            $this->db->query("
+                INSERT INTO tenant_users (tenant_id, name, email, password, role, permissions, status, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, 'active', NOW())
+            ", [$tenant_id, $name, $email, $hashed_password, $role, $permissionsJson]);
+        } catch (\Throwable $e) {
+            // Si el ENUM aun no incluye auxiliar
+            if ($role === 'auxiliar') {
+                try {
+                    $this->db->getConnection()->exec(
+                        "ALTER TABLE tenant_users MODIFY COLUMN role ENUM('admin', 'user', 'auxiliar') NOT NULL DEFAULT 'user'"
+                    );
+                    $this->db->query("
+                        INSERT INTO tenant_users (tenant_id, name, email, password, role, permissions, status, created_at)
+                        VALUES (?, ?, ?, ?, ?, ?, 'active', NOW())
+                    ", [$tenant_id, $name, $email, $hashed_password, $role, $permissionsJson]);
+                } catch (\Throwable $e2) {
+                    $this->respond(false, 'Error al crear usuario. Ejecute la migracion 015 (rol auxiliar).', '/superadmin/tenants/' . $tenant_id . '/users');
+                    return;
+                }
+            } else {
+                $this->respond(false, 'Error al crear usuario: ' . $e->getMessage(), '/superadmin/tenants/' . $tenant_id . '/users');
+                return;
+            }
+        }
         
         AuditService::log(
             'create',
@@ -559,6 +695,121 @@ class SuperAdminController extends Controller
         );
         
         $this->respond(true, 'Contraseña cambiada exitosamente', '/superadmin/settings');
+    }
+    
+    /**
+     * Noticias / anuncios visibles en la campana de los tenants
+     */
+    public function announcements(): void
+    {
+        $this->ensureAnnouncementsTable();
+        
+        $action = $this->request->get('action');
+        
+        if ($action === 'create' && $this->request->method() === 'POST') {
+            $this->createAnnouncement();
+            return;
+        }
+        if ($action === 'toggle' && $this->request->method() === 'POST') {
+            $this->toggleAnnouncement();
+            return;
+        }
+        if ($action === 'delete' && $this->request->method() === 'POST') {
+            $this->deleteAnnouncement();
+            return;
+        }
+        
+        $announcements = $this->db->query(
+            "SELECT * FROM announcements ORDER BY published_at DESC LIMIT 50"
+        )->fetchAll();
+        
+        $this->view('superadmin.announcements', [
+            'announcements' => $announcements,
+        ]);
+    }
+    
+    private function ensureAnnouncementsTable(): void
+    {
+        try {
+            $this->db->query("SELECT 1 FROM announcements LIMIT 0");
+        } catch (\Throwable $e) {
+            $pdo = $this->db->getConnection();
+            if ($pdo) {
+                $pdo->exec(
+                    "CREATE TABLE IF NOT EXISTS announcements (
+                        id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+                        title VARCHAR(255) NOT NULL,
+                        body TEXT NOT NULL,
+                        status ENUM('active', 'inactive') DEFAULT 'active',
+                        priority ENUM('normal', 'important') DEFAULT 'normal',
+                        published_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        created_by INT UNSIGNED NULL,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                        INDEX idx_status (status),
+                        INDEX idx_published (published_at)
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
+                );
+            }
+        }
+    }
+    
+    private function createAnnouncement(): void
+    {
+        if (!$this->validateCsrfOrFail('/superadmin/announcements')) {
+            return;
+        }
+        
+        $title = trim($this->request->post('title', ''));
+        $body = trim($this->request->post('body', ''));
+        $priority = $this->request->post('priority', 'normal');
+        
+        if ($title === '' || $body === '') {
+            $this->respond(false, 'Titulo y mensaje son requeridos', '/superadmin/announcements');
+            return;
+        }
+        
+        if (!in_array($priority, ['normal', 'important'], true)) {
+            $priority = 'normal';
+        }
+        
+        $this->db->query(
+            "INSERT INTO announcements (title, body, status, priority, published_at, created_by)
+             VALUES (?, ?, 'active', ?, NOW(), ?)",
+            [$title, $body, $priority, $_SESSION['super_admin_id'] ?? null]
+        );
+        
+        AuditService::log('create', 'announcements', 'Anuncio publicado: ' . $title);
+        $this->respond(true, 'Noticia publicada. Los clientes la veran en la campana.', '/superadmin/announcements');
+    }
+    
+    private function toggleAnnouncement(): void
+    {
+        if (!$this->validateCsrfOrFail('/superadmin/announcements')) {
+            return;
+        }
+        
+        $id = (int)$this->request->post('id');
+        $row = $this->db->query("SELECT id, status FROM announcements WHERE id = ?", [$id])->fetch();
+        if (!$row) {
+            $this->respond(false, 'Anuncio no encontrado', '/superadmin/announcements');
+            return;
+        }
+        
+        $newStatus = $row['status'] === 'active' ? 'inactive' : 'active';
+        $this->db->query("UPDATE announcements SET status = ? WHERE id = ?", [$newStatus, $id]);
+        $this->respond(true, 'Estado actualizado', '/superadmin/announcements');
+    }
+    
+    private function deleteAnnouncement(): void
+    {
+        if (!$this->validateCsrfOrFail('/superadmin/announcements')) {
+            return;
+        }
+        
+        $id = (int)$this->request->post('id');
+        $this->db->query("DELETE FROM announcements WHERE id = ?", [$id]);
+        $this->respond(true, 'Anuncio eliminado', '/superadmin/announcements');
     }
     
     /**

@@ -1,6 +1,6 @@
 <?php
 $layout = 'auth';
-$title = 'Acceso al Sistema - Software de Gestión Active';
+$title = 'Acceso al Sistema - Seri ERP';
 ?>
 
 <div class="login-card">

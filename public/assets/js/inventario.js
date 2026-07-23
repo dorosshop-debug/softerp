@@ -129,12 +129,16 @@ function openImageLightbox(src, name) {
 // ============================================
 var cart = JSON.parse(localStorage.getItem('eva_cart') || '[]');
 
-function addToCart(id, name, price) {
+function addToCart(id, name, price, evt) {
     var ex = cart.find(function(i) { return i.id == id; });
     if (ex) { ex.qty++; }
     else { cart.push({ id: id, name: name, price: price, qty: 1 }); }
     saveCart();
     showAlert(name + ' agregado al carrito', 'success');
+    var fromEl = (evt && evt.currentTarget) ? evt.currentTarget : (typeof event !== 'undefined' ? event.target : null);
+    if (typeof animateAddToCart === 'function') {
+        animateAddToCart(fromEl && fromEl.closest ? (fromEl.closest('.btn') || fromEl) : fromEl);
+    }
 }
 
 function saveCart() {

@@ -2,7 +2,7 @@
 
 /**
  * Punto de entrada principal de la aplicación
- * Software de Gestión Active - ERP SaaS
+ * Seri ERP - ERP SaaS
  */
 
 define('ROOT_PATH', dirname(__DIR__));
@@ -11,6 +11,25 @@ define('CORE_PATH', ROOT_PATH . '/core');
 define('CONFIG_PATH', ROOT_PATH . '/config');
 define('PUBLIC_PATH', __DIR__);
 define('STORAGE_PATH', ROOT_PATH . '/storage');
+
+// Cargar variables de entorno desde .env (si existe)
+$envFile = ROOT_PATH . '/.env';
+if (is_readable($envFile)) {
+    $lines = file($envFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+    foreach ($lines as $line) {
+        $line = trim($line);
+        if ($line === '' || str_starts_with($line, '#') || !str_contains($line, '=')) {
+            continue;
+        }
+        [$name, $value] = array_map('trim', explode('=', $line, 2));
+        $value = trim($value, " \t\"'");
+        if ($name !== '' && getenv($name) === false) {
+            putenv("{$name}={$value}");
+            $_ENV[$name] = $value;
+            $_SERVER[$name] = $value;
+        }
+    }
+}
 
 // Cargar autoloader de Composer
 require_once ROOT_PATH . '/vendor/autoload.php';

@@ -25,6 +25,12 @@ class TenantAuthController extends Controller
      */
     public function authenticate(): void
     {
+        if (!$this->checkRateLimit()) {
+            $_SESSION['tenant_error'] = 'Demasiados intentos. Intente de nuevo en 15 minutos.';
+            redirect('/app/login');
+            return;
+        }
+        
         if (!$this->validateCsrf()) {
             $_SESSION['tenant_error'] = 'Token de seguridad invalido o expirado';
             redirect('/app/login');
@@ -56,10 +62,13 @@ class TenantAuthController extends Controller
         )->fetch();
         
         if (!$user || !password_verify($password, $user['password'])) {
+            $this->incrementRateLimit();
             $_SESSION['tenant_error'] = 'Credenciales incorrectas o cuenta suspendida';
             redirect('/app/login');
             return;
         }
+        
+        $this->clearRateLimit();
         
         // Verificar que la BD del tenant existe y sincronizar usuario
         try {
@@ -71,6 +80,15 @@ class TenantAuthController extends Controller
             );
             
             // Sincronizar usuario en la BD del tenant (para FKs de cash_sessions, sales, etc.)
+            $localRole = $user['role'] ?? 'admin';
+            if ($localRole === 'user') {
+                $localRole = 'manager';
+            }
+            if (in_array($localRole, ['mesero', 'waiter', 'auxiliar_mesero'], true)) {
+                $localRole = 'auxiliar';
+            }
+            $this->ensureTenantUserRoleEnum($tenantConn);
+            
             $stmt = $tenantConn->prepare(
                 "SELECT id FROM users WHERE email = ? LIMIT 1"
             );
@@ -78,16 +96,16 @@ class TenantAuthController extends Controller
             $localUser = $stmt->fetch();
             
             if ($localUser) {
-                // Actualizar nombre si cambió
+                // Sincronizar nombre, rol y hash desde master (fuente de login)
                 $tenantConn->prepare(
-                    "UPDATE users SET name = ?, role = ?, status = 'active' WHERE id = ?"
-                )->execute([$user['name'], $user['role'] ?? 'admin', $localUser['id']]);
+                    "UPDATE users SET name = ?, role = ?, password = ?, status = 'active' WHERE id = ?"
+                )->execute([$user['name'], $localRole, $user['password'], $localUser['id']]);
                 $localUserId = $localUser['id'];
             } else {
                 // Crear usuario en la BD del tenant
                 $tenantConn->prepare(
                     "INSERT INTO users (name, email, password, role, status) VALUES (?, ?, ?, ?, 'active')"
-                )->execute([$user['name'], $user['email'], $user['password'], $user['role'] ?? 'admin']);
+                )->execute([$user['name'], $user['email'], $user['password'], $localRole]);
                 $localUserId = $tenantConn->lastInsertId();
             }
         } catch (\Exception $e) {
@@ -96,16 +114,17 @@ class TenantAuthController extends Controller
             return;
         }
         
+        session_regenerate_id(true);
+        
         // Guardar sesión del tenant (usar ID local de la BD del tenant)
         $_SESSION['tenant_user_id'] = $localUserId;
+        $_SESSION['tenant_master_user_id'] = (int)$user['id'];
         $_SESSION['tenant_user_name'] = $user['name'];
         $_SESSION['tenant_user_email'] = $user['email'];
         $_SESSION['tenant_user_role'] = $user['role'];
         $_SESSION['tenant_id'] = $user['tenant_id'];
         $_SESSION['tenant_name'] = $user['company_name'];
         $_SESSION['tenant_db_name'] = $user['database_name'];
-        $_SESSION['tenant_db_user'] = $user['database_user'];
-        $_SESSION['tenant_db_pass'] = $user['database_password'];
         $_SESSION['tenant_authenticated'] = true;
         
         // Guardar módulos del plan para filtrar sidebar
@@ -118,7 +137,52 @@ class TenantAuthController extends Controller
             [$this->request->ip(), $user['id']]
         );
         
-        redirect('/app/dashboard');
+        redirect(in_array(($user['role'] ?? ''), ['auxiliar', 'mesero'], true) ? '/app/ventas' : '/app/dashboard');
+    }
+    
+    /**
+     * Asegura que el ENUM de users.role acepte auxiliar
+     */
+    private function ensureTenantUserRoleEnum(\PDO $pdo): void
+    {
+        try {
+            $pdo->exec(
+                "ALTER TABLE users
+                 MODIFY COLUMN role ENUM('admin', 'manager', 'cashier', 'viewer', 'auxiliar') DEFAULT 'admin'"
+            );
+        } catch (\Throwable $e) {
+            // Ya actualizado o sin permisos ALTER
+        }
+    }
+    
+    private function checkRateLimit(): bool
+    {
+        $ip = $this->request->ip();
+        $key = 'tenant_rate_limit_' . md5($ip);
+        $attempts = $_SESSION[$key] ?? ['count' => 0, 'first_attempt' => time()];
+        
+        if (time() - $attempts['first_attempt'] > 900) {
+            unset($_SESSION[$key]);
+            return true;
+        }
+        
+        return $attempts['count'] < 5;
+    }
+    
+    private function incrementRateLimit(): void
+    {
+        $ip = $this->request->ip();
+        $key = 'tenant_rate_limit_' . md5($ip);
+        $attempts = $_SESSION[$key] ?? ['count' => 0, 'first_attempt' => time()];
+        $attempts['count']++;
+        $_SESSION[$key] = $attempts;
+    }
+    
+    private function clearRateLimit(): void
+    {
+        $ip = $this->request->ip();
+        $key = 'tenant_rate_limit_' . md5($ip);
+        unset($_SESSION[$key]);
     }
     
     /**
@@ -128,6 +192,7 @@ class TenantAuthController extends Controller
     {
         unset(
             $_SESSION['tenant_user_id'],
+            $_SESSION['tenant_master_user_id'],
             $_SESSION['tenant_user_name'],
             $_SESSION['tenant_user_email'],
             $_SESSION['tenant_user_role'],
@@ -138,7 +203,6 @@ class TenantAuthController extends Controller
             $_SESSION['tenant_db_pass'],
             $_SESSION['tenant_authenticated']
         );
-        
         redirect('/app/login');
     }
 }

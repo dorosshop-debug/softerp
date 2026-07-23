@@ -1,6 +1,6 @@
 <?php
 $layout = 'main';
-$title = 'Contabilidad - Software de Gestión Active';
+$title = 'Contabilidad - Seri ERP';
 $pageTitle = 'Contabilidad';
 $userName = 'Usuario';
 ?>

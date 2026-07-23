@@ -3,6 +3,15 @@ $layout = 'tenant';
 $title = 'Asistente IA - ' . ($tenantName ?? 'Sistema');
 $pageTitle = 'Asistente Virtual Seri';
 $tenantName = $tenantName ?? 'Mi Empresa'; $userName = $userName ?? 'Usuario';
+$aiPersonality = $aiPersonality ?? [];
+$aiName = $aiPersonality['name'] ?? 'Seri';
+$aiWelcome = $aiPersonality['welcome'] ?? 'Hola, soy Seri. Puedo ayudarte con ventas, inventario, clientes y caja.';
+$aiSuggestions = $aiPersonality['suggestions'] ?? [
+    '¿Cómo van las ventas de hoy?',
+    '¿Qué productos tienen stock bajo?',
+    'Resumen de clientes recientes',
+    '¿Cómo está la caja?',
+];
 ?>
 <style>
 .ai-chat-container { display: flex; flex-direction: column; height: calc(100vh - 200px); min-height: 500px; }
@@ -28,8 +37,14 @@ $tenantName = $tenantName ?? 'Mi Empresa'; $userName = $userName ?? 'Usuario';
 
 <div class="card neumorphic" style="margin-bottom:15px;">
     <div class="card-header">
-        <h3>🤖 Asistente Virtual Seri</h3>
-        <span style="font-size:12px;color:var(--color-text-secondary);">Tu asistente de negocio inteligente</span>
+        <h3>Asistente Virtual <?php echo htmlspecialchars($aiName); ?></h3>
+        <span style="font-size:12px;color:var(--color-text-secondary);">
+            <?php if (!empty($aiConfigured)): ?>
+                Conectado a OpenRouter · <?php echo htmlspecialchars($aiModel ?? 'NVIDIA Nemotron 3 Ultra'); ?>
+            <?php else: ?>
+                Modo local (configura OPENROUTER_API_KEY en .env para Nemotron)
+            <?php endif; ?>
+        </span>
     </div>
 </div>
 
@@ -37,27 +52,23 @@ $tenantName = $tenantName ?? 'Mi Empresa'; $userName = $userName ?? 'Usuario';
     <div class="ai-messages" id="aiMessages">
         <div class="ai-msg assistant">
             <div class="bubble">
-                ¡Hola! 👋 Soy <strong>Seri</strong>, tu asistente virtual de Seri ERP. Estoy aquí para ayudarte a gestionar y hacer crecer tu negocio.
-                <br><br>Puedo analizar tus <strong>ventas</strong> 📊, monitorear tu <strong>inventario</strong> 📦, identificar <strong>tendencias</strong> 📈, sugerir <strong>estrategias de marketing</strong> 📸 y mucho más.
-                <br><br>¿En qué puedo ayudarte hoy?
+                <?php echo nl2br(htmlspecialchars($aiWelcome)); ?>
                 <div class="time"><?php echo date('H:i'); ?></div>
             </div>
         </div>
     </div>
     
     <div class="ai-suggestions" id="aiSuggestions">
-        <button onclick="askSuggestion('¿Cuáles son mis productos más vendidos?')">🏆 Más vendidos</button>
-        <button onclick="askSuggestion('¿Cómo está mi inventario?')">📦 Inventario</button>
-        <button onclick="askSuggestion('¿Cómo van las ventas?')">💰 Ventas</button>
-        <button onclick="askSuggestion('Dame recomendaciones para mejorar')">📈 Recomendaciones</button>
-        <button onclick="askSuggestion('¿Quiénes son mis mejores clientes?')">👥 Clientes</button>
-        <button onclick="askSuggestion('Ideas para redes sociales')">📸 Marketing</button>
-        <button onclick="askSuggestion('¿Qué tendencias ves en mi negocio?')">📊 Tendencias</button>
+        <?php foreach ($aiSuggestions as $suggestion): ?>
+            <button type="button" onclick="askSuggestion(<?php echo htmlspecialchars(json_encode($suggestion), ENT_QUOTES, 'UTF-8'); ?>)">
+                <?php echo htmlspecialchars($suggestion); ?>
+            </button>
+        <?php endforeach; ?>
     </div>
     
     <div class="ai-input-area">
         <input type="text" id="aiInput" class="form-control" placeholder="Escribe tu pregunta aquí..." onkeypress="if(event.key==='Enter')sendMessage()" autofocus>
-        <button onclick="sendMessage()" class="btn btn-primary">📨 Enviar</button>
+        <button onclick="sendMessage()" class="btn btn-primary">Enviar</button>
     </div>
 </div>
 
@@ -93,7 +104,8 @@ function sendMessage() {
     .then(function(d) {
         var typing = document.getElementById('typing');
         if (typing) typing.remove();
-        container.innerHTML += '<div class="ai-msg assistant"><div class="bubble">' + esc(d.reply || 'No entendí. ¿Podrías reformular tu pregunta?') + '<div class="time">' + time + '</div></div></div>';
+        var reply = d.reply || d.message || 'No entendí. ¿Podrías reformular tu pregunta?';
+        container.innerHTML += '<div class="ai-msg assistant"><div class="bubble">' + esc(reply) + '<div class="time">' + time + '</div></div></div>';
         container.scrollTop = container.scrollHeight;
     })
     .catch(function() {
@@ -104,5 +116,5 @@ function sendMessage() {
     });
 }
 
-function esc(s) { return (s||'').replace(/</g,'<').replace(/>/g,'>'); }
+function esc(s) { return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 </script>

@@ -1,6 +1,6 @@
 <?php
 $layout = 'main';
-$title = 'Proveedores - Software de Gestión Active';
+$title = 'Proveedores - Seri ERP';
 $pageTitle = 'Proveedores';
 $userName = 'Usuario';
 ?>

@@ -51,7 +51,7 @@ $suppliers = $suppliers ?? [];
                             <button onclick='openModal(<?php echo htmlspecialchars(json_encode($s)); ?>)' class="btn btn-sm btn-secondary" title="Editar"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg> Editar</button>
                             <form method="POST" action="<?php echo $viewInstance->route('app/proveedores'); ?>?action=delete" style="display:inline;" data-ajax="true">
                                 <?php echo \SoftNova\Core\csrf_field(); ?><input type="hidden" name="id" value="<?php echo $s['id']; ?>">
-                                <button type="submit" onclick="return confirm('¿Eliminar?')" class="btn btn-sm btn-danger" title="Eliminar"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg></button>
+                                <button type="submit" data-confirm="Eliminar este proveedor?" class="btn btn-sm btn-danger" title="Eliminar"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg></button>
                             </form>
                         </div>
                     </div>
@@ -67,16 +67,16 @@ $suppliers = $suppliers ?? [];
         <form method="POST" id="supplierForm" enctype="multipart/form-data" data-ajax="true">
             <?php echo \SoftNova\Core\csrf_field(); ?><input type="hidden" name="id" id="supId">
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:15px;">
-                <div class="form-group" style="grid-column:1/-1;"><label>Nombre de Empresa *</label><input type="text" name="name" id="supName" required class="form-control"></div>
-                <div class="form-group"><label>Contacto</label><input type="text" name="contact_name" id="supContact" class="form-control" placeholder="Nombre de la persona"></div>
-                <div class="form-group"><label>Tipo Doc.</label><select name="document_type" id="supDocType" class="form-control"><option value="NIT">NIT</option><option value="CC">C.C</option><option value="CE">C.E</option><option value="OTROS">OTROS</option></select></div>
-                <div class="form-group"><label>N° Documento</label><input type="text" name="document_number" id="supDocNum" class="form-control"></div>
-                <div class="form-group"><label>Email</label><input type="email" name="email" id="supEmail" class="form-control"></div>
-                <div class="form-group"><label>Teléfono</label><input type="text" name="phone" id="supPhone" class="form-control"></div>
+                <div class="form-group" style="grid-column:1/-1;"><label>Nombre de Empresa * <span class="field-tip" data-tip="Razón social o nombre comercial del proveedor. Campo obligatorio.">?</span></label><input type="text" name="name" id="supName" required class="form-control"></div>
+                <div class="form-group"><label>Tipo Doc. <span class="field-tip" data-tip="Tipo de documento tributario o de identidad del proveedor.">?</span></label><select name="document_type" id="supDocType" class="form-control"><option value="NIT">NIT</option><option value="CC">C.C</option><option value="CE">C.E</option><option value="OTROS">OTROS</option></select></div>
+                <div class="form-group"><label>N° Documento * <span class="field-tip" data-tip="NIT o número de documento. Campo obligatorio.">?</span></label><input type="text" name="document_number" id="supDocNum" class="form-control" required></div>
+                <div class="form-group"><label>Contacto <span class="field-tip" data-tip="Persona de contacto habitual en el proveedor.">?</span></label><input type="text" name="contact_name" id="supContact" class="form-control" placeholder="Nombre de la persona"></div>
+                <div class="form-group"><label>Email <span class="field-tip" data-tip="Correo para pedidos o facturas del proveedor.">?</span></label><input type="email" name="email" id="supEmail" class="form-control"></div>
+                <div class="form-group"><label>Teléfono * <span class="field-tip" data-tip="Teléfono de contacto. Campo obligatorio.">?</span></label><input type="text" name="phone" id="supPhone" class="form-control" required></div>
             </div>
-            <div class="form-group"><label>Dirección</label><textarea name="address" id="supAddress" rows="2" class="form-control"></textarea></div>
-            <div class="form-group"><label>Notas</label><textarea name="notes" id="supNotes" rows="2" class="form-control"></textarea></div>
-            <div class="form-group"><label>Foto de Perfil</label><input type="file" name="image" id="supImage" class="form-control" accept="image/*" style="padding:8px;"></div>
+            <div class="form-group"><label>Dirección <span class="field-tip" data-tip="Dirección física o comercial del proveedor.">?</span></label><textarea name="address" id="supAddress" rows="2" class="form-control"></textarea></div>
+            <div class="form-group"><label>Notas <span class="field-tip" data-tip="Observaciones internas (condiciones, plazos, referencias).">?</span></label><textarea name="notes" id="supNotes" rows="2" class="form-control"></textarea></div>
+            <div class="form-group"><label>Foto de Perfil <span class="field-tip" data-tip="Imagen opcional del proveedor o logo.">?</span></label><input type="file" name="image" id="supImage" class="form-control" accept="image/*" style="padding:8px;"></div>
             <div class="modal-footer" style="margin-top:15px;"><button type="button" class="btn btn-secondary" onclick="closeModal()">Cancelar</button><button type="submit" class="btn btn-primary" id="submitBtn">Crear Proveedor</button></div>
         </form>
     </div>

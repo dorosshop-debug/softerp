@@ -8,7 +8,7 @@ function toggleCredit() {
     document.getElementById('initialPaymentGroup').style.display = s ? 'block' : 'none';
 }
 
-function addProduct() {
+function addProduct(ev) {
     var sel = document.getElementById('productSelect');
     var qty = parseInt(document.getElementById('productQty').value) || 1;
     if (!sel.value) return;
@@ -16,10 +16,19 @@ function addProduct() {
     var id = o.value, name = o.dataset.name, price = parseFloat(o.dataset.price), stock = parseInt(o.dataset.stock);
     if (qty > stock) return showAlert('Stock insuficiente: ' + stock, 'error');
     var ex = saleItems.find(function(i) { return i.product_id == id; });
-    if (ex) { ex.quantity += qty; ex.subtotal = ex.quantity * price; }
+    if (ex) {
+        if (ex.quantity + qty > stock) return showAlert('Stock insuficiente: ' + stock, 'error');
+        ex.quantity += qty;
+        ex.subtotal = ex.quantity * price;
+    }
     else { saleItems.push({ product_id: id, product_name: name, quantity: qty, unit_price: price, subtotal: qty * price }); }
     document.getElementById('productQty').value = 1;
     renderItems();
+    showAlert(name + ' agregado', 'success');
+    if (typeof animateAddToCart === 'function') {
+        var fromEl = (ev && ev.target) ? ev.target : document.getElementById('addProductBtn');
+        animateAddToCart(fromEl && fromEl.closest ? (fromEl.closest('.btn') || fromEl) : fromEl);
+    }
 }
 
 function removeItem(idx) { saleItems.splice(idx, 1); renderItems(); }
@@ -74,6 +83,8 @@ function openSaleModal() {
     }
     renderItems();
     toggleCredit();
+    resetCustomerCombobox();
+    initCustomerCombobox();
     document.getElementById('saleModal').style.display = 'flex';
 }
 
@@ -94,25 +105,18 @@ function submitQuickCustomer(form) {
     .then(function(d) {
         if (d.success) {
             showAlert(d.message, 'success');
-            var sel = document.getElementById('customerSelect');
             var newId = d.data ? d.data.id : null;
             var firstName = fd.get('first_name') || '';
             var lastName = fd.get('last_name') || '';
-            var newName = (firstName + ' ' + lastName).trim() || 'Nuevo Cliente';
-            if (newId && sel) {
-                var opt = document.createElement('option');
-                opt.value = newId;
-                opt.textContent = newName.trim();
-                sel.appendChild(opt);
-                sel.value = newId;
-            }
+            var newName = (d.data && d.data.name) ? d.data.name : ((firstName + ' ' + lastName).trim() || 'Nuevo Cliente');
+            if (newId) setSelectedCustomer(String(newId), newName.trim());
             document.getElementById('quickCustomerModal').style.display = 'none';
             form.reset();
         } else {
             showAlert(d.message, 'error');
         }
     })
-    .catch(function(e) {
+    .catch(function() {
         showAlert('Error de conexión', 'error');
     });
     return false;
@@ -162,8 +166,8 @@ function printInvoice(id) {
     setTimeout(function() { window.print(); }, 500);
 }
 
-// Auto-abrir modal si viene del carrito
 document.addEventListener('DOMContentLoaded', function() {
+    initCustomerCombobox();
     if (window.location.search.indexOf('fromCart=1') > -1) {
         openSaleModal();
     }

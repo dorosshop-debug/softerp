@@ -11,12 +11,13 @@ function fmtQ(float $a, array $c): string { return $c['symbol'].' '.number_forma
 <meta name="currency-decimals" content="<?php echo $currency['decimals']; ?>">
 <?php echo flashMessage(); ?>
 
-<div style="display:flex;gap:15px;margin-bottom:20px;">
-    <button onclick="openQuoteModal()" class="btn btn-primary neumorphic-btn">📝 Nueva Cotización</button>
+<div style="display:flex;gap:15px;margin-bottom:20px;flex-wrap:wrap;">
+    <button onclick="openQuoteModal()" class="btn btn-primary neumorphic-btn" title="Nueva cotizacion">Nueva Cotizacion</button>
+    <a href="<?php echo $viewInstance->route('app/cotizaciones'); ?>?action=export" class="btn btn-secondary" title="Exportar CSV">Exportar CSV</a>
 </div>
 
 <div class="card neumorphic">
-    <div class="card-header"><h3>📋 Cotizaciones</h3></div>
+    <div class="card-header"><h3>Cotizaciones</h3></div>
     <div class="card-body">
         <?php if (empty($quotes)): ?>
             <p style="text-align:center;color:var(--color-text-secondary);padding:20px;">No hay cotizaciones</p>
@@ -44,13 +45,19 @@ function fmtQ(float $a, array $c): string { return $c['symbol'].' '.number_forma
                             <?php endif; ?>
                             <form method="POST" action="<?php echo $viewInstance->route('app/cotizaciones'); ?>?action=delete" style="display:inline;" data-ajax="true">
                                 <?php echo \SoftNova\Core\csrf_field(); ?><input type="hidden" name="id" value="<?php echo $q['id']; ?>">
-                                <button type="submit" onclick="return confirm('¿Eliminar?')" class="btn btn-sm btn-danger" title="Eliminar"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg></button>
+                                <button type="submit" data-confirm="Eliminar esta cotizacion?" class="btn btn-sm btn-danger" title="Eliminar"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg></button>
                             </form>
                         </td>
                     </tr>
                 <?php endforeach; ?>
                 </tbody>
             </table></div>
+            <?php
+            $pagination = $pagination ?? null;
+            $paginationBaseUrl = $viewInstance->route('app/cotizaciones');
+            $paginationQuery = [];
+            $viewInstance->partial('pagination', compact('pagination', 'paginationBaseUrl', 'paginationQuery'));
+            ?>
         <?php endif; ?>
     </div>
 </div>
@@ -59,24 +66,32 @@ function fmtQ(float $a, array $c): string { return $c['symbol'].' '.number_forma
 <div id="quoteModal" class="modal-overlay" style="display:none;">
     <div class="modal-content neumorphic" style="max-width:750px;max-height:90vh;overflow-y:auto;">
         <div class="modal-header"><h3>Nueva Cotización</h3><button onclick="closeQuoteModal()" class="modal-close">&times;</button></div>
-        <form method="POST" action="<?php echo $viewInstance->route('app/cotizaciones'); ?>?action=create" data-ajax="true" onsubmit="return prepareQuoteItems()">
+        <form method="POST" action="<?php echo $viewInstance->route('app/cotizaciones'); ?>?action=create" data-ajax="true" data-prepare="quoteItems" onsubmit="return prepareQuoteItems()">
             <?php echo \SoftNova\Core\csrf_field(); ?>
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:15px;">
                 <div class="form-group">
-                    <label>Cliente</label>
-                    <input type="text" id="customerSearch" class="form-control" placeholder="🔍 Buscar cliente..." oninput="filterCustomers('customerSelect','customerSearch')" autocomplete="off" style="margin-bottom:5px;">
-                    <select name="customer_id" id="customerSelect" class="form-control" size="1">
-                        <option value="">Consumidor Final</option>
-                        <?php foreach($customers as $c): ?>
-                            <option value="<?php echo $c['id']; ?>" data-search="<?php echo htmlspecialchars(strtolower(($c['first_name']??$c['name']).' '.($c['last_name']??'').' '.($c['document_number']??''))); ?>"><?php echo htmlspecialchars(($c['first_name']??$c['name']).' '.($c['last_name']??'')); ?></option>
-                        <?php endforeach; ?>
-                    </select>
-                    <button type="button" onclick="(function(){var m=document.getElementById('quickCustomerModal');if(m)m.style.display='flex';})()" style="margin-top:5px;font-size:12px;color:var(--color-primary);background:none;border:none;cursor:pointer;text-decoration:underline;">+ Nuevo Cliente</button>
+                    <label>Cliente <span class="field-tip" data-tip="Escriba para buscar por nombre o documento y elija un cliente.">?</span></label>
+                    <div class="customer-combobox" id="customerCombobox">
+                        <input type="hidden" name="customer_id" id="customerId" value="">
+                        <input type="text" id="customerSearch" class="form-control" placeholder="Buscar o seleccionar cliente..." autocomplete="off">
+                        <ul class="combobox-list" id="customerList" hidden>
+                            <li class="combobox-option" data-id="" data-label="Consumidor Final" data-search="consumidor final">Consumidor Final</li>
+                            <?php foreach($customers as $c):
+                                $label = trim(($c['first_name']??$c['name']).' '.($c['last_name']??''));
+                                $search = strtolower($label.' '.($c['document_number']??''));
+                            ?>
+                                <li class="combobox-option" data-id="<?php echo (int)$c['id']; ?>" data-label="<?php echo htmlspecialchars($label); ?>" data-search="<?php echo htmlspecialchars($search); ?>">
+                                    <?php echo htmlspecialchars($label); ?>
+                                </li>
+                            <?php endforeach; ?>
+                        </ul>
+                    </div>
+                    <button type="button" onclick="(function(){var m=document.getElementById('quickCustomerModal');if(m)m.style.display='flex';})()" class="link-btn">+ Nuevo Cliente</button>
                 </div>
-                <div class="form-group"><label>Válido hasta</label><input type="date" name="valid_until" class="form-control" value="<?php echo date('Y-m-d', strtotime('+15 days')); ?>"></div>
+                <div class="form-group"><label>Válido hasta <span class="field-tip" data-tip="Fecha de vencimiento de la cotización.">?</span></label><input type="date" name="valid_until" class="form-control" value="<?php echo date('Y-m-d', strtotime('+15 days')); ?>"></div>
             </div>
-            <div class="form-group"><label>Notas</label><input type="text" name="notes" class="form-control" placeholder="Observaciones..."></div>
-            <div class="form-group"><label>Productos</label>
+            <div class="form-group"><label>Notas <span class="field-tip" data-tip="Observaciones visibles en la cotización.">?</span></label><input type="text" name="notes" class="form-control" placeholder="Observaciones..."></div>
+            <div class="form-group"><label>Productos <span class="field-tip" data-tip="Agregue los ítems a cotizar con cantidad y precio.">?</span></label>
                 <div style="display:flex;gap:8px;margin-bottom:8px;">
                     <select id="productSelect" class="form-control" style="flex:1;"><option value="">Seleccionar...</option><?php foreach($products as $p): ?><option value="<?php echo $p['id']; ?>" data-price="<?php echo $p['sale_price']; ?>" data-name="<?php echo htmlspecialchars($p['name']); ?>"><?php echo htmlspecialchars($p['name']); ?> (<?php echo fmtQ($p['sale_price'],$currency); ?>)</option><?php endforeach; ?></select>
                     <input type="number" id="productQty" value="1" min="1" class="form-control" style="width:80px;">
@@ -100,12 +115,12 @@ function fmtQ(float $a, array $c): string { return $c['symbol'].' '.number_forma
             <?php echo \SoftNova\Core\csrf_field(); ?>
             <div class="modal-body">
                 <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                    <div class="form-group"><label>Tipo Doc.</label><select name="document_type" class="form-control"><option value="CC">C.C</option><option value="CE">C.E</option><option value="NIT">NIT</option><option value="PPT">PPT</option><option value="OTROS">OTROS</option></select></div>
+                    <div class="form-group"><label>N° Documento *</label><input type="text" name="document_number" class="form-control" placeholder="Número" required></div>
                     <div class="form-group"><label>Nombre *</label><input type="text" name="first_name" class="form-control" required placeholder="Nombres"></div>
                     <div class="form-group"><label>Apellido</label><input type="text" name="last_name" class="form-control" placeholder="Apellidos"></div>
-                    <div class="form-group"><label>Tipo Doc.</label><select name="document_type" class="form-control"><option value="CC">C.C</option><option value="CE">C.E</option><option value="NIT">NIT</option><option value="PPT">PPT</option><option value="OTROS">OTROS</option></select></div>
-                    <div class="form-group"><label>N° Documento</label><input type="text" name="document_number" class="form-control" placeholder="Número"></div>
                     <div class="form-group"><label>Email</label><input type="email" name="email" class="form-control" placeholder="correo@ejemplo.com"></div>
-                    <div class="form-group"><label>Teléfono</label><input type="text" name="phone" class="form-control" placeholder="Teléfono"></div>
+                    <div class="form-group"><label>Teléfono *</label><input type="text" name="phone" class="form-control" placeholder="Teléfono" required></div>
                 </div>
                 <div class="form-group"><label>Dirección</label><textarea name="address" class="form-control" rows="2" placeholder="Dirección"></textarea></div>
             </div>
@@ -124,9 +139,9 @@ function fmtQ(float $a, array $c): string { return $c['symbol'].' '.number_forma
         <form method="POST" action="<?php echo $viewInstance->route('app/cotizaciones'); ?>?action=convert" data-ajax="true">
             <?php echo \SoftNova\Core\csrf_field(); ?><input type="hidden" name="id" id="convertQuoteId">
             <p id="convertInfo" style="margin-bottom:10px;"></p>
-            <div class="form-group"><label>Tipo de Pago</label><select name="payment_type" class="form-control" onchange="toggleConvertCredit()"><option value="full">Pago Completo</option><option value="credit">A Crédito</option></select></div>
-            <div class="form-group"><label>Método</label><select name="payment_method" class="form-control"><option value="cash">Efectivo</option><option value="card">Tarjeta</option><option value="transfer">Transferencia</option></select></div>
-            <div class="form-group" id="convertInitialGroup" style="display:none;"><label>Abono Inicial</label><input type="number" name="initial_payment" class="form-control" step="0.01" min="0" placeholder="0"></div>
+            <div class="form-group"><label>Tipo de Pago <span class="field-tip" data-tip="Totalidad cobra todo ahora. A Crédito deja saldo pendiente.">?</span></label><select name="payment_type" class="form-control" onchange="toggleConvertCredit()"><option value="full">Totalidad</option><option value="credit">A Crédito</option></select></div>
+            <div class="form-group"><label>Método <span class="field-tip" data-tip="Medio de pago de la venta generada.">?</span></label><select name="payment_method" class="form-control"><option value="cash">Efectivo</option><option value="card">Tarjeta</option><option value="transfer">Transferencia</option></select></div>
+            <div class="form-group" id="convertInitialGroup" style="display:none;"><label>Abono Inicial <span class="field-tip" data-tip="Monto pagado al convertir; el resto queda por cobrar.">?</span></label><input type="number" name="initial_payment" class="form-control" step="0.01" min="0" placeholder="0"></div>
             <div class="modal-footer"><button type="button" class="btn btn-secondary" onclick="document.getElementById('convertModal').style.display='none'">Cancelar</button><button type="submit" class="btn btn-success">Convertir a Venta</button></div>
         </form>
     </div>

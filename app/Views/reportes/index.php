@@ -1,6 +1,6 @@
 <?php
 $layout = 'main';
-$title = 'Reportes - Software de Gestión Active';
+$title = 'Reportes - Seri ERP';
 $pageTitle = 'Analíticas y Reportes';
 $userName = 'Usuario';
 ?>

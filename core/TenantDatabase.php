@@ -51,13 +51,23 @@ class TenantDatabase
     }
     
     /**
-     * Ejecutar la migración base en la BD del tenant
-     * Usa mysql CLI para evitar problemas de splitting de SQL
+     * Instalar esquema tenant actual (database/install_tenant.sql)
      */
     private function runMigration(string $databaseName): void
     {
-        $migrationFile = ROOT_PATH . '/database/migrations/010_tenant_schema.sql';
-        
+        $installFile = ROOT_PATH . '/database/install_tenant.sql';
+        if (!is_file($installFile)) {
+            error_log('install_tenant.sql no encontrado');
+            return;
+        }
+        $this->executeMigrationFile($databaseName, $installFile);
+    }
+    
+    /**
+     * Ejecutar un archivo SQL de migración en la BD del tenant
+     */
+    private function executeMigrationFile(string $databaseName, string $migrationFile): void
+    {
         if (!file_exists($migrationFile)) {
             error_log("Migration file not found: {$migrationFile}");
             return;
@@ -69,16 +79,13 @@ class TenantDatabase
         $host = $config['host'] ?? 'localhost';
         $port = $config['port'] ?? 3306;
         
-        // Buscar mysql.exe en ubicaciones comunes de XAMPP
         $mysqlBin = $this->findMysqlBin();
         
         if (!$mysqlBin) {
-            // Fallback: usar PDO directamente
             $this->runMigrationViaPdo($databaseName, $migrationFile);
             return;
         }
         
-        // Usar mysql CLI para ejecutar la migración
         $command = sprintf(
             '"%s" -u %s -h %s -P %s -D %s',
             $mysqlBin,
@@ -99,11 +106,10 @@ class TenantDatabase
         exec($command, $output, $returnCode);
         
         if ($returnCode !== 0) {
-            error_log("Migration failed for {$databaseName}: " . implode("\n", $output));
-            // Fallback a PDO
+            error_log("Migration failed for {$databaseName} (" . basename($migrationFile) . "): " . implode("\n", $output));
             $this->runMigrationViaPdo($databaseName, $migrationFile);
         } else {
-            error_log("Migration executed for tenant: {$databaseName}");
+            error_log("Migration executed for tenant {$databaseName}: " . basename($migrationFile));
         }
     }
     

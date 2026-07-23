@@ -1,4 +1,4 @@
-// Software de Gestión Active - JavaScript de Autenticación
+// Seri ERP - JavaScript de Autenticación
 
 document.addEventListener('DOMContentLoaded', function() {
     const loginForm = document.querySelector('form[action="/login"]');

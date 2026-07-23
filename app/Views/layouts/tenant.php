@@ -3,6 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="<?php echo htmlspecialchars(\SoftNova\Core\csrf_token()); ?>">
     <title><?php echo htmlspecialchars($title ?? 'Seri ERP'); ?></title>
     <link rel="stylesheet" href="<?php echo $viewInstance->asset('css/style.css'); ?>">
 </head>
@@ -31,27 +32,6 @@
                     </div>
                 </div>
                 <div class="header-right">
-                    <!-- Campana de notificaciones -->
-                    <a href="<?php echo $viewInstance->route('app/soporte'); ?>" class="header-icon-btn notification-bell" title="Notificaciones">
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
-                            <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
-                        </svg>
-                        <?php
-                        $tenantTicketCount = 0;
-                        try {
-                            $masterDb = \SoftNova\Core\Database::getInstance();
-                            $tid = $_SESSION['tenant_id'] ?? 0;
-                            if ($tid > 0) {
-                                $tenantTicketCount = (int)$masterDb->query(
-                                    "SELECT COUNT(*) FROM tickets WHERE tenant_id = ? AND status IN ('open','in_progress')", [$tid]
-                                )->fetchColumn();
-                            }
-                        } catch (\Exception $e) { /* silencioso */ }
-                        if ($tenantTicketCount > 0): ?>
-                            <span class="notification-badge"><?php echo $tenantTicketCount; ?></span>
-                        <?php endif; ?>
-                    </a>
                     <a href="<?php echo $viewInstance->route('app/soporte'); ?>" class="header-icon-btn ticket-notification" title="Soporte Técnico">
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                             <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
@@ -97,18 +77,62 @@
                             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
                         </button>
                         <div class="user-dropdown-menu" id="userMenu" style="display:none;">
+                            <?php if (\SoftNova\Core\TenantMiddleware::canAccess('configuracion')): ?>
                             <a href="<?php echo $viewInstance->route('app/configuracion'); ?>">
                                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
                                 Configuración
                             </a>
+                            <?php endif; ?>
                             <a href="<?php echo $viewInstance->route('app/logout'); ?>" style="color:var(--color-error);">
                                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
                                 Cerrar Sesión
                             </a>
                         </div>
                     </div>
+                    <!-- Campana de notificaciones (al final del header) -->
+                    <div class="notification-dropdown" id="notificationDropdown">
+                        <button type="button" class="header-icon-btn notification-bell notification-bell-solid" id="notificationBellBtn" title="Notificaciones" aria-haspopup="true" aria-expanded="false">
+                            <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
+                                <path fill="currentColor" d="M12 22a2.5 2.5 0 0 0 2.45-2h-4.9A2.5 2.5 0 0 0 12 22zm6-6V11a6 6 0 0 0-5-5.91V4a1 1 0 0 0-2 0v1.09A6 6 0 0 0 6 11v5l-2 2v1h16v-1l-2-2z"/>
+                            </svg>
+                            <span class="notification-badge" id="notificationBadge" style="display:none;">0</span>
+                        </button>
+                        <div class="notification-menu neumorphic" id="notificationMenu" style="display:none;" role="menu">
+                            <div class="notification-menu-header">
+                                <strong>Notificaciones</strong>
+                                <div class="notification-header-actions">
+                                    <button type="button" class="notification-refresh" id="notificationClear" title="Limpiar todas">Limpiar</button>
+                                    <button type="button" class="notification-refresh" id="notificationRefresh" title="Actualizar">↻</button>
+                                </div>
+                            </div>
+                            <div class="notification-menu-body" id="notificationList">
+                                <div class="notification-empty">Cargando...</div>
+                            </div>
+                            <div class="notification-menu-footer">
+                                <a href="<?php echo $viewInstance->route('app/soporte'); ?>">Ver soporte</a>
+                                <a href="<?php echo $viewInstance->route('app/ventas'); ?>">Ver ventas</a>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </header>
+            
+            <!-- Modal aviso Super Admin -->
+            <div id="announcementModal" class="announcement-modal" style="display:none;" aria-hidden="true">
+                <div class="announcement-modal-backdrop"></div>
+                <div class="announcement-modal-card neumorphic" role="dialog" aria-modal="true" aria-labelledby="announcementModalTitle">
+                    <div class="announcement-modal-header">
+                        <span class="announcement-modal-badge" id="announcementModalBadge">Aviso</span>
+                        <button type="button" class="modal-close" id="announcementModalClose" title="Cerrar">&times;</button>
+                    </div>
+                    <h3 id="announcementModalTitle"></h3>
+                    <p id="announcementModalBody"></p>
+                    <div class="announcement-modal-actions">
+                        <button type="button" class="btn btn-secondary" id="announcementDismissBtn">Eliminar aviso</button>
+                        <button type="button" class="btn btn-primary" id="announcementOkBtn">Entendido</button>
+                    </div>
+                </div>
+            </div>
             
             <div class="content">
                 <?php if (!empty($pageTitle)): ?>
@@ -160,7 +184,243 @@
                 var menu = document.getElementById('userMenu');
                 if (menu) menu.style.display = 'none';
             }
+            
+            var notifDd = document.getElementById('notificationDropdown');
+            if (notifDd && !notifDd.contains(e.target)) {
+                var nMenu = document.getElementById('notificationMenu');
+                if (nMenu) nMenu.style.display = 'none';
+                var bell = document.getElementById('notificationBellBtn');
+                if (bell) bell.setAttribute('aria-expanded', 'false');
+            }
         });
+        
+        (function initNotifications() {
+            var url = <?php echo json_encode($viewInstance->route('app/notifications')); ?>;
+            var csrf = (document.querySelector('meta[name="csrf-token"]') || {}).content || '';
+            var btn = document.getElementById('notificationBellBtn');
+            var menu = document.getElementById('notificationMenu');
+            var list = document.getElementById('notificationList');
+            var badge = document.getElementById('notificationBadge');
+            var refreshBtn = document.getElementById('notificationRefresh');
+            var clearBtn = document.getElementById('notificationClear');
+            var modal = document.getElementById('announcementModal');
+            var modalTitle = document.getElementById('announcementModalTitle');
+            var modalBody = document.getElementById('announcementModalBody');
+            var modalBadge = document.getElementById('announcementModalBadge');
+            var currentPopupId = null;
+            var popupOpen = false;
+            if (!btn || !menu || !list) return;
+            
+            function esc(s) {
+                if (typeof window.esc === 'function') return window.esc(s);
+                return String(s || '')
+                    .replace(/&/g, '&amp;')
+                    .replace(/</g, '&lt;')
+                    .replace(/>/g, '&gt;')
+                    .replace(/"/g, '&quot;');
+            }
+            
+            var loaded = false;
+            var lastBadge = null;
+            
+            function typeIcon(type) {
+                if (type === 'ticket') return 'S';
+                if (type === 'sale') return 'V';
+                if (type === 'inventory') return 'I';
+                if (type === 'news') return 'N';
+                return '!';
+            }
+            
+            function typeClass(type) {
+                return 'notif-type-' + (type || 'other');
+            }
+            
+            function applyBadge(count) {
+                count = parseInt(count || 0, 10);
+                if (count > 0) {
+                    badge.style.display = 'flex';
+                    badge.textContent = count > 99 ? '99+' : String(count);
+                    if (lastBadge !== null && count > lastBadge) {
+                        if (typeof ringNotificationBell === 'function') {
+                            ringNotificationBell();
+                        } else {
+                            btn.classList.remove('bell-ring');
+                            void btn.offsetWidth;
+                            btn.classList.add('bell-ring');
+                        }
+                    }
+                } else {
+                    badge.style.display = 'none';
+                }
+                lastBadge = count;
+            }
+            
+            function postAction(action, extra) {
+                var fd = new FormData();
+                fd.append('csrf_token', csrf);
+                fd.append('action', action);
+                if (extra) {
+                    Object.keys(extra).forEach(function(k) { fd.append(k, extra[k]); });
+                }
+                return fetch(url, {
+                    method: 'POST',
+                    body: fd,
+                    headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' }
+                }).then(function(r) { return r.json(); });
+            }
+            
+            function dismissItem(itemKey) {
+                return postAction('dismiss', { item_key: itemKey });
+            }
+            
+            function hideAnnouncementModal() {
+                if (!modal) return;
+                modal.style.display = 'none';
+                modal.setAttribute('aria-hidden', 'true');
+                popupOpen = false;
+                currentPopupId = null;
+            }
+            
+            function showAnnouncementModal(popup) {
+                if (!modal || !popup || popupOpen) return;
+                currentPopupId = popup.id || null;
+                if (modalTitle) modalTitle.textContent = popup.title || 'Aviso';
+                if (modalBody) modalBody.textContent = popup.message || '';
+                if (modalBadge) {
+                    modalBadge.textContent = popup.priority === 'important' ? 'Importante' : 'Aviso del sistema';
+                    modalBadge.className = 'announcement-modal-badge' + (popup.priority === 'important' ? ' is-important' : '');
+                }
+                modal.style.display = 'flex';
+                modal.setAttribute('aria-hidden', 'false');
+                popupOpen = true;
+                if (typeof ringNotificationBell === 'function') ringNotificationBell();
+            }
+            
+            function handlePopups(popups) {
+                if (!popups || !popups.length || popupOpen) return;
+                showAnnouncementModal(popups[0]);
+            }
+            
+            function renderItems(items) {
+                if (!items || !items.length) {
+                    list.innerHTML = '<div class="notification-empty">No hay notificaciones recientes</div>';
+                    return;
+                }
+                var html = '';
+                items.forEach(function(item) {
+                    html += '<div class="notification-item ' + (item.urgent ? 'is-urgent' : '') + '">'
+                        + '<a class="notification-item-link" href="' + (item.url || '#') + '">'
+                        + '<span class="notification-item-icon ' + typeClass(item.type) + '">' + typeIcon(item.type) + '</span>'
+                        + '<span class="notification-item-content">'
+                        + '<span class="notification-item-title">' + esc(item.title || '') + '</span>'
+                        + '<span class="notification-item-message">' + esc(item.message || '') + '</span>'
+                        + '<span class="notification-item-meta">' + esc(item.meta || '') + (item.time_label ? ' · ' + esc(item.time_label) : '') + '</span>'
+                        + '</span></a>'
+                        + '<button type="button" class="notification-dismiss" data-key="' + esc(item.id || '') + '" title="Eliminar">×</button>'
+                        + '</div>';
+                });
+                list.innerHTML = html;
+                list.querySelectorAll('.notification-dismiss').forEach(function(b) {
+                    b.addEventListener('click', function(e) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        var key = b.getAttribute('data-key');
+                        if (!key) return;
+                        dismissItem(key).then(function(d) {
+                            if (d && d.success) {
+                                poll(true);
+                            } else if (typeof showAlert === 'function') {
+                                showAlert((d && d.message) || 'No se pudo eliminar', 'error');
+                            }
+                        });
+                    });
+                });
+            }
+            
+            function poll(forceList) {
+                fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' } })
+                    .then(function(r) { return r.json(); })
+                    .then(function(data) {
+                        applyBadge(data.badge || 0);
+                        handlePopups(data.popups || []);
+                        if (forceList || menu.style.display !== 'none') {
+                            loaded = true;
+                            renderItems(data.items || []);
+                        }
+                    })
+                    .catch(function() {
+                        if (forceList) list.innerHTML = '<div class="notification-empty">No se pudieron cargar</div>';
+                    });
+            }
+            
+            function loadNotifications() {
+                list.innerHTML = '<div class="notification-empty">Cargando...</div>';
+                poll(true);
+            }
+            
+            btn.addEventListener('click', function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                var open = menu.style.display !== 'none';
+                if (open) {
+                    menu.style.display = 'none';
+                    btn.setAttribute('aria-expanded', 'false');
+                } else {
+                    menu.style.display = 'block';
+                    btn.setAttribute('aria-expanded', 'true');
+                    if (!loaded) loadNotifications();
+                }
+            });
+            
+            if (refreshBtn) {
+                refreshBtn.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    loadNotifications();
+                });
+            }
+            
+            if (clearBtn) {
+                clearBtn.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    postAction('clear').then(function(d) {
+                        if (d && d.success) {
+                            hideAnnouncementModal();
+                            poll(true);
+                            if (typeof showAlert === 'function') showAlert('Notificaciones limpiadas', 'success');
+                        } else if (typeof showAlert === 'function') {
+                            showAlert((d && d.message) || 'No se pudo limpiar', 'error');
+                        }
+                    });
+                });
+            }
+            
+            function dismissCurrentPopup() {
+                if (!currentPopupId) {
+                    hideAnnouncementModal();
+                    return;
+                }
+                dismissItem(currentPopupId).then(function() {
+                    hideAnnouncementModal();
+                    poll(true);
+                });
+            }
+            
+            var okBtn = document.getElementById('announcementOkBtn');
+            var dismissBtn = document.getElementById('announcementDismissBtn');
+            var closeBtn = document.getElementById('announcementModalClose');
+            if (okBtn) okBtn.addEventListener('click', dismissCurrentPopup);
+            if (dismissBtn) dismissBtn.addEventListener('click', dismissCurrentPopup);
+            if (closeBtn) closeBtn.addEventListener('click', dismissCurrentPopup);
+            if (modal) {
+                var backdrop = modal.querySelector('.announcement-modal-backdrop');
+                if (backdrop) backdrop.addEventListener('click', dismissCurrentPopup);
+            }
+            
+            poll(false);
+            setInterval(function() { poll(false); }, 45000);
+        })();
         
         document.addEventListener('DOMContentLoaded', function() {
             const savedTheme = localStorage.getItem('theme');

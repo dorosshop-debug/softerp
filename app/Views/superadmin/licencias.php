@@ -153,29 +153,58 @@ function billingCycleLabel(string $cycle): string {
             <div class="modal-body">
                 <!-- Cliente existente o nuevo -->
                 <div class="form-group">
-                    <label>🏢 Cliente</label>
+                    <label>Cliente <span class="field-tip" data-tip="Seleccione un cliente existente o cree uno nuevo con usuario admin.">?</span></label>
                     <select name="tenant_id" id="createTenantId" class="form-control" onchange="toggleNewClientForm(this.value)">
                         <option value="">Seleccione un cliente</option>
                         <?php foreach ($tenants as $tenant): ?>
                             <option value="<?php echo $tenant['id']; ?>"><?php echo htmlspecialchars($tenant['company_name']); ?></option>
                         <?php endforeach; ?>
-                        <option value="__new__">➕ Nuevo Cliente...</option>
+                        <option value="__new__">+ Nuevo Cliente...</option>
                     </select>
                 </div>
                 
                 <!-- Formulario inline para nuevo cliente -->
                 <div id="newClientInline" style="display:none; background: var(--bg-input); border: 1px solid var(--color-border); border-radius: 8px; padding: 12px; margin-bottom: 15px;">
-                    <h4 style="margin:0 0 10px 0;font-size:14px;">➕ Nuevo Cliente</h4>
+                    <h4 style="margin:0 0 10px 0;font-size:14px;">Nuevo Cliente + usuario admin</h4>
                     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
                         <div class="form-group" style="margin-bottom:0;">
-                            <label style="font-size:12px;">Empresa *</label>
+                            <label style="font-size:12px;">Tipo Doc. * <span class="field-tip" data-tip="Tipo de identificación del cliente.">?</span></label>
+                            <select name="new_documento_tipo" id="newDocTipo" class="form-control"><option value="NIT">NIT</option><option value="CC">C.C</option><option value="CE">C.E</option><option value="PPT">PPT</option><option value="OTROS">OTROS</option></select>
+                        </div>
+                        <div class="form-group" style="margin-bottom:0;">
+                            <label style="font-size:12px;">N° Documento * <span class="field-tip" data-tip="Número de documento obligatorio.">?</span></label>
+                            <input type="text" name="new_documento_numero" id="newDocNum" class="form-control" placeholder="Número">
+                        </div>
+                        <div class="form-group" style="margin-bottom:0;">
+                            <label style="font-size:12px;">Empresa * <span class="field-tip" data-tip="Nombre comercial del nuevo cliente.">?</span></label>
                             <input type="text" name="new_company_name" id="newCompanyName" class="form-control" placeholder="Nombre de la empresa">
                         </div>
                         <div class="form-group" style="margin-bottom:0;">
-                            <label style="font-size:12px;">Email *</label>
+                            <label style="font-size:12px;">Email * <span class="field-tip" data-tip="Correo del cliente y del usuario admin inicial.">?</span></label>
                             <input type="email" name="new_email" id="newEmail" class="form-control" placeholder="correo@empresa.com">
                         </div>
+                        <div class="form-group" style="margin-bottom:0;">
+                            <label style="font-size:12px;">Teléfono * <span class="field-tip" data-tip="Teléfono de contacto obligatorio.">?</span></label>
+                            <input type="text" name="new_phone" id="newPhone" class="form-control" placeholder="Teléfono">
+                        </div>
+                        <div class="form-group" style="margin-bottom:0;">
+                            <label style="font-size:12px;">Razón Social</label>
+                            <input type="text" name="new_razon_social" id="newRazon" class="form-control" placeholder="Razón social">
+                        </div>
+                        <div class="form-group" style="margin-bottom:0;">
+                            <label style="font-size:12px;">Nombre admin</label>
+                            <input type="text" name="new_admin_name" id="newAdminName" class="form-control" placeholder="Admin">
+                        </div>
+                        <div class="form-group" style="margin-bottom:0;">
+                            <label style="font-size:12px;">Contraseña admin <span class="field-tip" data-tip="Si queda vacía se genera una temporal al crear.">?</span></label>
+                            <input type="text" name="new_admin_password" id="newAdminPass" class="form-control" placeholder="Auto-generar" minlength="8">
+                        </div>
                     </div>
+                    <div class="form-group" style="margin:10px 0 0;">
+                        <label style="font-size:12px;">Dirección</label>
+                        <input type="text" name="new_address" id="newAddress" class="form-control" placeholder="Dirección">
+                    </div>
+                    <p style="margin:8px 0 0;font-size:11px;color:var(--color-text-secondary);">Se crea la BD del cliente y un usuario admin. Luego puedes agregar más usuarios en Clientes → 👥.</p>
                 </div>
                 
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
@@ -380,7 +409,15 @@ function billingCycleLabel(string $cycle): string {
 
 <script>
 function toggleNewClientForm(val) {
-    document.getElementById('newClientInline').style.display = val === '__new__' ? 'block' : 'none';
+    var box = document.getElementById('newClientInline');
+    var show = val === '__new__';
+    box.style.display = show ? 'block' : 'none';
+    ['newCompanyName','newEmail','newPhone','newDocNum'].forEach(function(id) {
+        var el = document.getElementById(id);
+        if (el) el.required = show;
+    });
+    var docTipo = document.getElementById('newDocTipo');
+    if (docTipo) docTipo.required = show;
 }
 
 function editLicense(id, tenantId, planId, saleDate, startDate, billingCycle, paymentStatus, paymentMethod, notes, status) {

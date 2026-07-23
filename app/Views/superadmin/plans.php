@@ -4,16 +4,16 @@ $title = 'Super Administrador - Planes';
 $pageTitle = 'Gestión de Planes';
 $userName = $_SESSION['super_admin_name'] ?? 'Super Admin';
 $plans = $plans ?? [];
-$availableModules = ['dashboard', 'caja', 'ventas', 'inventario', 'clientes', 'proveedores', 'cotizaciones', 'contabilidad', 'nomina', 'reportes'];
+$availableModules = ['dashboard', 'caja', 'ventas', 'inventario', 'clientes', 'proveedores', 'cotizaciones', 'gastos', 'contabilidad', 'nomina', 'reportes'];
 $moduleNames = [
     'dashboard' => 'Dashboard', 'caja' => 'Caja', 'ventas' => 'Ventas',
     'inventario' => 'Inventario', 'clientes' => 'Clientes', 'proveedores' => 'Proveedores',
-    'cotizaciones' => 'Cotizaciones', 'contabilidad' => 'Contabilidad',
+    'cotizaciones' => 'Cotizaciones', 'gastos' => 'Gastos', 'contabilidad' => 'Contabilidad',
     'nomina' => 'Nómina', 'reportes' => 'Reportes'
 ];
 $moduleIcons = [
     'dashboard' => '📊', 'caja' => '💰', 'ventas' => '🛒', 'inventario' => '📦',
-    'clientes' => '👥', 'proveedores' => '🚚', 'cotizaciones' => '📝',
+    'clientes' => '👥', 'proveedores' => '🚚', 'cotizaciones' => '📝', 'gastos' => '🧾',
     'contabilidad' => '🧮', 'nomina' => '💵', 'reportes' => '📋'
 ];
 ?>
@@ -35,6 +35,7 @@ $moduleIcons = [
                         <th>Semestral</th>
                         <th>Anual</th>
                         <th>Usuarios</th>
+                        <th>Reportes</th>
                         <th>Módulos</th>
                         <th>Estado</th>
                         <th>Acciones</th>
@@ -42,15 +43,27 @@ $moduleIcons = [
                 </thead>
                 <tbody>
                     <?php if (empty($plans)): ?>
-                        <tr><td colspan="8" style="text-align:center;color:var(--color-text-secondary);">No hay planes</td></tr>
+                        <tr><td colspan="9" style="text-align:center;color:var(--color-text-secondary);">No hay planes</td></tr>
                     <?php else: ?>
-                        <?php foreach ($plans as $plan): ?>
+                        <?php foreach ($plans as $plan):
+                            $feat = [];
+                            if (!empty($plan['features'])) {
+                                $decoded = is_array($plan['features']) ? $plan['features'] : json_decode((string)$plan['features'], true);
+                                if (is_array($decoded)) $feat = $decoded;
+                            }
+                            $reportsLevel = ($feat['reports'] ?? '') === 'full' ? 'Completos' : 'Básicos';
+                        ?>
                             <tr>
                                 <td><strong><?php echo htmlspecialchars($plan['name']); ?></strong></td>
                                 <td>$<?php echo number_format($plan['monthly_price'], 2); ?></td>
                                 <td>$<?php echo number_format($plan['semiannual_price'] ?? $plan['monthly_price'] * 6, 2); ?></td>
                                 <td>$<?php echo number_format($plan['annual_price'], 2); ?></td>
                                 <td><?php echo $plan['max_users']; ?></td>
+                                <td>
+                                    <span class="badge <?php echo ($feat['reports'] ?? '') === 'full' ? 'badge-success' : 'badge-warning'; ?>">
+                                        <?php echo $reportsLevel; ?>
+                                    </span>
+                                </td>
                                 <td>
                                     <?php $modules = json_decode($plan['modules'], true); ?>
                                     <?php if (is_array($modules)): ?>
@@ -139,6 +152,33 @@ $moduleIcons = [
                     </div>
                 </div>
                 
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+                    <div class="form-group">
+                        <label>Nivel del plan</label>
+                        <select name="plan_tier" id="planTier" class="form-control">
+                            <option value="basic">Básico</option>
+                            <option value="pro">Pro</option>
+                            <option value="premium">Premium</option>
+                            <option value="custom">Personalizado</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Nivel de Reportes</label>
+                        <select name="reports_level" id="planReportsLevel" class="form-control" onchange="syncExportDefault()">
+                            <option value="basic">Básicos (resumen + bloqueados)</option>
+                            <option value="full">Completos (todo desbloqueado)</option>
+                        </select>
+                    </div>
+                </div>
+                
+                <div class="form-group">
+                    <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+                        <input type="checkbox" name="export_reports" id="planExportReports" value="1" style="accent-color: var(--color-primary);">
+                        Permitir exportar reportes (CSV / PDF)
+                    </label>
+                    <small style="color:var(--color-text-secondary);">Recomendado activarlo junto con reportes completos.</small>
+                </div>
+                
                 <div class="form-group">
                     <label>🧩 Módulos incluidos</label>
                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; background: var(--bg-input); border: 1px solid var(--color-border); border-radius: 8px; padding: 12px;">
@@ -161,6 +201,12 @@ $moduleIcons = [
 </div>
 
 <script>
+function syncExportDefault() {
+    var level = document.getElementById('planReportsLevel').value;
+    var exportCb = document.getElementById('planExportReports');
+    if (level === 'full') exportCb.checked = true;
+}
+
 function openCreateModal() {
     document.getElementById('planModalTitle').textContent = '📦 Nuevo Plan';
     document.getElementById('planForm').action = '<?php echo $viewInstance->route('superadmin/plans'); ?>?action=create';
@@ -174,6 +220,9 @@ function openCreateModal() {
     document.getElementById('planMaxUsers').value = '5';
     document.getElementById('planMaxProducts').value = '500';
     document.getElementById('planStatus').value = 'active';
+    document.getElementById('planTier').value = 'basic';
+    document.getElementById('planReportsLevel').value = 'basic';
+    document.getElementById('planExportReports').checked = false;
     document.querySelectorAll('.plan-module-cb').forEach(cb => cb.checked = false);
     document.getElementById('planModal').style.display = 'flex';
 }
@@ -192,7 +241,16 @@ function openEditModal(plan) {
     document.getElementById('planMaxProducts').value = plan.max_products || 500;
     document.getElementById('planStatus').value = plan.status || 'active';
     
-    // Marcar módulos
+    var feat = {};
+    try {
+        feat = typeof plan.features === 'object' && plan.features
+            ? plan.features
+            : JSON.parse(plan.features || '{}');
+    } catch (e) { feat = {}; }
+    document.getElementById('planTier').value = feat.tier || 'basic';
+    document.getElementById('planReportsLevel').value = feat.reports === 'full' ? 'full' : 'basic';
+    document.getElementById('planExportReports').checked = !!feat.export;
+    
     const activeModules = JSON.parse(plan.modules || '[]');
     document.querySelectorAll('.plan-module-cb').forEach(cb => {
         cb.checked = activeModules.includes(cb.value);

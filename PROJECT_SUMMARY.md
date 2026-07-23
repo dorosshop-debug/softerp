@@ -4,7 +4,7 @@
 
 | Campo | Valor |
 |-------|-------|
-| **Nombre** | Seri ERP (SoftNova) |
+| **Nombre** | Seri ERP |
 | **Tipo** | SaaS ERP multi-tenant |
 | **Lenguaje** | PHP 8.2 vanilla (sin framework) |
 | **BD** | MariaDB — 1 BD maestra + 1 BD por tenant |

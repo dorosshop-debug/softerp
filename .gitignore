@@ -12,19 +12,22 @@
 Thumbs.db
 desktop.ini
 
-# IDE
+# IDE / Cursor
 .vscode/
 .idea/
+.cursor/
 *.sublime-workspace
 *.sublime-project
 
-# Storage (logs, cache, sesiones)
+# Storage (logs, cache, sesiones, backups)
 /storage/logs/*
 /storage/cache/*
 /storage/sessions/*
+/storage/backups/*
 !/storage/logs/.gitkeep
 !/storage/cache/.gitkeep
 !/storage/sessions/.gitkeep
+!/storage/backups/.gitkeep
 
 # Base de datos
 *.sqlite
@@ -33,6 +36,10 @@ desktop.ini
 # Uploads de usuarios
 /public/uploads/*
 !/public/uploads/.gitkeep
+!/public/uploads/avatars/
+/public/uploads/avatars/*
+!/public/uploads/avatars/.htaccess
+!/public/uploads/avatars/.gitkeep
 
 # Composer
 # composer.lock debe versionarse para consistencia (NO ignorar)

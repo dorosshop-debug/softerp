@@ -21,6 +21,8 @@ function config(string $key, $default = null)
             CONFIG_PATH . '/app.php',
             CONFIG_PATH . '/database.php',
             CONFIG_PATH . '/security.php',
+            CONFIG_PATH . '/ai.php',
+            CONFIG_PATH . '/ai_personality.php',
         ];
         
         foreach ($configFiles as $file) {
@@ -53,19 +55,19 @@ function base_url(string $path = ''): string
 }
 
 /**
- * Obtener URL de ruta
+ * Obtener URL de ruta (app.url ya incluye /public)
  */
 function route(string $path): string
 {
-    return base_url('public/' . ltrim($path, '/'));
+    return base_url(ltrim($path, '/'));
 }
 
 /**
- * Obtener URL de assets
+ * Obtener URL de assets (app.url ya incluye /public)
  */
 function asset(string $path): string
 {
-    return base_url('public/assets/' . ltrim($path, '/'));
+    return base_url('assets/' . ltrim($path, '/'));
 }
 
 /**

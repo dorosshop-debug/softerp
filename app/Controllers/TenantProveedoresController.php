@@ -2,42 +2,53 @@
 
 namespace SoftNova\Controllers;
 
-use SoftNova\Core\Controller;
+use SoftNova\Core\TenantController;
 use SoftNova\Core\TenantMiddleware;
 
-class TenantProveedoresController extends Controller
+class TenantProveedoresController extends TenantController
 {
-    private \PDO $db;
-    
     public function __construct()
     {
         parent::__construct();
-        TenantMiddleware::auth();
         TenantMiddleware::authorize('proveedores');
-        $this->db = TenantMiddleware::getDb();
-    }
-    
-    private function query(string $sql, array $params = []): \PDOStatement
-    {
-        $stmt = $this->db->prepare($sql);
-        $stmt->execute($params);
-        return $stmt;
     }
     
     public function index(): void
     {
         $action = $this->request->get('action');
-        if ($action === 'create' && $this->request->method() === 'POST') { $this->create(); return; }
-        if ($action === 'edit' && $this->request->method() === 'POST') { $this->edit(); return; }
-        if ($action === 'delete' && $this->request->method() === 'POST') { $this->delete(); return; }
+        if ($action === 'create' && $this->request->method() === 'POST') {
+            TenantMiddleware::authorize('proveedores', 'create');
+            $this->create();
+            return;
+        }
+        if ($action === 'edit' && $this->request->method() === 'POST') {
+            TenantMiddleware::authorize('proveedores', 'edit');
+            $this->edit();
+            return;
+        }
+        if ($action === 'delete' && $this->request->method() === 'POST') {
+            TenantMiddleware::authorize('proveedores', 'delete');
+            $this->delete();
+            return;
+        }
+        if ($action === 'export' && $this->request->method() === 'GET') {
+            TenantMiddleware::authorize('proveedores', 'export');
+            $this->exportSuppliers();
+            return;
+        }
         
-        $suppliers = $this->query("SELECT * FROM suppliers ORDER BY name ASC")->fetchAll();
+        $total = (int)$this->query("SELECT COUNT(*) as c FROM suppliers WHERE status = 'active'")->fetch()['c'];
+        $pagination = $this->paginate($total);
         
-        $this->view('tenant.proveedores', [
+        $suppliers = $this->query(
+            "SELECT * FROM suppliers WHERE status = 'active' ORDER BY name ASC
+             LIMIT {$pagination['perPage']} OFFSET {$pagination['offset']}"
+        )->fetchAll();
+        
+        $this->view('tenant.proveedores', $this->tenantViewData([
             'suppliers' => $suppliers,
-            'tenantName' => $_SESSION['tenant_name'] ?? 'Mi Empresa',
-            'userName' => $_SESSION['tenant_user_name'] ?? 'Usuario',
-        ]);
+            'pagination' => $pagination,
+        ]));
     }
     
     private function create(): void
@@ -47,10 +58,17 @@ class TenantProveedoresController extends Controller
         $name = trim($this->request->post('name') ?? '');
         if (empty($name)) { $this->respond(false, 'El nombre de la empresa es requerido', '/app/proveedores'); return; }
         
+        $documentNumber = trim((string)$this->request->post('document_number'));
+        $phone = trim((string)$this->request->post('phone'));
+        if ($documentNumber === '' || $phone === '') {
+            $this->respond(false, 'El número de documento y el teléfono son obligatorios', '/app/proveedores');
+            return;
+        }
+        
         $image = $this->uploadImage();
         
         $this->query("INSERT INTO suppliers (name, document_type, document_number, contact_name, email, phone, address, notes, image) VALUES (?,?,?,?,?,?,?,?,?)",
-            [$name, $this->request->post('document_type','NIT'), $this->request->post('document_number'), $this->request->post('contact_name'), $this->request->post('email'), $this->request->post('phone'), $this->request->post('address'), $this->request->post('notes'), $image]);
+            [$name, $this->request->post('document_type','NIT'), $documentNumber, $this->request->post('contact_name'), $this->request->post('email'), $phone, $this->request->post('address'), $this->request->post('notes'), $image]);
         
         $this->respond(true, 'Proveedor creado: ' . $name, '/app/proveedores');
     }
@@ -62,9 +80,16 @@ class TenantProveedoresController extends Controller
         $name = trim($this->request->post('name') ?? '');
         if (empty($name)) { $this->respond(false, 'El nombre de la empresa es requerido', '/app/proveedores'); return; }
         
+        $documentNumber = trim((string)$this->request->post('document_number'));
+        $phone = trim((string)$this->request->post('phone'));
+        if ($documentNumber === '' || $phone === '') {
+            $this->respond(false, 'El número de documento y el teléfono son obligatorios', '/app/proveedores');
+            return;
+        }
+        
         $image = $this->uploadImage();
         $sql = "UPDATE suppliers SET name=?, document_type=?, document_number=?, contact_name=?, email=?, phone=?, address=?, notes=?";
-        $params = [$name, $this->request->post('document_type','NIT'), $this->request->post('document_number'), $this->request->post('contact_name'), $this->request->post('email'), $this->request->post('phone'), $this->request->post('address'), $this->request->post('notes')];
+        $params = [$name, $this->request->post('document_type','NIT'), $documentNumber, $this->request->post('contact_name'), $this->request->post('email'), $phone, $this->request->post('address'), $this->request->post('notes')];
         
         if ($image) {
             $sql .= ", image=?";
@@ -79,16 +104,29 @@ class TenantProveedoresController extends Controller
     
     private function uploadImage(): ?string
     {
-        if (empty($_FILES['image']['tmp_name'])) return null;
+        if (empty($_FILES['image']['tmp_name'])) {
+            return null;
+        }
+        if (!is_uploaded_file($_FILES['image']['tmp_name'])) {
+            return null;
+        }
+        if (($_FILES['image']['size'] ?? 0) > 2097152) {
+            return null;
+        }
+        
+        $finfo = new \finfo(FILEINFO_MIME_TYPE);
+        $mime = $finfo->file($_FILES['image']['tmp_name']);
+        $allowed = ['image/jpeg' => 'jpg', 'image/png' => 'png', 'image/gif' => 'gif', 'image/webp' => 'webp'];
+        if (!isset($allowed[$mime])) {
+            return null;
+        }
         
         $uploadDir = PUBLIC_PATH . '/uploads/suppliers/';
-        if (!is_dir($uploadDir)) mkdir($uploadDir, 0777, true);
+        if (!is_dir($uploadDir)) {
+            mkdir($uploadDir, 0755, true);
+        }
         
-        $ext = strtolower(pathinfo($_FILES['image']['name'], PATHINFO_EXTENSION));
-        $allowed = ['jpg','jpeg','png','gif','webp'];
-        if (!in_array($ext, $allowed)) return null;
-        
-        $filename = 'sup_' . time() . '_' . bin2hex(random_bytes(4)) . '.' . $ext;
+        $filename = 'sup_' . time() . '_' . bin2hex(random_bytes(4)) . '.' . $allowed[$mime];
         $dest = $uploadDir . $filename;
         
         if (move_uploaded_file($_FILES['image']['tmp_name'], $dest)) {
@@ -100,9 +138,43 @@ class TenantProveedoresController extends Controller
     
     private function delete(): void
     {
-        if (!$this->validateCsrfOrFail('/app/proveedores')) return;
+        if (!$this->validateCsrfOrFail('/app/proveedores')) {
+            return;
+        }
         $id = (int)$this->request->post('id');
-        $this->query("DELETE FROM suppliers WHERE id=?", [$id]);
+        if ($id <= 0) {
+            $this->respond(false, 'Proveedor invalido', '/app/proveedores');
+            return;
+        }
+        
+        $stmt = $this->query("UPDATE suppliers SET status = 'inactive' WHERE id = ?", [$id]);
+        if ($stmt->rowCount() < 1) {
+            $this->respond(false, 'No se pudo eliminar el proveedor', '/app/proveedores');
+            return;
+        }
+        
         $this->respond(true, 'Proveedor eliminado', '/app/proveedores');
+    }
+    
+    private function exportSuppliers(): void
+    {
+        $rows = $this->query(
+            "SELECT name, document_type, document_number, contact_name, email, phone, status
+             FROM suppliers ORDER BY name"
+        )->fetchAll();
+        
+        $csvRows = [];
+        foreach ($rows as $r) {
+            $csvRows[] = [
+                $r['name'], $r['document_type'], $r['document_number'], $r['contact_name'],
+                $r['email'], $r['phone'], $r['status'],
+            ];
+        }
+        
+        $this->exportCsv(
+            'proveedores_' . date('Ymd_His') . '.csv',
+            ['Nombre', 'Tipo Doc', 'Documento', 'Contacto', 'Email', 'Telefono', 'Estado'],
+            $csvRows
+        );
     }
 }

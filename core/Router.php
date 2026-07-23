@@ -107,8 +107,8 @@ class Router
      */
     private function loadRoutes(): void
     {
-        // Rutas por defecto (redirigen al panel tenant para desarrollo)
-        $this->get('/', 'DashboardController', 'index');
+        // Rutas por defecto
+        $this->get('/', 'AuthController', 'login');
         $this->get('/login', 'AuthController', 'login');
         $this->post('/login', 'AuthController', 'authenticate');
         $this->get('/logout', 'AuthController', 'logout');
@@ -142,6 +142,9 @@ class Router
         $this->post('/app/login', 'TenantAuthController', 'authenticate');
         $this->get('/app/logout', 'TenantAuthController', 'logout');
         $this->get('/app/dashboard', 'TenantDashboardController', 'index');
+        $this->post('/app/dashboard', 'TenantDashboardController', 'index');
+        $this->get('/app/notifications', 'TenantNotificationsController', 'index');
+        $this->post('/app/notifications', 'TenantNotificationsController', 'index');
         
         // Rutas de módulos del tenant
         $this->get('/app/caja', 'TenantCajaController', 'index');
@@ -157,7 +160,7 @@ class Router
         $this->get('/app/soporte', 'TenantTicketsController', 'index');
         $this->post('/app/soporte', 'TenantTicketsController', 'index');
         
-        // Módulos placeholder del tenant (ruta dinámica captura el nombre del módulo)
+        // Módulos del tenant
         $this->get('/app/ventas', 'TenantVentasController', 'index');
         $this->post('/app/ventas', 'TenantVentasController', 'index');
         $this->get('/app/inventario', 'TenantInventarioController', 'index');
@@ -169,23 +172,17 @@ class Router
         $this->get('/app/reportes', 'TenantReportesController', 'index');
         $this->get('/app/cotizaciones', 'TenantCotizacionesController', 'index');
         $this->post('/app/cotizaciones', 'TenantCotizacionesController', 'index');
+        $this->get('/app/gastos', 'TenantGastosController', 'index');
+        $this->post('/app/gastos', 'TenantGastosController', 'index');
         $this->get('/app/contabilidad', 'TenantPlaceholderController', 'show');
         $this->get('/app/nomina', 'TenantPlaceholderController', 'show');
         
+        // Anuncios Super Admin
+        $this->get('/superadmin/announcements', 'SuperAdminController', 'announcements');
+        $this->post('/superadmin/announcements', 'SuperAdminController', 'announcements');
+        
         // API v1
         $this->get('/api/v1/ping', 'ApiController', 'ping');
-        
-        // Rutas de módulos (legado)
-        $this->get('/dashboard', 'DashboardController', 'index');
-        $this->get('/caja', 'CajaController', 'index');
-        $this->get('/ventas', 'VentasController', 'index');
-        $this->get('/inventario', 'InventarioController', 'index');
-        $this->get('/clientes', 'ClientesController', 'index');
-        $this->get('/proveedores', 'ProveedoresController', 'index');
-        $this->get('/cotizaciones', 'CotizacionesController', 'index');
-        $this->get('/contabilidad', 'ContabilidadController', 'index');
-        $this->get('/nomina', 'NominaController', 'index');
-        $this->get('/reportes', 'ReportesController', 'index');
     }
     
     /**

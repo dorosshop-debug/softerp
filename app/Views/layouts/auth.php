@@ -11,6 +11,7 @@
         <?php echo $content; ?>
     </div>
     
+    <script src="<?php echo $viewInstance->asset('js/app.js'); ?>"></script>
     <script src="<?php echo $viewInstance->asset('js/auth.js'); ?>"></script>
 </body>
 </html>

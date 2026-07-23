@@ -152,24 +152,24 @@ class LicenciasController extends Controller
             return;
         }
         
-        $tenantId = $this->request->post('tenant_id') ? (int) $this->request->post('tenant_id') : null;
+        $tenantIdRaw = (string)($this->request->post('tenant_id') ?? '');
+        $tenantId = ($tenantIdRaw !== '' && $tenantIdRaw !== '__new__') ? (int)$tenantIdRaw : null;
         
-        // Crear nuevo cliente inline si se solicitó
-        $newCompanyName = $this->request->post('new_company_name');
-        $newEmail = $this->request->post('new_email');
-        if ($tenantId === null && !empty($newCompanyName) && !empty($newEmail)) {
-            try {
-                $this->db->query("INSERT INTO tenants (company_name, email, status, created_at) VALUES (?, ?, 'active', NOW())", [$newCompanyName, $newEmail]);
-                $tenantId = (int)$this->db->lastInsertId();
-                // Crear BD del tenant
-                $tenantDb = \SoftNova\Core\TenantDatabase::getInstance();
-                $dbName = 'softnova__' . strtolower(preg_replace('/[^a-z0-9]/', '_', $newCompanyName)) . '_' . time();
-                $this->db->query("UPDATE tenants SET database_name = ? WHERE id = ?", [$dbName, $tenantId]);
-                $tenantDb->createTenantDatabase($dbName);
-            } catch (\Exception $e) {
-                $this->respond(false, 'Error al crear cliente: ' . $e->getMessage(), '/superadmin/licencias');
+        $adminCredMsg = '';
+        // Crear nuevo cliente + usuario admin
+        if ($tenantIdRaw === '__new__' || ($tenantId === null && $this->request->post('new_company_name'))) {
+            $created = $this->createTenantFromSaleForm();
+            if ($created['success'] === false) {
+                $this->respond(false, $created['message'], '/superadmin/licencias');
                 return;
             }
+            $tenantId = (int)$created['tenant_id'];
+            $adminCredMsg = $created['admin_message'] ?? '';
+        }
+        
+        if (!$tenantId) {
+            $this->respond(false, 'Debe seleccionar un cliente o crear uno nuevo', '/superadmin/licencias');
+            return;
         }
         
         $planId = (int) $this->request->post('plan_id');
@@ -192,6 +192,12 @@ class LicenciasController extends Controller
         $createdBy = $_SESSION['super_admin_id'] ?? null;
         
         try {
+            // Vincular plan/fechas al tenant si se creó o ya existía
+            $this->db->query(
+                "UPDATE tenants SET subscription_plan_id = ?, subscription_start_date = ?, subscription_end_date = ?, status = 'active', updated_at = NOW() WHERE id = ?",
+                [$planId, $startDate, $endDate, $tenantId]
+            );
+            
             $this->db->query("
                 INSERT INTO license_sales
                 (tenant_id, plan_id, sale_code, sale_date, start_date, end_date, billing_cycle, amount, payment_status, payment_method, reference_number, notes, created_by)
@@ -218,9 +224,105 @@ class LicenciasController extends Controller
                 $tenantId
             );
             
-            $this->respond(true, 'Venta de licencia creada exitosamente', '/superadmin/licencias');
+            $msg = 'Venta de licencia creada exitosamente';
+            if ($adminCredMsg !== '') {
+                $msg .= ' ' . $adminCredMsg;
+            }
+            $this->respond(true, $msg, '/superadmin/licencias');
         } catch (\Exception $e) {
             $this->respond(false, 'Error al crear la venta: ' . $e->getMessage(), '/superadmin/licencias');
+        }
+    }
+    
+    /**
+     * Crea tenant + BD + usuario admin desde el formulario de nueva venta
+     */
+    private function createTenantFromSaleForm(): array
+    {
+        $name = trim((string)$this->request->post('new_company_name'));
+        $email = trim((string)$this->request->post('new_email'));
+        $phone = trim((string)$this->request->post('new_phone'));
+        $docTipo = trim((string)$this->request->post('new_documento_tipo', 'NIT'));
+        $docNum = trim((string)$this->request->post('new_documento_numero'));
+        $razon = trim((string)$this->request->post('new_razon_social'));
+        $address = trim((string)$this->request->post('new_address'));
+        $adminName = trim((string)$this->request->post('new_admin_name'));
+        $adminPassword = trim((string)$this->request->post('new_admin_password'));
+        $planId = (int)$this->request->post('plan_id');
+        $billingCycle = $this->request->post('billing_cycle') ?: 'monthly';
+        $startDate = $this->request->post('start_date') ?: date('Y-m-d');
+        
+        if ($name === '' || $email === '' || $phone === '' || $docNum === '' || $docTipo === '') {
+            return ['success' => false, 'message' => 'Nuevo cliente: complete empresa, email, teléfono y documento'];
+        }
+        if ($planId <= 0) {
+            return ['success' => false, 'message' => 'Debe seleccionar un plan para el nuevo cliente'];
+        }
+        
+        $existing = $this->db->query("SELECT id FROM tenants WHERE email = ? LIMIT 1", [$email])->fetch();
+        if ($existing) {
+            return ['success' => false, 'message' => 'Ya existe un cliente con ese email'];
+        }
+        
+        $endDate = $this->calculateEndDate($startDate, $billingCycle);
+        $companySlug = strtolower(preg_replace('/[^a-z0-9]+/', '_', $name));
+        $databaseName = 'softnova_' . $companySlug . '_' . time();
+        $databaseUser = 'tn_' . bin2hex(random_bytes(6));
+        $databasePassword = bin2hex(random_bytes(16));
+        
+        try {
+            $this->db->query(
+                "INSERT INTO tenants
+                    (company_name, razon_social, documento_tipo, documento_numero, email, phone, address,
+                     database_name, database_host, database_port, database_user, database_password,
+                     subscription_plan_id, subscription_start_date, subscription_end_date, status, created_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'localhost', 3306, ?, ?, ?, ?, ?, 'active', NOW())",
+                [
+                    $name, $razon ?: null, $docTipo, $docNum, $email, $phone, $address ?: null,
+                    $databaseName, $databaseUser, $databasePassword,
+                    $planId, $startDate, $endDate,
+                ]
+            );
+            $tenantId = (int)$this->db->lastInsertId();
+            
+            $tenantDb = \SoftNova\Core\TenantDatabase::getInstance();
+            if (!$tenantDb->createTenantDatabase($databaseName, $databaseUser, $databasePassword)) {
+                $this->db->query("DELETE FROM tenants WHERE id = ?", [$tenantId]);
+                return ['success' => false, 'message' => 'Error al crear la base de datos del cliente'];
+            }
+            
+            $generated = false;
+            if ($adminPassword === '') {
+                $adminPassword = substr(bin2hex(random_bytes(6)), 0, 10);
+                $generated = true;
+            }
+            if (strlen($adminPassword) < 8) {
+                $this->db->query("DELETE FROM tenants WHERE id = ?", [$tenantId]);
+                return ['success' => false, 'message' => 'La contraseña del admin debe tener al menos 8 caracteres'];
+            }
+            if ($adminName === '') {
+                $adminName = 'Admin ' . $name;
+            }
+            
+            $hashed = password_hash($adminPassword, PASSWORD_ARGON2ID);
+            $this->db->query(
+                "INSERT INTO tenant_users (tenant_id, name, email, password, role, permissions, status, created_at)
+                 VALUES (?, ?, ?, ?, 'admin', '{}', 'active', NOW())",
+                [$tenantId, $adminName, $email, $hashed]
+            );
+            
+            $adminMsg = 'Usuario admin creado (' . $email . ').';
+            if ($generated) {
+                $adminMsg .= ' Contraseña temporal: ' . $adminPassword;
+            }
+            
+            return [
+                'success' => true,
+                'tenant_id' => $tenantId,
+                'admin_message' => $adminMsg,
+            ];
+        } catch (\Exception $e) {
+            return ['success' => false, 'message' => 'Error al crear cliente: ' . $e->getMessage()];
         }
     }
     

@@ -72,6 +72,16 @@ $isSuperAdmin = $isSuperAdmin ?? false;
                     </a>
                 </li>
                 <li>
+                    <a href="<?php echo $viewInstance->route('superadmin/announcements'); ?>" class="<?php echo str_contains($_SERVER['REQUEST_URI'] ?? '', '/superadmin/announcements') ? 'active' : ''; ?>">
+                        <span class="nav-icon">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M22 17H2a3 3 0 0 0 3-3V9a7 7 0 0 1 14 0v5a3 3 0 0 0 3 3zm-8.27 4a2 2 0 0 1-3.46 0"></path>
+                            </svg>
+                        </span>
+                        <span class="nav-text">Noticias</span>
+                    </a>
+                </li>
+                <li>
                     <a href="<?php echo $viewInstance->route('superadmin/audits'); ?>" class="<?php echo ($_SERVER['REQUEST_URI'] ?? '') === '/SoftNova/public/superadmin/audits' ? 'active' : ''; ?>">
                         <span class="nav-icon">
                             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">

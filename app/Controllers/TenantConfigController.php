@@ -5,6 +5,7 @@ namespace SoftNova\Controllers;
 use SoftNova\Core\Controller;
 use SoftNova\Core\TenantMiddleware;
 use SoftNova\Core\Security;
+use SoftNova\Services\TenantBackupService;
 
 /**
  * Controlador de Configuración del Tenant
@@ -53,12 +54,58 @@ class TenantConfigController extends Controller
             return;
         }
         
+        if ($action === 'backupDownload' && $this->request->method() === 'POST') {
+            \SoftNova\Core\TenantMiddleware::authorize('configuracion', 'edit');
+            $this->backupDownload();
+            return;
+        }
+        
+        if ($action === 'backupRestore' && $this->request->method() === 'POST') {
+            \SoftNova\Core\TenantMiddleware::authorize('configuracion', 'edit');
+            $this->backupRestore();
+            return;
+        }
+        
+        if ($action === 'backupSchedule' && $this->request->method() === 'POST') {
+            \SoftNova\Core\TenantMiddleware::authorize('configuracion', 'edit');
+            $this->backupSchedule();
+            return;
+        }
+        
+        if ($action === 'backupGetFile' && in_array($this->request->method(), ['GET', 'POST'], true)) {
+            \SoftNova\Core\TenantMiddleware::authorize('configuracion', 'edit');
+            $this->backupGetFile();
+            return;
+        }
+        
+        if ($action === 'backupDelete' && $this->request->method() === 'POST') {
+            \SoftNova\Core\TenantMiddleware::authorize('configuracion', 'edit');
+            $this->backupDelete();
+            return;
+        }
+        
         // Cargar settings actuales
         $settings = [];
         $rows = $this->query("SELECT setting_key, setting_value FROM settings")->fetchAll();
         foreach ($rows as $row) {
             $settings[$row['setting_key']] = $row['setting_value'];
         }
+        
+        // Auto-backup lazy al entrar a configuracion
+        $this->runScheduledBackupIfDue($settings);
+        // Recargar settings por si se actualizo last_run
+        $settings = [];
+        $rows = $this->query("SELECT setting_key, setting_value FROM settings")->fetchAll();
+        foreach ($rows as $row) {
+            $settings[$row['setting_key']] = $row['setting_value'];
+        }
+        
+        $backupService = new TenantBackupService();
+        $backupPage = max(1, (int)($this->request->get('backup_page') ?? 1));
+        $backupList = $backupService->listBackups($backupPage, 7);
+        $backups = $backupList['items'];
+        $backupsAll = $backupList['all'];
+        $backupPagination = $backupList['pagination'];
         
         // Datos del usuario actual
         $userId = $_SESSION['tenant_user_id'] ?? 0;
@@ -111,6 +158,9 @@ class TenantConfigController extends Controller
             'languages' => $languages,
             'currentUser' => $currentUser,
             'subscription' => $subscription,
+            'backups' => $backups,
+            'backupsAll' => $backupsAll,
+            'backupPagination' => $backupPagination,
             'tenantName' => $_SESSION['tenant_name'] ?? 'Mi Empresa',
             'userName' => $_SESSION['tenant_user_name'] ?? 'Usuario',
         ]);
@@ -130,26 +180,269 @@ class TenantConfigController extends Controller
         foreach ($fields as $field) {
             $value = $this->request->post($field);
             if ($value !== null) {
-                $existing = $this->query(
-                    "SELECT id FROM settings WHERE setting_key = ?",
-                    [$field]
-                )->fetch();
-                
-                if ($existing) {
-                    $this->query(
-                        "UPDATE settings SET setting_value = ? WHERE setting_key = ?",
-                        [$value, $field]
-                    );
-                } else {
-                    $this->query(
-                        "INSERT INTO settings (setting_key, setting_value) VALUES (?, ?)",
-                        [$field, $value]
-                    );
-                }
+                $this->upsertSetting($field, (string)$value);
             }
         }
         
         $this->respond(true, 'Configuración guardada exitosamente', '/app/configuracion');
+    }
+    
+    private function upsertSetting(string $key, string $value): void
+    {
+        $existing = $this->query(
+            "SELECT id FROM settings WHERE setting_key = ?",
+            [$key]
+        )->fetch();
+        
+        if ($existing) {
+            $this->query(
+                "UPDATE settings SET setting_value = ? WHERE setting_key = ?",
+                [$value, $key]
+            );
+        } else {
+            $this->query(
+                "INSERT INTO settings (setting_key, setting_value) VALUES (?, ?)",
+                [$key, $value]
+            );
+        }
+    }
+    
+    private function requireAdmin(): bool
+    {
+        if (($_SESSION['tenant_user_role'] ?? '') !== 'admin') {
+            $this->respond(false, 'Solo el administrador puede gestionar copias de seguridad');
+            return false;
+        }
+        return true;
+    }
+    
+    private function backupDownload(): void
+    {
+        if (!$this->validateCsrfOrFail('/app/configuracion')) {
+            return;
+        }
+        if (!$this->requireAdmin()) {
+            return;
+        }
+        if (!$this->verifyAdminPassword((string)($this->request->post('confirm_password') ?? ''))) {
+            $this->respond(false, 'Contraseña incorrecta. La descarga fue cancelada.');
+            return;
+        }
+        
+        $dbName = (string)($_SESSION['tenant_db_name'] ?? '');
+        if ($dbName === '') {
+            $this->respond(false, 'No se encontro la base de datos del tenant');
+            return;
+        }
+        
+        $svc = new TenantBackupService();
+        $result = $svc->createBackup($dbName, 'manual');
+        if (empty($result['success'])) {
+            $this->respond(false, $result['message'] ?? 'Error al crear backup');
+            return;
+        }
+        
+        $this->upsertSetting('backup_last_run', date('Y-m-d H:i:s'));
+        
+        $_SESSION['backup_dl'] = [
+            'file' => $result['filename'],
+            'until' => time() + 120,
+        ];
+        
+        $redirect = 'app/configuracion?action=backupGetFile&file=' . rawurlencode($result['filename']);
+        $this->respond(true, 'Copia creada. Descargando...', $redirect);
+    }
+    
+    private function backupGetFile(): void
+    {
+        if (!$this->requireAdmin()) {
+            return;
+        }
+        
+        $file = (string)($this->request->method() === 'POST'
+            ? ($this->request->post('file') ?? '')
+            : ($this->request->get('file') ?? ''));
+        
+        $allowed = false;
+        $token = $_SESSION['backup_dl'] ?? null;
+        if (is_array($token)
+            && ($token['file'] ?? '') === $file
+            && (int)($token['until'] ?? 0) >= time()
+        ) {
+            $allowed = true;
+            unset($_SESSION['backup_dl']);
+        }
+        
+        if (!$allowed) {
+            if ($this->request->method() !== 'POST') {
+                $this->respond(false, 'Para descargar debe confirmar con su contraseña', '/app/configuracion');
+                return;
+            }
+            if (!$this->validateCsrfOrFail('/app/configuracion')) {
+                return;
+            }
+            if (!$this->verifyAdminPassword((string)($this->request->post('confirm_password') ?? ''))) {
+                $this->respond(false, 'Contraseña incorrecta. La descarga fue cancelada.', '/app/configuracion');
+                return;
+            }
+        }
+        
+        $svc = new TenantBackupService();
+        $path = $svc->resolvePath($file);
+        if (!$path) {
+            $this->respond(false, 'Archivo no encontrado', '/app/configuracion');
+            return;
+        }
+        
+        header('Content-Type: application/sql');
+        header('Content-Disposition: attachment; filename="' . basename($path) . '"');
+        header('Content-Length: ' . filesize($path));
+        header('Cache-Control: no-store');
+        readfile($path);
+        exit;
+    }
+    
+    private function verifyAdminPassword(string $password): bool
+    {
+        if ($password === '') {
+            return false;
+        }
+        $userId = (int)($_SESSION['tenant_user_id'] ?? 0);
+        $user = $this->query("SELECT password FROM users WHERE id = ?", [$userId])->fetch();
+        return $user && Security::verifyPassword($password, $user['password']);
+    }
+    
+    private function backupDelete(): void
+    {
+        if (!$this->validateCsrfOrFail('/app/configuracion')) {
+            return;
+        }
+        if (!$this->requireAdmin()) {
+            return;
+        }
+        
+        $file = (string)($this->request->post('file') ?? '');
+        $svc = new TenantBackupService();
+        $result = $svc->deleteBackup($file);
+        
+        if (empty($result['success'])) {
+            $this->respond(false, $result['message'] ?? 'No se pudo eliminar', '/app/configuracion');
+            return;
+        }
+        
+        $this->respond(true, 'Copia de seguridad eliminada', '/app/configuracion');
+    }
+    
+    private function backupRestore(): void
+    {
+        if (!$this->validateCsrfOrFail('/app/configuracion')) {
+            return;
+        }
+        if (!$this->requireAdmin()) {
+            return;
+        }
+        
+        $password = (string)($this->request->post('confirm_password') ?? '');
+        if (!$this->verifyAdminPassword($password)) {
+            $this->respond(false, 'Contraseña incorrecta. La restauracion fue cancelada.');
+            return;
+        }
+        
+        $dbName = (string)($_SESSION['tenant_db_name'] ?? '');
+        if ($dbName === '') {
+            $this->respond(false, 'No se encontro la base de datos del tenant');
+            return;
+        }
+        
+        $svc = new TenantBackupService();
+        
+        $path = null;
+        $fromFile = (string)($this->request->post('backup_file') ?? '');
+        if ($fromFile !== '') {
+            $path = $svc->resolvePath($fromFile);
+        }
+        
+        if (!$path && isset($_FILES['backup_upload']) && $_FILES['backup_upload']['error'] === UPLOAD_ERR_OK) {
+            $tmp = $_FILES['backup_upload']['tmp_name'];
+            $name = basename((string)$_FILES['backup_upload']['name']);
+            if (!preg_match('/\.sql$/i', $name)) {
+                $this->respond(false, 'Solo se aceptan archivos .sql');
+                return;
+            }
+            if ((int)$_FILES['backup_upload']['size'] > 80 * 1024 * 1024) {
+                $this->respond(false, 'El archivo supera el limite de 80MB');
+                return;
+            }
+            $dest = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'restore_' . (int)($_SESSION['tenant_user_id'] ?? 0) . '_' . time() . '.sql';
+            if (!move_uploaded_file($tmp, $dest)) {
+                $this->respond(false, 'No se pudo recibir el archivo');
+                return;
+            }
+            $path = $dest;
+        }
+        
+        if (!$path) {
+            $this->respond(false, 'Seleccione un backup existente o suba un archivo .sql');
+            return;
+        }
+        
+        $result = $svc->restoreBackup($dbName, $path);
+        if (str_starts_with((string)$path, sys_get_temp_dir())) {
+            @unlink($path);
+        }
+        
+        if (empty($result['success'])) {
+            $this->respond(false, $result['message'] ?? 'Error al restaurar');
+            return;
+        }
+        
+        $this->respond(true, 'Restauracion completada.', '/app/configuracion');
+    }
+    
+    private function backupSchedule(): void
+    {
+        if (!$this->validateCsrfOrFail('/app/configuracion')) {
+            return;
+        }
+        if (!$this->requireAdmin()) {
+            return;
+        }
+        
+        $enabled = $this->request->post('backup_enabled') ? '1' : '0';
+        $time = (string)($this->request->post('backup_time') ?? '02:00');
+        if (!preg_match('/^([01]?\d|2[0-3]):([0-5]\d)$/', $time)) {
+            $this->respond(false, 'Hora invalida. Use formato HH:MM');
+            return;
+        }
+        
+        $this->upsertSetting('backup_enabled', $enabled);
+        $this->upsertSetting('backup_time', $time);
+        
+        $this->respond(true, 'Programacion de backup guardada', '/app/configuracion');
+    }
+    
+    private function runScheduledBackupIfDue(array &$settings): void
+    {
+        try {
+            $dbName = (string)($_SESSION['tenant_db_name'] ?? '');
+            if ($dbName === '') {
+                return;
+            }
+            $svc = new TenantBackupService();
+            $result = $svc->maybeAutoBackup($dbName, $settings);
+            $hints = TenantBackupService::consumeSettingHints();
+            foreach ($hints as $k => $v) {
+                $this->upsertSetting((string)$k, (string)$v);
+                $settings[(string)$k] = (string)$v;
+            }
+            if ($result && !empty($result['success'])) {
+                $now = date('Y-m-d H:i:s');
+                $this->upsertSetting('backup_last_run', $now);
+                $settings['backup_last_run'] = $now;
+            }
+        } catch (\Throwable $e) {
+            error_log('config auto-backup: ' . $e->getMessage());
+        }
     }
     
     /**
@@ -176,21 +469,44 @@ class TenantConfigController extends Controller
             return;
         }
         
-        if (strlen($newPassword) < 6) {
-            $this->respond(false, 'La contraseña debe tener al menos 6 caracteres');
+        if (strlen($newPassword) < 8) {
+            $this->respond(false, 'La contraseña debe tener al menos 8 caracteres');
             return;
         }
         
         // Verificar contraseña actual
-        $user = $this->query("SELECT password FROM users WHERE id = ?", [$userId])->fetch();
+        $user = $this->query("SELECT password, email FROM users WHERE id = ?", [$userId])->fetch();
         if (!$user || !Security::verifyPassword($currentPassword, $user['password'])) {
             $this->respond(false, 'La contraseña actual es incorrecta');
             return;
         }
         
-        // Actualizar contraseña
+        // Actualizar contraseña en BD tenant y en master (login usa tenant_users)
         $hashed = Security::hashPassword($newPassword);
         $this->query("UPDATE users SET password = ? WHERE id = ?", [$hashed, $userId]);
+        
+        try {
+            $masterDb = \SoftNova\Core\Database::getInstance();
+            $masterUserId = (int)($_SESSION['tenant_master_user_id'] ?? 0);
+            $tenantId = (int)($_SESSION['tenant_id'] ?? 0);
+            $email = (string)($_SESSION['tenant_user_email'] ?? $user['email'] ?? '');
+            
+            if ($masterUserId > 0) {
+                $masterDb->query(
+                    "UPDATE tenant_users SET password = ? WHERE id = ? AND tenant_id = ?",
+                    [$hashed, $masterUserId, $tenantId]
+                );
+            } elseif ($email !== '' && $tenantId > 0) {
+                $masterDb->query(
+                    "UPDATE tenant_users SET password = ? WHERE email = ? AND tenant_id = ?",
+                    [$hashed, $email, $tenantId]
+                );
+            }
+        } catch (\Throwable $e) {
+            error_log('changePassword master sync: ' . $e->getMessage());
+            $this->respond(false, 'Contraseña local actualizada, pero no se pudo sincronizar el login. Contacte soporte.');
+            return;
+        }
         
         $this->respond(true, 'Contraseña actualizada exitosamente');
     }
@@ -212,16 +528,31 @@ class TenantConfigController extends Controller
         }
         
         $file = $_FILES['avatar'];
-        $allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+        $allowedExt = ['jpg', 'jpeg', 'png', 'gif', 'webp'];
+        $allowedMimes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
         $maxSize = 2 * 1024 * 1024; // 2MB
         
-        if (!in_array($file['type'], $allowedTypes)) {
+        if ($file['size'] > $maxSize) {
+            $this->respond(false, 'La imagen no debe superar 2MB');
+            return;
+        }
+        
+        $finfo = new \finfo(FILEINFO_MIME_TYPE);
+        $realMime = $finfo->file($file['tmp_name']) ?: '';
+        if (!in_array($realMime, $allowedMimes, true)) {
             $this->respond(false, 'Formato no permitido. Use JPG, PNG, GIF o WebP');
             return;
         }
         
-        if ($file['size'] > $maxSize) {
-            $this->respond(false, 'La imagen no debe superar 2MB');
+        $mimeToExt = [
+            'image/jpeg' => 'jpg',
+            'image/png' => 'png',
+            'image/gif' => 'gif',
+            'image/webp' => 'webp',
+        ];
+        $ext = $mimeToExt[$realMime] ?? strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
+        if (!in_array($ext, $allowedExt, true)) {
+            $this->respond(false, 'Extension de archivo no permitida');
             return;
         }
         
@@ -231,7 +562,6 @@ class TenantConfigController extends Controller
             mkdir($uploadDir, 0755, true);
         }
         
-        $ext = pathinfo($file['name'], PATHINFO_EXTENSION);
         $filename = 'avatar_' . $userId . '_' . time() . '.' . $ext;
         $destPath = $uploadDir . $filename;
         
@@ -242,13 +572,7 @@ class TenantConfigController extends Controller
         
         $avatarUrl = \SoftNova\Core\base_url('uploads/avatars/' . $filename);
         
-        // Guardar en settings
-        $existing = $this->query("SELECT id FROM settings WHERE setting_key = 'user_avatar'")->fetch();
-        if ($existing) {
-            $this->query("UPDATE settings SET setting_value = ? WHERE setting_key = 'user_avatar'", [$avatarUrl]);
-        } else {
-            $this->query("INSERT INTO settings (setting_key, setting_value) VALUES ('user_avatar', ?)", [$avatarUrl]);
-        }
+        $this->upsertSetting('user_avatar', $avatarUrl);
         
         $this->respond(true, 'Imagen de perfil actualizada');
     }

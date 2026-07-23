@@ -47,7 +47,13 @@ function prepareQuoteItems() {
     return true;
 }
 
-function openQuoteModal() { quoteItems = []; renderQuoteItems(); document.getElementById('quoteModal').style.display = 'flex'; }
+function openQuoteModal() {
+    quoteItems = [];
+    renderQuoteItems();
+    if (typeof resetCustomerCombobox === 'function') resetCustomerCombobox();
+    if (typeof initCustomerCombobox === 'function') initCustomerCombobox();
+    document.getElementById('quoteModal').style.display = 'flex';
+}
 function closeQuoteModal() { document.getElementById('quoteModal').style.display = 'none'; }
 
 function closeQuickCustomer() { document.getElementById('quickCustomerModal').style.display = 'none'; }
@@ -63,17 +69,12 @@ function submitQuickCustomer(form) {
     .then(function(d) {
         if (d.success) {
             showAlert(d.message, 'success');
-            var sel = document.getElementById('customerSelect');
             var newId = d.data ? d.data.id : null;
             var firstName = fd.get('first_name') || '';
             var lastName = fd.get('last_name') || '';
-            var newName = (firstName + ' ' + lastName).trim() || 'Nuevo Cliente';
-            if (newId && sel) {
-                var opt = document.createElement('option');
-                opt.value = newId;
-                opt.textContent = newName;
-                sel.appendChild(opt);
-                sel.value = newId;
+            var newName = (d.data && d.data.name) ? d.data.name : ((firstName + ' ' + lastName).trim() || 'Nuevo Cliente');
+            if (newId && typeof setSelectedCustomer === 'function') {
+                setSelectedCustomer(String(newId), newName.trim());
             }
             document.getElementById('quickCustomerModal').style.display = 'none';
             form.reset();

@@ -1,6 +1,6 @@
 <?php
 $layout = 'main';
-$title = 'Ventas - Software de Gestión Active';
+$title = 'Ventas - Seri ERP';
 $pageTitle = 'Ventas';
 $userName = 'Usuario';
 ?>

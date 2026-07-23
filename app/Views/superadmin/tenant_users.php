@@ -79,13 +79,23 @@ $moduleNames = [
                                 <td><?php echo htmlspecialchars($user['name']); ?></td>
                                 <td><?php echo htmlspecialchars($user['email']); ?></td>
                                 <td>
-                                    <span class="badge <?php echo $user['role'] === 'admin' ? 'badge-success' : 'badge-info'; ?>">
-                                        <?php echo $user['role'] === 'admin' ? 'Administrador' : 'Usuario'; ?>
+                                    <?php
+                                    $roleLabels = [
+                                        'admin' => 'Administrador',
+                                        'user' => 'Usuario',
+                                        'auxiliar' => 'Auxiliar/Mesero',
+                                    ];
+                                    $roleBadge = $user['role'] === 'admin' ? 'badge-success' : ($user['role'] === 'auxiliar' ? 'badge-warning' : 'badge-info');
+                                    ?>
+                                    <span class="badge <?php echo $roleBadge; ?>">
+                                        <?php echo $roleLabels[$user['role']] ?? htmlspecialchars($user['role']); ?>
                                     </span>
                                 </td>
                                 <td>
                                     <?php if ($user['role'] === 'admin'): ?>
                                         <span class="badge badge-success">Todos los modulos</span>
+                                    <?php elseif ($user['role'] === 'auxiliar'): ?>
+                                        <span class="badge badge-warning">Ventas + Inventario (carrito)</span>
                                     <?php elseif ($permissionCount > 0): ?>
                                         <span class="badge badge-info"><?php echo $permissionCount; ?> modulos</span>
                                     <?php else: ?>
@@ -139,7 +149,11 @@ $moduleNames = [
                 <select name="role" id="userRole" required class="neumorphic-input" onchange="togglePermissionsSection()">
                     <option value="admin">Administrador</option>
                     <option value="user">Usuario</option>
+                    <option value="auxiliar">Auxiliar/Mesero</option>
                 </select>
+                <small id="roleHint" style="display:none;color:var(--color-text-secondary);font-size:12px;margin-top:6px;">
+                    Auxiliar/Mesero: solo Ventas (crear, sin eliminar) e Inventario (carrito a venta; sin crear/editar/eliminar productos).
+                </small>
             </div>
             
             <div id="permissionsSection" class="permissions-section" style="display: none; margin-top: 20px; padding: 20px; background-color: var(--color-secondary); border-radius: 8px; border: 1px solid var(--color-border);">
@@ -174,6 +188,9 @@ $moduleNames = [
 function togglePermissionsSection() {
     const role = document.getElementById('userRole').value;
     const section = document.getElementById('permissionsSection');
+    const hint = document.getElementById('roleHint');
+    
+    if (hint) hint.style.display = role === 'auxiliar' ? 'block' : 'none';
     
     if (role === 'user') {
         section.style.display = 'block';

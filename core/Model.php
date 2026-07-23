@@ -45,7 +45,8 @@ abstract class Model
         $placeholders = ':' . implode(', :', array_keys($data));
         
         $sql = "INSERT INTO {$this->table} ({$columns}) VALUES ({$placeholders})";
-        return $this->db->query($sql, $data)->execute();
+        $this->db->query($sql, $data);
+        return true;
     }
     
     /**
@@ -61,7 +62,8 @@ abstract class Model
         $data['id'] = $id;
         
         $sql = "UPDATE {$this->table} SET {$setClause} WHERE {$this->primaryKey} = :id";
-        return $this->db->query($sql, $data)->execute();
+        $this->db->query($sql, $data);
+        return true;
     }
     
     /**
@@ -70,6 +72,7 @@ abstract class Model
     public function delete(int $id): bool
     {
         $sql = "DELETE FROM {$this->table} WHERE {$this->primaryKey} = :id";
-        return $this->db->query($sql, ['id' => $id])->execute();
+        $this->db->query($sql, ['id' => $id]);
+        return true;
     }
 }

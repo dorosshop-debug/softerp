@@ -214,7 +214,229 @@ $avatarUrl = $settings['user_avatar'] ?? null;
             </form>
         </div>
     </div>
+
+    <!-- Copia de seguridad -->
+    <?php
+    $backups = $backups ?? [];
+    $backupEnabled = ($settings['backup_enabled'] ?? '0') === '1';
+    $backupTime = $settings['backup_time'] ?? '02:00';
+    $backupLast = $settings['backup_last_run'] ?? '';
+    $isAdmin = ($_SESSION['tenant_user_role'] ?? '') === 'admin';
+    ?>
+    <div class="card neumorphic" style="grid-column: 1 / -1;">
+        <div class="card-header">
+            <h3>Copia de seguridad</h3>
+        </div>
+        <div class="card-body">
+            <?php if (!$isAdmin): ?>
+                <p style="color:var(--color-text-secondary);font-size:13px;">Solo el administrador puede descargar o restaurar copias de seguridad.</p>
+            <?php else: ?>
+                <p style="color:var(--color-text-secondary);font-size:13px;margin-bottom:16px;">
+                    Formato <strong>SQL</strong>: incluye usuarios, clientes, proveedores, productos, ventas, caja, cotizaciones, gastos y demas tablas del sistema.
+                    Util para recuperar datos si alguien borra informacion por error o con mala intencion.
+                </p>
+                
+                <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:20px;">
+                    <div>
+                        <h4 style="margin-bottom:10px;">Descargar copia</h4>
+                        <form method="POST" action="<?php echo $viewInstance->route('app/configuracion'); ?>?action=backupDownload" data-ajax="true">
+                            <?php echo \SoftNova\Core\csrf_field(); ?>
+                            <div class="form-group">
+                                <label>Contraseña de administrador *</label>
+                                <input type="password" name="confirm_password" class="form-control" required placeholder="Confirme su contraseña" autocomplete="current-password">
+                            </div>
+                            <button type="submit" class="btn btn-primary" title="Generar y descargar backup SQL">Generar y descargar .sql</button>
+                        </form>
+                        <?php if ($backupLast): ?>
+                            <small style="display:block;margin-top:8px;color:var(--color-text-secondary);">Ultimo backup: <?php echo htmlspecialchars($backupLast); ?></small>
+                        <?php endif; ?>
+                    </div>
+                    
+                    <div>
+                        <h4 style="margin-bottom:10px;">Programacion automatica</h4>
+                        <form method="POST" action="<?php echo $viewInstance->route('app/configuracion'); ?>?action=backupSchedule" data-ajax="true">
+                            <?php echo \SoftNova\Core\csrf_field(); ?>
+                            <label style="display:flex;align-items:center;gap:8px;margin-bottom:10px;cursor:pointer;">
+                                <input type="checkbox" name="backup_enabled" value="1" <?php echo $backupEnabled ? 'checked' : ''; ?> style="accent-color:var(--color-primary);">
+                                Activar auto-backup diario
+                            </label>
+                            <div class="form-group">
+                                <label>Hora del backup</label>
+                                <input type="time" name="backup_time" class="form-control" value="<?php echo htmlspecialchars($backupTime); ?>" required>
+                                <small style="color:var(--color-text-secondary);">Se ejecuta al detectar actividad despues de esa hora (sin cron externo).</small>
+                            </div>
+                            <button type="submit" class="btn btn-secondary">Guardar programacion</button>
+                        </form>
+                    </div>
+                    
+                    <div>
+                        <h4 style="margin-bottom:10px;">Restaurar copia</h4>
+                        <form method="POST" action="<?php echo $viewInstance->route('app/configuracion'); ?>?action=backupRestore" id="backupRestoreForm" enctype="multipart/form-data" onsubmit="return openRestoreDangerModal(event)">
+                            <?php echo \SoftNova\Core\csrf_field(); ?>
+                            <input type="hidden" name="confirm_password" id="restoreConfirmPassword" value="">
+                            <div class="form-group">
+                                <label>Backup guardado en el servidor</label>
+                                <select name="backup_file" class="form-control">
+                                    <option value="">— Opcional —</option>
+                                    <?php foreach (($backupsAll ?? $backups) as $b): ?>
+                                        <option value="<?php echo htmlspecialchars($b['filename']); ?>">
+                                            <?php echo htmlspecialchars($b['filename']); ?> (<?php echo htmlspecialchars($b['size_label']); ?>)
+                                        </option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label>O subir archivo .sql</label>
+                                <input type="file" name="backup_upload" class="form-control" accept=".sql,application/sql,text/plain">
+                            </div>
+                            <button type="submit" class="btn btn-danger">Restaurar ahora</button>
+                        </form>
+                    </div>
+                </div>
+                
+                <?php if (!empty($backups) || !empty($backupPagination['total'])): ?>
+                <hr style="border-color:var(--color-border);margin:20px 0;" id="backup-list">
+                <h4 style="margin-bottom:10px;">Copias recientes en el servidor</h4>
+                <p style="color:var(--color-text-secondary);font-size:12px;margin-bottom:10px;">Las copias con mas de 7 dias se eliminan automaticamente. Se muestran 7 por pagina.</p>
+                <div class="table-container">
+                    <table>
+                        <thead>
+                            <tr><th>Archivo</th><th>Tamano</th><th>Fecha</th><th>Acciones</th></tr>
+                        </thead>
+                        <tbody>
+                            <?php if (empty($backups)): ?>
+                                <tr><td colspan="4" style="text-align:center;color:var(--color-text-secondary);">No hay copias en esta pagina</td></tr>
+                            <?php else: ?>
+                                <?php foreach ($backups as $b): ?>
+                                <tr>
+                                    <td><?php echo htmlspecialchars($b['filename']); ?></td>
+                                    <td><?php echo htmlspecialchars($b['size_label']); ?></td>
+                                    <td><?php echo htmlspecialchars($b['created_at']); ?></td>
+                                    <td class="table-actions">
+                                        <button type="button" class="btn btn-sm btn-secondary" onclick="openDownloadBackupModal(<?php echo htmlspecialchars(json_encode($b['filename']), ENT_QUOTES, 'UTF-8'); ?>)">Descargar</button>
+                                    </td>
+                                </tr>
+                                <?php endforeach; ?>
+                            <?php endif; ?>
+                        </tbody>
+                    </table>
+                </div>
+                <?php if (($backupPagination['totalPages'] ?? 1) > 1): ?>
+                <div class="pagination-bar" style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-top:16px;padding-top:12px;border-top:1px solid var(--color-border);">
+                    <span style="font-size:13px;color:var(--color-text-secondary);">
+                        Total: <?php echo (int)$backupPagination['total']; ?> | Pagina <?php echo (int)$backupPagination['page']; ?> de <?php echo (int)$backupPagination['totalPages']; ?>
+                    </span>
+                    <div style="display:flex;gap:6px;flex-wrap:wrap;">
+                        <?php if ((int)$backupPagination['page'] > 1): ?>
+                            <a class="btn btn-sm btn-secondary" href="<?php echo $viewInstance->route('app/configuracion'); ?>?backup_page=<?php echo (int)$backupPagination['page'] - 1; ?>#backup-list">Anterior</a>
+                        <?php endif; ?>
+                        <?php for ($i = 1; $i <= (int)$backupPagination['totalPages']; $i++): ?>
+                            <a class="btn btn-sm <?php echo $i === (int)$backupPagination['page'] ? 'btn-primary' : 'btn-secondary'; ?>"
+                               href="<?php echo $viewInstance->route('app/configuracion'); ?>?backup_page=<?php echo $i; ?>#backup-list"><?php echo $i; ?></a>
+                        <?php endfor; ?>
+                        <?php if ((int)$backupPagination['page'] < (int)$backupPagination['totalPages']): ?>
+                            <a class="btn btn-sm btn-secondary" href="<?php echo $viewInstance->route('app/configuracion'); ?>?backup_page=<?php echo (int)$backupPagination['page'] + 1; ?>#backup-list">Siguiente</a>
+                        <?php endif; ?>
+                    </div>
+                </div>
+                <?php endif; ?>
+                <?php endif; ?>
+            <?php endif; ?>
+        </div>
+    </div>
 </div>
+
+<!-- Modal descarga backup -->
+<div id="downloadBackupModal" class="modal-overlay" style="display:none;">
+    <div class="modal-content neumorphic" style="max-width:420px;">
+        <div class="modal-header">
+            <h3>Descargar copia</h3>
+            <button type="button" class="modal-close" onclick="closeDownloadBackupModal()">&times;</button>
+        </div>
+        <form method="POST" action="<?php echo $viewInstance->route('app/configuracion'); ?>?action=backupGetFile" id="downloadBackupForm">
+            <?php echo \SoftNova\Core\csrf_field(); ?>
+            <input type="hidden" name="file" id="downloadBackupFile" value="">
+            <div class="modal-body">
+                <p style="margin-bottom:12px;color:var(--color-text-secondary);font-size:13px;">Confirme su contraseña de administrador para descargar el archivo.</p>
+                <div class="form-group">
+                    <label>Contraseña *</label>
+                    <input type="password" name="confirm_password" id="downloadBackupPassword" class="form-control" required autocomplete="current-password" placeholder="Contraseña de administrador">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" onclick="closeDownloadBackupModal()">Cancelar</button>
+                <button type="submit" class="btn btn-primary">Descargar</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Modal alto riesgo: restaurar backup -->
+<div id="restoreDangerModal" class="modal-overlay restore-danger-overlay" style="display:none;">
+    <div class="restore-danger-modal" role="dialog" aria-modal="true" aria-labelledby="restoreDangerTitle">
+        <h3 id="restoreDangerTitle">PASO DE ALTO RIESGO</h3>
+        <p class="restore-danger-warn">¿Estás seguro?</p>
+        <p class="restore-danger-text">
+            Esta acción <strong>sobrescribe TODOS los datos actuales</strong> del sistema con la copia seleccionada.
+            No se creará una copia previa automática. Si continúa sin un respaldo externo, puede perder información de forma irreversible.
+        </p>
+        <div class="form-group" style="text-align:left;">
+            <label style="color:#fff;">Escriba la contraseña del administrador para confirmar</label>
+            <input type="password" id="restoreDangerPassword" class="form-control" autocomplete="current-password" placeholder="Contraseña de administrador">
+        </div>
+        <div class="restore-danger-actions">
+            <button type="button" class="btn btn-secondary" onclick="closeRestoreDangerModal()">Cancelar</button>
+            <button type="button" class="btn btn-danger" onclick="confirmRestoreDanger()">Sí, restaurar ahora</button>
+        </div>
+    </div>
+</div>
+
+<script>
+var restoreFormPending = null;
+function openRestoreDangerModal(e) {
+    e.preventDefault();
+    restoreFormPending = e.target;
+    document.getElementById('restoreDangerPassword').value = '';
+    document.getElementById('restoreDangerModal').style.display = 'flex';
+    if (typeof initPasswordToggles === 'function') initPasswordToggles(document.getElementById('restoreDangerModal'));
+    setTimeout(function(){ document.getElementById('restoreDangerPassword').focus(); }, 50);
+    return false;
+}
+function closeRestoreDangerModal() {
+    document.getElementById('restoreDangerModal').style.display = 'none';
+    restoreFormPending = null;
+}
+function confirmRestoreDanger() {
+    var pwd = (document.getElementById('restoreDangerPassword').value || '').trim();
+    if (!pwd) {
+        if (typeof showAlert === 'function') showAlert('Debe escribir la contraseña del administrador', 'error');
+        else alert('Debe escribir la contraseña del administrador');
+        return;
+    }
+    var form = restoreFormPending || document.getElementById('backupRestoreForm');
+    document.getElementById('restoreConfirmPassword').value = pwd;
+    document.getElementById('restoreDangerModal').style.display = 'none';
+    restoreFormPending = null;
+    if (!form) return;
+    form.onsubmit = null;
+    form.removeAttribute('onsubmit');
+    if (typeof handleAjaxSubmit === 'function') {
+        handleAjaxSubmit(form);
+    } else {
+        form.submit();
+    }
+}
+function openDownloadBackupModal(filename) {
+    document.getElementById('downloadBackupFile').value = filename || '';
+    document.getElementById('downloadBackupPassword').value = '';
+    document.getElementById('downloadBackupModal').style.display = 'flex';
+    if (typeof initPasswordToggles === 'function') initPasswordToggles(document.getElementById('downloadBackupModal'));
+    setTimeout(function(){ document.getElementById('downloadBackupPassword').focus(); }, 50);
+}
+function closeDownloadBackupModal() {
+    document.getElementById('downloadBackupModal').style.display = 'none';
+}
+</script>
 
 <script>
 function setTheme(t){

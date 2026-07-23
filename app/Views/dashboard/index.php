@@ -1,6 +1,6 @@
 <?php
 $layout = 'main';
-$title = 'Dashboard - Software de Gestión Active';
+$title = 'Dashboard - Seri ERP';
 $pageTitle = 'Inicio';
 $userName = 'Usuario';
 ?>
@@ -33,7 +33,7 @@ $userName = 'Usuario';
     </div>
     <div class="card-body">
         <p style="color: var(--color-text-secondary);">
-            Bienvenido al Software de Gestión Active. Seleccione un módulo del menú lateral para comenzar.
+            Bienvenido al Seri ERP. Seleccione un módulo del menú lateral para comenzar.
         </p>
     </div>
 </div>

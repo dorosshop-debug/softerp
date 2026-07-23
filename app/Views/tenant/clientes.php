@@ -11,7 +11,13 @@ $sourceOptions = ['Facebook', 'Instagram', 'WhatsApp', 'Google', 'Recomendación
 <?php echo flashMessage(); ?>
 
 <div class="card neumorphic">
-    <div class="card-header"><h3>Lista de Clientes (<?php echo count($customers); ?>)</h3><button onclick="openModal()" class="btn btn-primary neumorphic-btn">+ Nuevo Cliente</button></div>
+    <div class="card-header" style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+        <h3>Lista de Clientes (<?php echo (int)($pagination['total'] ?? count($customers)); ?>)</h3>
+        <div style="display:flex;gap:8px;">
+            <a href="<?php echo $viewInstance->route('app/clientes'); ?>?action=export" class="btn btn-secondary" title="Exportar CSV">CSV</a>
+            <button onclick="openModal()" class="btn btn-primary neumorphic-btn" title="Nuevo cliente">+ Nuevo Cliente</button>
+        </div>
+    </div>
     <div class="card-body">
         <div class="table-container"><table>
             <thead><tr><th>ID</th><th>Nombre</th><th>Apellido</th><th>Empresa</th><th>Documento</th><th>Email</th><th>Teléfono</th><th>Origen</th><th>Acciones</th></tr></thead>
@@ -34,7 +40,7 @@ $sourceOptions = ['Facebook', 'Instagram', 'WhatsApp', 'Google', 'Recomendación
                             <button onclick='openModal(<?php echo htmlspecialchars(json_encode($c)); ?>)' class="btn btn-sm btn-secondary" title="Editar"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg></button>
                             <form method="POST" action="<?php echo $viewInstance->route('app/clientes'); ?>?action=delete" style="display:inline;" data-ajax="true">
                                 <?php echo \SoftNova\Core\csrf_field(); ?><input type="hidden" name="id" value="<?php echo $c['id']; ?>">
-                                <button type="submit" onclick="return confirm('¿Eliminar?')" class="btn btn-sm btn-danger" title="Eliminar"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg></button>
+                                <button type="submit" data-confirm="Eliminar este cliente?" class="btn btn-sm btn-danger" title="Eliminar"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg></button>
                             </form>
                         </td>
                     </tr>
@@ -42,6 +48,12 @@ $sourceOptions = ['Facebook', 'Instagram', 'WhatsApp', 'Google', 'Recomendación
             <?php endif; ?>
             </tbody>
         </table></div>
+        <?php
+        $pagination = $pagination ?? null;
+        $paginationBaseUrl = $viewInstance->route('app/clientes');
+        $paginationQuery = [];
+        $viewInstance->partial('pagination', compact('pagination', 'paginationBaseUrl', 'paginationQuery'));
+        ?>
     </div>
 </div>
 
@@ -52,16 +64,16 @@ $sourceOptions = ['Facebook', 'Instagram', 'WhatsApp', 'Google', 'Recomendación
         <form method="POST" id="customerForm" data-ajax="true">
             <?php echo \SoftNova\Core\csrf_field(); ?><input type="hidden" name="id" id="custId">
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:15px;">
-                <div class="form-group"><label>Nombre</label><input type="text" name="first_name" id="custFirstName" class="form-control" placeholder="Nombres"></div>
-                <div class="form-group"><label>Apellido</label><input type="text" name="last_name" id="custLastName" class="form-control" placeholder="Apellidos"></div>
-                <div class="form-group"><label>Empresa (opcional)</label><input type="text" name="company_name" id="custCompany" class="form-control" placeholder="Nombre de empresa"></div>
-                <div class="form-group"><label>¿De dónde viene?</label><select name="source" id="custSource" class="form-control"><option value="">Seleccionar</option><?php foreach($sourceOptions as $s): ?><option value="<?php echo $s; ?>"><?php echo $s; ?></option><?php endforeach; ?></select></div>
-                <div class="form-group"><label>Tipo Doc.</label><select name="document_type" id="custDocType" class="form-control"><option value="CC">C.C</option><option value="CE">C.E</option><option value="NIT">NIT</option><option value="PPT">PPT</option><option value="OTROS">OTROS</option></select></div>
-                <div class="form-group"><label>N° Documento</label><input type="text" name="document_number" id="custDocNum" class="form-control"></div>
-                <div class="form-group"><label>Email</label><input type="email" name="email" id="custEmail" class="form-control"></div>
-                <div class="form-group"><label>Teléfono</label><input type="text" name="phone" id="custPhone" class="form-control"></div>
+                <div class="form-group"><label>Tipo Doc. <span class="field-tip" data-tip="Tipo de identificación del cliente (Cédula, NIT, extranjería, etc.).">?</span></label><select name="document_type" id="custDocType" class="form-control"><option value="CC">C.C</option><option value="CE">C.E</option><option value="NIT">NIT</option><option value="PPT">PPT</option><option value="OTROS">OTROS</option></select></div>
+                <div class="form-group"><label>N° Documento * <span class="field-tip" data-tip="Número de documento sin puntos. Campo obligatorio.">?</span></label><input type="text" name="document_number" id="custDocNum" class="form-control" placeholder="Número" required></div>
+                <div class="form-group"><label>Nombre * <span class="field-tip" data-tip="Nombre(s) del cliente. Campo obligatorio.">?</span></label><input type="text" name="first_name" id="custFirstName" class="form-control" placeholder="Nombres" required></div>
+                <div class="form-group"><label>Apellido <span class="field-tip" data-tip="Apellido(s) del cliente.">?</span></label><input type="text" name="last_name" id="custLastName" class="form-control" placeholder="Apellidos"></div>
+                <div class="form-group"><label>Empresa (opcional) <span class="field-tip" data-tip="Razón social o nombre comercial si compra a nombre de empresa.">?</span></label><input type="text" name="company_name" id="custCompany" class="form-control" placeholder="Nombre de empresa"></div>
+                <div class="form-group"><label>¿De dónde viene? <span class="field-tip" data-tip="Canal de origen del cliente (referido, redes, pasante, etc.) para seguimiento comercial.">?</span></label><select name="source" id="custSource" class="form-control"><option value="">Seleccionar</option><?php foreach($sourceOptions as $s): ?><option value="<?php echo $s; ?>"><?php echo $s; ?></option><?php endforeach; ?></select></div>
+                <div class="form-group"><label>Email <span class="field-tip" data-tip="Correo para facturas, cotizaciones o contacto.">?</span></label><input type="email" name="email" id="custEmail" class="form-control"></div>
+                <div class="form-group"><label>Teléfono * <span class="field-tip" data-tip="Número de contacto principal. Campo obligatorio.">?</span></label><input type="text" name="phone" id="custPhone" class="form-control" required></div>
             </div>
-            <div class="form-group"><label>Dirección</label><textarea name="address" id="custAddress" rows="2" class="form-control"></textarea></div>
+            <div class="form-group"><label>Dirección <span class="field-tip" data-tip="Dirección de residencia o entrega.">?</span></label><textarea name="address" id="custAddress" rows="2" class="form-control"></textarea></div>
             <div class="modal-footer" style="margin-top:15px;">
                 <button type="button" class="btn btn-secondary" onclick="closeModal()">Cancelar</button>
                 <button type="submit" class="btn btn-primary" id="submitBtn">Crear Cliente</button>

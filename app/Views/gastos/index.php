@@ -1,6 +1,6 @@
 <?php
 $layout = 'main';
-$title = 'Gastos - Software de Gestión Active';
+$title = 'Gastos - Seri ERP';
 $pageTitle = 'Gastos / Salidas';
 $userName = 'Usuario';
 ?>

@@ -6,9 +6,13 @@ $tenantName = $tenantName ?? 'Mi Empresa';
 $userName = $userName ?? 'Usuario';
 $sales = $sales ?? [];
 $todayTotal = $todayTotal ?? 0;
+$todayCount = $todayCount ?? 0;
 $products = $products ?? [];
 $customers = $customers ?? [];
 $currency = $currency ?? ['symbol' => '$', 'decimals' => 0];
+$canCreateSale = \SoftNova\Core\TenantMiddleware::canDo('create', 'ventas');
+$canDeleteSale = \SoftNova\Core\TenantMiddleware::canDo('delete', 'ventas');
+$canExportSale = \SoftNova\Core\TenantMiddleware::canDo('export', 'ventas');
 
 function fmtV(float $a, array $c): string
 {
@@ -20,12 +24,17 @@ function fmtV(float $a, array $c): string
 <?php echo flashMessage(); ?>
 
 <div class="stats-grid">
-    <div class="stat-card neumorphic"><h4>Ventas Hoy</h4><div class="stat-value"><?php echo count($sales); ?></div></div>
+    <div class="stat-card neumorphic"><h4>Ventas Hoy</h4><div class="stat-value"><?php echo (int)$todayCount; ?></div></div>
     <div class="stat-card neumorphic"><h4>Total Hoy</h4><div class="stat-value" style="color:#10B981;"><?php echo fmtV($todayTotal, $currency); ?></div></div>
 </div>
 
 <div style="display:flex;gap:15px;margin-bottom:20px;flex-wrap:wrap;">
-    <button onclick="openSaleModal()" class="btn btn-primary neumorphic-btn">🛒 Nueva Venta</button>
+    <?php if ($canCreateSale): ?>
+        <button onclick="openSaleModal()" class="btn btn-primary neumorphic-btn" title="Nueva venta">Nueva Venta</button>
+    <?php endif; ?>
+    <?php if ($canExportSale): ?>
+        <a href="<?php echo $viewInstance->route('app/ventas'); ?>?action=export" class="btn btn-secondary" title="Exportar CSV">Exportar CSV</a>
+    <?php endif; ?>
 </div>
 
 <div class="card neumorphic">
@@ -50,9 +59,15 @@ function fmtV(float $a, array $c): string
                             </span>
                         </td>
                         <td>
-                            <span class="badge <?php echo $sale['payment_status'] === 'paid' ? 'badge-success' : ($sale['payment_status'] === 'partial' ? 'badge-warning' : ($sale['status'] === 'cancelled' ? 'badge-danger' : 'badge-info')); ?>">
-                                <?php echo $sale['payment_status'] === 'paid' ? 'Pagado' : ($sale['payment_status'] === 'partial' ? 'Parcial' : ($sale['status'] === 'cancelled' ? 'Cancelado' : 'Pendiente')); ?>
-                            </span>
+                            <?php if (($sale['status'] ?? '') === 'cancelled'): ?>
+                                <span class="badge badge-danger">Cancelado</span>
+                            <?php elseif ($sale['payment_status'] === 'paid'): ?>
+                                <span class="badge badge-success">Pagado</span>
+                            <?php elseif ($sale['payment_status'] === 'partial'): ?>
+                                <span class="badge badge-warning">Parcial</span>
+                            <?php else: ?>
+                                <span class="badge badge-info">Pendiente</span>
+                            <?php endif; ?>
                         </td>
                         <td class="table-actions">
                             <button onclick="viewDetail(<?php echo $sale['id']; ?>)" class="btn btn-sm btn-info" title="Ver detalle"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg></button>
@@ -60,11 +75,11 @@ function fmtV(float $a, array $c): string
                             <?php if (in_array($sale['payment_status'], ['pending', 'partial'])): ?>
                                 <button onclick="openPaymentModal(<?php echo $sale['id']; ?>,<?php echo $sale['total']; ?>,<?php echo ($sale['paid_amount'] ?? 0); ?>)" class="btn btn-sm btn-success" title="Registrar abono"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg></button>
                             <?php endif; ?>
-                            <?php if ($sale['status'] !== 'cancelled'): ?>
+                            <?php if ($canDeleteSale && $sale['status'] !== 'cancelled'): ?>
                                 <form method="POST" action="<?php echo $viewInstance->route('app/ventas'); ?>?action=cancel" style="display:inline;" data-ajax="true">
                                     <?php echo \SoftNova\Core\csrf_field(); ?>
                                     <input type="hidden" name="id" value="<?php echo $sale['id']; ?>">
-                                    <button type="submit" onclick="return confirm('¿Cancelar?')" class="btn btn-sm btn-danger" title="Cancelar venta"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg></button>
+                                    <button type="submit" data-confirm="Eliminar esta venta? Se cancelara, se devolvera el stock y se ajustara la caja." class="btn btn-sm btn-danger" title="Eliminar venta"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg></button>
                                 </form>
                             <?php endif; ?>
                         </td>
@@ -72,6 +87,12 @@ function fmtV(float $a, array $c): string
                 <?php endforeach; ?>
                 </tbody>
             </table></div>
+            <?php
+            $pagination = $pagination ?? null;
+            $paginationBaseUrl = $viewInstance->route('app/ventas');
+            $paginationQuery = [];
+            $viewInstance->partial('pagination', compact('pagination', 'paginationBaseUrl', 'paginationQuery'));
+            ?>
         <?php endif; ?>
     </div>
 </div>
@@ -80,47 +101,32 @@ function fmtV(float $a, array $c): string
 <div id="saleModal" class="modal-overlay" style="display:none;">
     <div class="modal-content neumorphic" style="max-width:750px;max-height:90vh;overflow-y:auto;">
         <div class="modal-header"><h3>Nueva Venta</h3><button onclick="closeSaleModal()" class="modal-close">&times;</button></div>
-        <form method="POST" action="<?php echo $viewInstance->route('app/ventas'); ?>?action=create" data-ajax="true" onsubmit="return prepareSaleItems()">
+        <form method="POST" action="<?php echo $viewInstance->route('app/ventas'); ?>?action=create" data-ajax="true" data-prepare="saleItems" onsubmit="return prepareSaleItems()">
             <?php echo \SoftNova\Core\csrf_field(); ?>
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:15px;">
-                <div class="form-group">
-                    <label>Cliente</label>
-                    <input type="text" id="customerSearch" class="form-control" placeholder="🔍 Buscar cliente..." oninput="filterCustomers('customerSelect','customerSearch')" autocomplete="off" style="margin-bottom:5px;">
-                    <select name="customer_id" id="customerSelect" class="form-control" size="1">
-                        <option value="">Consumidor Final</option>
-                        <?php foreach ($customers as $c): ?>
-                            <option value="<?php echo $c['id']; ?>" data-search="<?php echo htmlspecialchars(strtolower(($c['first_name']??$c['name']).' '.($c['last_name']??'').' '.($c['document_number']??''))); ?>"><?php echo htmlspecialchars(($c['first_name'] ?? $c['name']).' '.($c['last_name'] ?? '')); ?></option>
+            <div class="form-group">
+                <label>Cliente <span class="field-tip" data-tip="Escriba para buscar por nombre o documento y elija un cliente. Deje vacío o seleccione Consumidor Final si no aplica.">?</span></label>
+                <div class="customer-combobox" id="customerCombobox">
+                    <input type="hidden" name="customer_id" id="customerId" value="">
+                    <input type="text" id="customerSearch" class="form-control" placeholder="Buscar o seleccionar cliente..." autocomplete="off" aria-autocomplete="list" aria-expanded="false">
+                    <ul class="combobox-list" id="customerList" hidden>
+                        <li class="combobox-option" data-id="" data-label="Consumidor Final" data-search="consumidor final">Consumidor Final</li>
+                        <?php foreach ($customers as $c):
+                            $label = trim(($c['first_name'] ?? $c['name']) . ' ' . ($c['last_name'] ?? ''));
+                            $search = strtolower($label . ' ' . ($c['document_number'] ?? ''));
+                        ?>
+                            <li class="combobox-option" data-id="<?php echo (int)$c['id']; ?>" data-label="<?php echo htmlspecialchars($label); ?>" data-search="<?php echo htmlspecialchars($search); ?>">
+                                <?php echo htmlspecialchars($label); ?>
+                                <?php if (!empty($c['document_number'])): ?>
+                                    <small><?php echo htmlspecialchars(($c['document_type'] ?? '') . ' ' . $c['document_number']); ?></small>
+                                <?php endif; ?>
+                            </li>
                         <?php endforeach; ?>
-                    </select>
-                    <button type="button" onclick="(function(){var m=document.getElementById('quickCustomerModal');if(m)m.style.display='flex';else alert('Modal no encontrado');})()" style="margin-top:5px;font-size:12px;color:var(--color-primary);background:none;border:none;cursor:pointer;text-decoration:underline;">+ Nuevo Cliente</button>
+                    </ul>
                 </div>
-                <div class="form-group">
-                    <label>Tipo de Pago</label>
-                    <select name="payment_type" id="paymentType" class="form-control" onchange="toggleCredit()">
-                        <option value="full">Pago Completo</option>
-                        <option value="credit">A Crédito</option>
-                    </select>
-                </div>
-                <div class="form-group">
-                    <label>Método de Pago</label>
-                    <select name="payment_method" class="form-control">
-                        <option value="cash">Efectivo</option>
-                        <option value="card">Tarjeta</option>
-                        <option value="transfer">Transferencia</option>
-                        <option value="other">Otro</option>
-                    </select>
-                </div>
-                <div class="form-group" id="initialPaymentGroup" style="display:none;">
-                    <label>Abono Inicial</label>
-                    <input type="number" name="initial_payment" class="form-control" step="0.01" min="0" placeholder="0">
-                </div>
+                <button type="button" onclick="quickAddCustomer()" class="link-btn">+ Nuevo Cliente</button>
             </div>
             <div class="form-group">
-                <label>Notas</label>
-                <input type="text" name="notes" class="form-control" placeholder="Observaciones...">
-            </div>
-            <div class="form-group">
-                <label>Productos</label>
+                <label>Productos <span class="field-tip" data-tip="Seleccione el producto, indique la cantidad y pulse + para agregarlo a la venta.">?</span></label>
                 <div style="display:flex;gap:8px;margin-bottom:8px;">
                     <select id="productSelect" class="form-control" style="flex:1;">
                         <option value="">Seleccionar producto...</option>
@@ -133,14 +139,40 @@ function fmtV(float $a, array $c): string
                             </option>
                         <?php endforeach; ?>
                     </select>
-                    <input type="number" id="productQty" value="1" min="1" class="form-control" style="width:80px;" placeholder="Cant">
-                    <button type="button" class="btn btn-primary" onclick="addProduct()">+</button>
+                    <input type="number" id="productQty" value="1" min="1" class="form-control" style="width:80px;" placeholder="Cant" title="Cantidad a vender">
+                    <button type="button" class="btn btn-primary" id="addProductBtn" onclick="addProduct(event)">+</button>
                 </div>
                 <table id="itemsTable" style="width:100%;margin-top:10px;display:none;">
                     <thead><tr><th>Producto</th><th>Cant</th><th>Precio</th><th>Subtotal</th><th></th></tr></thead>
                     <tbody></tbody>
                     <tfoot><tr><td colspan="3" style="text-align:right;font-weight:600;">Total:</td><td id="saleTotal" style="font-weight:700;color:#10B981;">0</td><td></td></tr></tfoot>
                 </table>
+            </div>
+            <div class="form-group">
+                <label>Notas <span class="field-tip" data-tip="Observaciones internas de la venta (referencia, mesa, entrega, etc.). No aparecen como ítem facturado.">?</span></label>
+                <input type="text" name="notes" class="form-control" placeholder="Observaciones...">
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:15px;">
+                <div class="form-group">
+                    <label>Tipo de Pago <span class="field-tip" data-tip="Totalidad: cobra el monto completo ahora. A Crédito: deja saldo pendiente y genera una cuenta por cobrar.">?</span></label>
+                    <select name="payment_type" id="paymentType" class="form-control" onchange="toggleCredit()">
+                        <option value="full">Totalidad</option>
+                        <option value="credit">A Crédito</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Método de Pago <span class="field-tip" data-tip="Medio con el que se recibe el dinero (efectivo, tarjeta, transferencia u otro).">?</span></label>
+                    <select name="payment_method" class="form-control">
+                        <option value="cash">Efectivo</option>
+                        <option value="card">Tarjeta</option>
+                        <option value="transfer">Transferencia</option>
+                        <option value="other">Otro</option>
+                    </select>
+                </div>
+                <div class="form-group" id="initialPaymentGroup" style="display:none;grid-column:1/-1;">
+                    <label>Abono Inicial <span class="field-tip" data-tip="Monto que el cliente paga hoy. El resto queda como cuenta por cobrar.">?</span></label>
+                    <input type="number" name="initial_payment" class="form-control" step="0.01" min="0" placeholder="0">
+                </div>
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" onclick="closeSaleModal()">Cancelar</button>
@@ -161,12 +193,12 @@ function fmtV(float $a, array $c): string
             <?php echo \SoftNova\Core\csrf_field(); ?>
             <div class="modal-body">
                 <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                    <div class="form-group"><label>Tipo Doc. <span class="field-tip" data-tip="Tipo de identificación del cliente (CC, CE, NIT, etc.).">?</span></label><select name="document_type" class="form-control"><option value="CC">C.C</option><option value="CE">C.E</option><option value="NIT">NIT</option><option value="PPT">PPT</option><option value="OTROS">OTROS</option></select></div>
+                    <div class="form-group"><label>N° Documento * <span class="field-tip" data-tip="Número de identificación sin puntos ni espacios.">?</span></label><input type="text" name="document_number" class="form-control" placeholder="Número" required></div>
                     <div class="form-group"><label>Nombre *</label><input type="text" name="first_name" class="form-control" required placeholder="Nombres"></div>
                     <div class="form-group"><label>Apellido</label><input type="text" name="last_name" class="form-control" placeholder="Apellidos"></div>
-                    <div class="form-group"><label>Tipo Doc.</label><select name="document_type" class="form-control"><option value="CC">C.C</option><option value="CE">C.E</option><option value="NIT">NIT</option><option value="PPT">PPT</option><option value="OTROS">OTROS</option></select></div>
-                    <div class="form-group"><label>N° Documento</label><input type="text" name="document_number" class="form-control" placeholder="Número"></div>
                     <div class="form-group"><label>Email</label><input type="email" name="email" class="form-control" placeholder="correo@ejemplo.com"></div>
-                    <div class="form-group"><label>Teléfono</label><input type="text" name="phone" class="form-control" placeholder="Teléfono"></div>
+                    <div class="form-group"><label>Teléfono *</label><input type="text" name="phone" class="form-control" placeholder="Teléfono" required></div>
                 </div>
                 <div class="form-group"><label>Dirección</label><textarea name="address" class="form-control" rows="2" placeholder="Dirección"></textarea></div>
             </div>
@@ -186,9 +218,9 @@ function fmtV(float $a, array $c): string
             <?php echo \SoftNova\Core\csrf_field(); ?>
             <input type="hidden" name="sale_id" id="paySaleId">
             <p id="payInfo" style="margin-bottom:10px;"></p>
-            <div class="form-group"><label>Monto *</label><input type="number" name="amount" id="payAmount" class="form-control" step="0.01" min="0.01" required></div>
-            <div class="form-group"><label>Método</label><select name="payment_method" class="form-control"><option value="cash">Efectivo</option><option value="card">Tarjeta</option><option value="transfer">Transferencia</option></select></div>
-            <div class="form-group"><label>Notas</label><input type="text" name="notes" class="form-control" placeholder="Abono"></div>
+            <div class="form-group"><label>Monto * <span class="field-tip" data-tip="Cantidad que el cliente abona ahora. No puede superar el saldo pendiente.">?</span></label><input type="number" name="amount" id="payAmount" class="form-control" step="0.01" min="0.01" required></div>
+            <div class="form-group"><label>Método <span class="field-tip" data-tip="Medio de pago de este abono.">?</span></label><select name="payment_method" class="form-control"><option value="cash">Efectivo</option><option value="card">Tarjeta</option><option value="transfer">Transferencia</option></select></div>
+            <div class="form-group"><label>Notas <span class="field-tip" data-tip="Referencia del abono (número de transferencia, recibo, etc.).">?</span></label><input type="text" name="notes" class="form-control" placeholder="Abono"></div>
             <div class="modal-footer"><button type="button" class="btn btn-secondary" onclick="document.getElementById('paymentModal').style.display='none'">Cancelar</button><button type="submit" class="btn btn-success">Registrar Abono</button></div>
         </form>
     </div>

@@ -11,6 +11,10 @@ $totalProducts = $totalProducts ?? 0;
 $totalServices = $totalServices ?? 0;
 $currency = $currency ?? ['symbol' => '$', 'decimals' => 0];
 $typeFilter = $typeFilter ?? '';
+$canCreateProduct = \SoftNova\Core\TenantMiddleware::canDo('create', 'inventario');
+$canEditProduct = \SoftNova\Core\TenantMiddleware::canDo('edit', 'inventario');
+$canDeleteProduct = \SoftNova\Core\TenantMiddleware::canDo('delete', 'inventario');
+$canExportInv = \SoftNova\Core\TenantMiddleware::canDo('export', 'inventario');
 
 function fmtI(float $a, array $c): string
 {
@@ -29,12 +33,17 @@ function fmtI(float $a, array $c): string
 </div>
 
 <div style="display:flex;gap:10px;margin-bottom:20px;flex-wrap:wrap;align-items:center;">
-    <select onchange="window.location='<?php echo $viewInstance->route('app/inventario'); ?>?type='+this.value" class="form-control" style="width:auto;">
+    <select onchange="window.location='<?php echo $viewInstance->route('app/inventario'); ?>?type='+this.value" class="form-control" style="width:auto;" title="Filtrar tipo">
         <option value="">Todos</option>
-        <option value="product" <?php echo $typeFilter === 'product' ? 'selected' : ''; ?>>📦 Productos</option>
-        <option value="service" <?php echo $typeFilter === 'service' ? 'selected' : ''; ?>>🔧 Servicios</option>
+        <option value="product" <?php echo $typeFilter === 'product' ? 'selected' : ''; ?>>Productos</option>
+        <option value="service" <?php echo $typeFilter === 'service' ? 'selected' : ''; ?>>Servicios</option>
     </select>
-    <button onclick="openInventarioModal()" class="btn btn-primary neumorphic-btn">+ Nuevo Producto</button>
+    <?php if ($canCreateProduct): ?>
+        <button onclick="openInventarioModal()" class="btn btn-primary neumorphic-btn" title="Nuevo producto">+ Nuevo Producto</button>
+    <?php endif; ?>
+    <?php if ($canExportInv): ?>
+        <a href="<?php echo $viewInstance->route('app/inventario'); ?>?action=export<?php echo $typeFilter ? '&type=' . urlencode($typeFilter) : ''; ?>" class="btn btn-secondary" title="Exportar CSV">Exportar CSV</a>
+    <?php endif; ?>
 </div>
 
 <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:20px;">
@@ -117,23 +126,39 @@ function fmtI(float $a, array $c): string
                         <?php endif; ?>
                         <div style="margin-top:10px;display:flex;gap:5px;flex-wrap:wrap;">
                             <?php if (!$isService && ($p['stock'] ?? 0) > 0): ?>
-                                <button onclick="addToCart(<?php echo $p['id']; ?>,'<?php echo htmlspecialchars(addslashes($p['name'])); ?>',<?php echo $p['sale_price']; ?>)" class="btn btn-sm btn-info" title="Agregar al carrito"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="21" r="1"></circle><circle cx="20" cy="21" r="1"></circle><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"></path></svg></button>
+                                <button onclick="addToCart(<?php echo $p['id']; ?>,'<?php echo htmlspecialchars(addslashes($p['name'])); ?>',<?php echo $p['sale_price']; ?>, event)" class="btn btn-sm btn-info" title="Agregar al carrito"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="21" r="1"></circle><circle cx="20" cy="21" r="1"></circle><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"></path></svg></button>
+                            <?php elseif ($isService): ?>
+                                <button onclick="addToCart(<?php echo $p['id']; ?>,'<?php echo htmlspecialchars(addslashes($p['name'])); ?>',<?php echo $p['sale_price']; ?>, event)" class="btn btn-sm btn-info" title="Agregar al carrito"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="21" r="1"></circle><circle cx="20" cy="21" r="1"></circle><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"></path></svg></button>
                             <?php endif; ?>
-                            <button onclick="viewDetail(<?php echo $p['id']; ?>)" class="btn btn-sm btn-info" title="Ver movimientos"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"></line><line x1="12" y1="20" x2="12" y2="4"></line><line x1="6" y1="20" x2="6" y2="14"></line></svg></button>
-                            <button onclick="editProduct(<?php echo $p['id']; ?>)" class="btn btn-sm btn-secondary" title="Editar"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg></button>
-                            <?php if (!$isService): ?>
-                                <button onclick="addStock(<?php echo $p['id']; ?>)" class="btn btn-sm btn-success" title="Agregar stock"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg></button>
+                            <?php if ($canEditProduct || $canCreateProduct): ?>
+                                <button onclick="viewDetail(<?php echo $p['id']; ?>)" class="btn btn-sm btn-info" title="Ver movimientos"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"></line><line x1="12" y1="20" x2="12" y2="4"></line><line x1="6" y1="20" x2="6" y2="14"></line></svg></button>
                             <?php endif; ?>
+                            <?php if ($canEditProduct): ?>
+                                <button onclick="editProduct(<?php echo $p['id']; ?>)" class="btn btn-sm btn-secondary" title="Editar"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg></button>
+                                <?php if (!$isService): ?>
+                                    <button onclick="addStock(<?php echo $p['id']; ?>)" class="btn btn-sm btn-success" title="Agregar stock"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg></button>
+                                <?php endif; ?>
+                            <?php endif; ?>
+                            <?php if ($canDeleteProduct): ?>
                             <form method="POST" action="<?php echo $viewInstance->route('app/inventario'); ?>?action=delete" style="display:inline;" data-ajax="true">
                                 <?php echo \SoftNova\Core\csrf_field(); ?>
                                 <input type="hidden" name="id" value="<?php echo $p['id']; ?>">
-                                <button type="submit" onclick="return confirm('¿Eliminar?')" class="btn btn-sm btn-danger" title="Eliminar"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg></button>
+                                <button type="submit" data-confirm="Eliminar este producto?" class="btn btn-sm btn-danger" title="Eliminar"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg></button>
                             </form>
+                            <?php endif; ?>
                         </div>
                     </div>
                 </div>
             </div>
         <?php endforeach; ?>
+        <?php
+        $pagination = $pagination ?? null;
+        $paginationBaseUrl = $viewInstance->route('app/inventario');
+        $paginationQuery = $typeFilter ? ['type' => $typeFilter] : [];
+        echo '<div style="grid-column:1/-1;">';
+        $viewInstance->partial('pagination', compact('pagination', 'paginationBaseUrl', 'paginationQuery'));
+        echo '</div>';
+        ?>
     <?php endif; ?>
 </div>
 
@@ -150,22 +175,22 @@ function fmtI(float $a, array $c): string
             <input type="hidden" name="id" id="prodId">
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:15px;">
                 <div class="form-group">
-                    <label>Tipo *</label>
+                    <label>Tipo * <span class="field-tip" data-tip="Producto consume stock; Servicio no maneja inventario físico.">?</span></label>
                     <select name="product_type" id="prodType" class="form-control" onchange="onTypeChange()">
                         <option value="product">📦 Producto</option>
                         <option value="service">🔧 Servicio</option>
                     </select>
                 </div>
                 <div class="form-group">
-                    <label>Código</label>
+                    <label>Código <span class="field-tip" data-tip="SKU o código interno. Si lo deja vacío se puede generar automáticamente.">?</span></label>
                     <input type="text" name="code" id="prodCode" class="form-control" placeholder="Auto-generado">
                 </div>
                 <div class="form-group" style="grid-column:1/-1;">
-                    <label>Nombre *</label>
+                    <label>Nombre * <span class="field-tip" data-tip="Nombre visible en ventas, cotizaciones e inventario.">?</span></label>
                     <input type="text" name="name" id="prodName" required class="form-control">
                 </div>
                 <div class="form-group">
-                    <label>Categoría</label>
+                    <label>Categoría <span class="field-tip" data-tip="Agrupación del producto para filtros y reportes.">?</span></label>
                     <select name="category_id" id="prodCat" class="form-control">
                         <option value="">Sin categoría</option>
                         <?php foreach ($categories as $cat): ?>
@@ -174,27 +199,27 @@ function fmtI(float $a, array $c): string
                     </select>
                 </div>
                 <div class="form-group">
-                    <label>Unidad</label>
+                    <label>Unidad <span class="field-tip" data-tip="Unidad de medida (UNIDAD, KG, LT, etc.).">?</span></label>
                     <input type="text" name="unit" id="prodUnit" class="form-control" placeholder="UNIDAD">
                 </div>
                 <div class="form-group">
-                    <label>Precio Compra</label>
+                    <label>Precio Compra <span class="field-tip" data-tip="Costo de adquisición. Sirve para margen y reportes.">?</span></label>
                     <input type="number" step="0.01" name="purchase_price" id="prodPcompra" class="form-control" placeholder="0">
                 </div>
                 <div class="form-group">
-                    <label>Precio Venta *</label>
+                    <label>Precio Venta * <span class="field-tip" data-tip="Precio al público que se usará en ventas.">?</span></label>
                     <input type="number" step="0.01" name="sale_price" id="prodPventa" required class="form-control" placeholder="0">
                 </div>
                 <div class="form-group" id="stockGroup">
-                    <label>Stock Inicial</label>
+                    <label>Stock Inicial <span class="field-tip" data-tip="Cantidad disponible al crear el producto.">?</span></label>
                     <input type="number" name="stock" id="prodStock" class="form-control" placeholder="0">
                 </div>
                 <div class="form-group" id="minStockGroup">
-                    <label>Stock Mínimo</label>
+                    <label>Stock Mínimo <span class="field-tip" data-tip="Umbral de alerta cuando el inventario esté bajo.">?</span></label>
                     <input type="number" name="min_stock" id="prodMinStock" class="form-control" placeholder="5">
                 </div>
                 <div class="form-group" id="statusGroup">
-                    <label>Estado</label>
+                    <label>Estado <span class="field-tip" data-tip="Activo: disponible para vender. Inactivo: oculto de nuevas ventas.">?</span></label>
                     <select name="status" id="prodStatus" class="form-control">
                         <option value="active">Activo</option>
                         <option value="inactive">Inactivo</option>
@@ -202,11 +227,11 @@ function fmtI(float $a, array $c): string
                 </div>
             </div>
             <div class="form-group">
-                <label>Descripción</label>
+                <label>Descripción <span class="field-tip" data-tip="Detalle adicional del producto o servicio.">?</span></label>
                 <textarea name="description" id="prodDesc" rows="2" class="form-control"></textarea>
             </div>
             <div class="form-group">
-                <label>Imagen</label>
+                <label>Imagen <span class="field-tip" data-tip="Foto opcional para identificar el producto en el catálogo.">?</span></label>
                 <input type="file" name="image" class="form-control" accept="image/*" style="padding:8px;">
             </div>
             <div class="modal-footer" style="margin-top:15px;">

@@ -33,8 +33,9 @@ $allModules = [
     'inventario'=> ['route' => 'app/inventario', 'label' => 'Inventario', 'icon' => 'box'],
     'clientes'  => ['route' => 'app/clientes', 'label' => 'Clientes', 'icon' => 'users'],
     'proveedores'=>['route' => 'app/proveedores', 'label' => 'Proveedores', 'icon' => 'truck'],
-    'reportes'  => ['route' => 'app/reportes', 'label' => 'Reportes', 'icon' => 'file'],
     'cotizaciones'=>['route' => 'app/cotizaciones', 'label' => 'Cotizaciones', 'icon' => 'file'],
+    'gastos'    => ['route' => 'app/gastos', 'label' => 'Gastos', 'icon' => 'dollar'],
+    'reportes'  => ['route' => 'app/reportes', 'label' => 'Reportes', 'icon' => 'file'],
     'contabilidad'=>['route' => 'app/contabilidad', 'label' => 'Contabilidad', 'icon' => 'dollar'],
     'nomina'    => ['route' => 'app/nomina', 'label' => 'Nómina', 'icon' => 'payroll'],
 ];
