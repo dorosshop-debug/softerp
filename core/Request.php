@@ -28,15 +28,20 @@ class Request
             $uri = substr($uri, 0, $pos);
         }
         
-        // Remover prefijo /public si existe
-        $uri = str_replace('/public', '', $uri);
-        
-        // Remover prefijo /SoftNova si existe
-        $uri = str_replace('/SoftNova', '', $uri);
-        
+        // Remover el path base de la app (subcarpeta / DocumentRoot) de forma dinámica.
+        $scriptName = str_replace('\\', '/', (string)($_SERVER['SCRIPT_NAME'] ?? ''));
+        $basePath = rtrim(str_replace('\\', '/', dirname($scriptName)), '/');
+        if ($basePath !== '' && $basePath !== '/' && str_starts_with($uri, $basePath)) {
+            $uri = substr($uri, strlen($basePath)) ?: '/';
+        }
+
+        // Compatibilidad con instalaciones legacy bajo /SoftNova o /public.
+        $uri = preg_replace('#^/SoftNova(/public)?#', '', $uri) ?? $uri;
+        $uri = preg_replace('#^/public#', '', $uri) ?? $uri;
+
         // Asegurar que siempre empiece con /
-        if ($uri !== '' && $uri[0] !== '/') {
-            $uri = '/' . $uri;
+        if ($uri === '' || $uri[0] !== '/') {
+            $uri = '/' . ltrim($uri, '/');
         }
         
         return $uri ?: '/';

@@ -155,6 +155,7 @@ class Router
         // Asistente IA
         $this->get('/app/ia', 'TenantAiController', 'index');
         $this->post('/app/ia/chat', 'TenantAiController', 'chat');
+        $this->get('/app/ia/history', 'TenantAiController', 'history');
         
         // Soporte del tenant
         $this->get('/app/soporte', 'TenantTicketsController', 'index');
@@ -174,7 +175,8 @@ class Router
         $this->post('/app/cotizaciones', 'TenantCotizacionesController', 'index');
         $this->get('/app/gastos', 'TenantGastosController', 'index');
         $this->post('/app/gastos', 'TenantGastosController', 'index');
-        $this->get('/app/contabilidad', 'TenantPlaceholderController', 'show');
+        $this->get('/app/contabilidad', 'TenantContabilidadController', 'index');
+        $this->post('/app/contabilidad', 'TenantContabilidadController', 'index');
         $this->get('/app/nomina', 'TenantPlaceholderController', 'show');
         
         // Anuncios Super Admin

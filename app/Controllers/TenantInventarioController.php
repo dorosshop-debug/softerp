@@ -59,16 +59,44 @@ class TenantInventarioController extends TenantController
             return;
         }
         
+        $filters = $this->listFilters([
+            'name' => 'p.name',
+            'code' => 'p.code',
+            'category' => 'c.name',
+            'price' => 'p.sale_price',
+            'cost' => 'p.purchase_price',
+            'stock' => 'p.stock',
+            'created' => 'p.created_at',
+        ], 'name', 'asc');
+
         $typeFilter = $this->request->get('type', '');
-        $where = "WHERE p.status = 'active'";
+        $categoryFilter = (int)$this->request->get('category_id', 0);
+        $stockFilter = (string)$this->request->get('stock_state', '');
+
+        $where = ["p.status = 'active'"];
         $params = [];
-        if ($typeFilter) {
-            $where .= " AND p.product_type = ?";
+        if ($typeFilter === 'product' || $typeFilter === 'service') {
+            $where[] = "p.product_type = ?";
             $params[] = $typeFilter;
         }
-        
+        if ($categoryFilter > 0) {
+            $where[] = "p.category_id = ?";
+            $params[] = $categoryFilter;
+        }
+        if ($stockFilter === 'low') {
+            $where[] = "p.product_type = 'product' AND p.stock <= p.min_stock";
+        } elseif ($stockFilter === 'out') {
+            $where[] = "p.product_type = 'product' AND p.stock <= 0";
+        }
+        if ($filters['q'] !== '') {
+            $where[] = "(p.name LIKE ? OR p.code LIKE ? OR p.description LIKE ?)";
+            $like = '%' . $filters['q'] . '%';
+            array_push($params, $like, $like, $like);
+        }
+        $whereSql = 'WHERE ' . implode(' AND ', $where);
+
         $total = (int)$this->query(
-            "SELECT COUNT(*) as c FROM products p {$where}",
+            "SELECT COUNT(*) as c FROM products p LEFT JOIN categories c ON p.category_id = c.id {$whereSql}",
             $params
         )->fetch()['c'];
         $pagination = $this->paginate($total);
@@ -85,8 +113,8 @@ class TenantInventarioController extends TenantController
                     ), 0) as reserved_qty
              FROM products p
              LEFT JOIN categories c ON p.category_id = c.id
-             {$where}
-             ORDER BY p.name ASC
+             {$whereSql}
+             ORDER BY {$filters['orderSql']}, p.name ASC
              LIMIT {$pagination['perPage']} OFFSET {$pagination['offset']}",
             $params
         )->fetchAll();
@@ -102,6 +130,13 @@ class TenantInventarioController extends TenantController
             "SELECT COUNT(*) as c FROM products WHERE status = 'active' AND product_type = 'service'"
         )->fetch()['c'];
         
+        $extraQuery = array_filter([
+            'type' => ($typeFilter === 'product' || $typeFilter === 'service') ? $typeFilter : null,
+            'category_id' => $categoryFilter > 0 ? $categoryFilter : null,
+            'stock_state' => in_array($stockFilter, ['low', 'out'], true) ? $stockFilter : null,
+        ], static fn($v) => $v !== null && $v !== '');
+        $filters['query'] = array_merge($filters['query'], $extraQuery);
+
         $this->view('tenant.inventario', $this->tenantViewData([
             'products' => $products,
             'categories' => $categories,
@@ -109,6 +144,9 @@ class TenantInventarioController extends TenantController
             'totalProducts' => $totalProducts,
             'totalServices' => $totalServices,
             'typeFilter' => $typeFilter,
+            'categoryFilter' => $categoryFilter,
+            'stockFilter' => $stockFilter,
+            'filters' => $filters,
             'pagination' => $pagination,
         ]));
     }
@@ -352,13 +390,50 @@ class TenantInventarioController extends TenantController
     
     private function exportProducts(): void
     {
+        $filters = $this->listFilters([
+            'name' => 'p.name',
+            'code' => 'p.code',
+            'category' => 'c.name',
+            'price' => 'p.sale_price',
+            'cost' => 'p.purchase_price',
+            'stock' => 'p.stock',
+            'created' => 'p.created_at',
+        ], 'name', 'asc');
+
+        $typeFilter = $this->request->get('type', '');
+        $categoryFilter = (int)$this->request->get('category_id', 0);
+        $stockFilter = (string)$this->request->get('stock_state', '');
+
+        $where = ["p.status = 'active'"];
+        $params = [];
+        if ($typeFilter === 'product' || $typeFilter === 'service') {
+            $where[] = "p.product_type = ?";
+            $params[] = $typeFilter;
+        }
+        if ($categoryFilter > 0) {
+            $where[] = "p.category_id = ?";
+            $params[] = $categoryFilter;
+        }
+        if ($stockFilter === 'low') {
+            $where[] = "p.product_type = 'product' AND p.stock <= p.min_stock";
+        } elseif ($stockFilter === 'out') {
+            $where[] = "p.product_type = 'product' AND p.stock <= 0";
+        }
+        if ($filters['q'] !== '') {
+            $where[] = "(p.name LIKE ? OR p.code LIKE ? OR p.description LIKE ?)";
+            $like = '%' . $filters['q'] . '%';
+            array_push($params, $like, $like, $like);
+        }
+        $whereSql = 'WHERE ' . implode(' AND ', $where);
+
         $rows = $this->query(
             "SELECT p.code, p.name, p.product_type, c.name as category_name, p.purchase_price,
                     p.sale_price, p.stock, p.min_stock, p.unit, p.status
              FROM products p
              LEFT JOIN categories c ON p.category_id = c.id
-             WHERE p.status = 'active'
-             ORDER BY p.name"
+             {$whereSql}
+             ORDER BY {$filters['orderSql']}, p.name",
+            $params
         )->fetchAll();
         
         $csvRows = [];

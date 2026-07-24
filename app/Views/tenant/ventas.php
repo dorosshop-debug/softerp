@@ -13,6 +13,8 @@ $currency = $currency ?? ['symbol' => '$', 'decimals' => 0];
 $canCreateSale = \SoftNova\Core\TenantMiddleware::canDo('create', 'ventas');
 $canDeleteSale = \SoftNova\Core\TenantMiddleware::canDo('delete', 'ventas');
 $canExportSale = \SoftNova\Core\TenantMiddleware::canDo('export', 'ventas');
+$filters = $filters ?? ['q'=>'','from'=>'','to'=>'','status'=>'','sort'=>'date','dir'=>'desc','query'=>[]];
+$ventasBase = $viewInstance->route('app/ventas');
 
 function fmtV(float $a, array $c): string
 {
@@ -33,18 +35,53 @@ function fmtV(float $a, array $c): string
         <button onclick="openSaleModal()" class="btn btn-primary neumorphic-btn" title="Nueva venta">Nueva Venta</button>
     <?php endif; ?>
     <?php if ($canExportSale): ?>
-        <a href="<?php echo $viewInstance->route('app/ventas'); ?>?action=export" class="btn btn-secondary" title="Exportar CSV">Exportar CSV</a>
+        <a href="<?php echo $ventasBase; ?>?action=export" class="btn btn-secondary" title="Exportar CSV">Exportar CSV</a>
     <?php endif; ?>
+</div>
+
+<div class="card neumorphic" style="margin-bottom:18px;">
+    <div class="card-body" style="padding:14px 18px;">
+        <form method="GET" action="<?php echo $ventasBase; ?>" style="display:flex;gap:10px;align-items:end;flex-wrap:wrap;">
+            <input type="hidden" name="sort" value="<?php echo htmlspecialchars($filters['sort']); ?>">
+            <input type="hidden" name="dir" value="<?php echo htmlspecialchars($filters['dir']); ?>">
+            <div class="form-group" style="margin:0;min-width:220px;flex:1;">
+                <label>Buscar</label>
+                <input class="form-control" type="search" name="q" value="<?php echo htmlspecialchars($filters['q']); ?>" placeholder="Factura, cliente o documento..." title="Buscar ventas">
+            </div>
+            <div class="form-group" style="margin:0;"><label>Desde</label><input class="form-control" type="date" name="from" value="<?php echo htmlspecialchars($filters['from']); ?>"></div>
+            <div class="form-group" style="margin:0;"><label>Hasta</label><input class="form-control" type="date" name="to" value="<?php echo htmlspecialchars($filters['to']); ?>"></div>
+            <div class="form-group" style="margin:0;min-width:150px;">
+                <label>Estado pago</label>
+                <select class="form-control" name="status">
+                    <option value="">Todos</option>
+                    <option value="paid" <?php echo $filters['status']==='paid'?'selected':''; ?>>Pagado</option>
+                    <option value="partial" <?php echo $filters['status']==='partial'?'selected':''; ?>>Parcial</option>
+                    <option value="pending" <?php echo $filters['status']==='pending'?'selected':''; ?>>Pendiente</option>
+                </select>
+            </div>
+            <button class="btn btn-primary" type="submit">Filtrar</button>
+            <a class="btn btn-secondary" href="<?php echo $ventasBase; ?>">Limpiar</a>
+        </form>
+    </div>
 </div>
 
 <div class="card neumorphic">
     <div class="card-header"><h3>📋 Últimas Ventas</h3></div>
     <div class="card-body">
         <?php if (empty($sales)): ?>
-            <p style="text-align:center;color:var(--color-text-secondary);padding:20px;">No hay ventas registradas</p>
+            <p style="text-align:center;color:var(--color-text-secondary);padding:20px;">No hay ventas con esos filtros</p>
         <?php else: ?>
             <div class="table-container"><table>
-                <thead><tr><th>Factura</th><th>Cliente</th><th>Fecha</th><th>Total</th><th>Pagado</th><th>Pago</th><th>Estado</th><th>Acciones</th></tr></thead>
+                <thead><tr>
+                    <th><?php $viewInstance->partial('sortable_th', ['label'=>'Factura','column'=>'invoice','filters'=>$filters,'baseUrl'=>$ventasBase]); ?></th>
+                    <th><?php $viewInstance->partial('sortable_th', ['label'=>'Cliente','column'=>'customer','filters'=>$filters,'baseUrl'=>$ventasBase]); ?></th>
+                    <th><?php $viewInstance->partial('sortable_th', ['label'=>'Fecha','column'=>'date','filters'=>$filters,'baseUrl'=>$ventasBase]); ?></th>
+                    <th><?php $viewInstance->partial('sortable_th', ['label'=>'Total','column'=>'total','filters'=>$filters,'baseUrl'=>$ventasBase]); ?></th>
+                    <th><?php $viewInstance->partial('sortable_th', ['label'=>'Pagado','column'=>'paid','filters'=>$filters,'baseUrl'=>$ventasBase]); ?></th>
+                    <th><?php $viewInstance->partial('sortable_th', ['label'=>'Pago','column'=>'method','filters'=>$filters,'baseUrl'=>$ventasBase]); ?></th>
+                    <th><?php $viewInstance->partial('sortable_th', ['label'=>'Estado','column'=>'status','filters'=>$filters,'baseUrl'=>$ventasBase]); ?></th>
+                    <th>Acciones</th>
+                </tr></thead>
                 <tbody>
                 <?php foreach ($sales as $sale): ?>
                     <tr>
@@ -71,14 +108,14 @@ function fmtV(float $a, array $c): string
                         </td>
                         <td class="table-actions">
                             <button onclick="viewDetail(<?php echo $sale['id']; ?>)" class="btn btn-sm btn-info" title="Ver detalle"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg></button>
-                            <a href="<?php echo $viewInstance->route('app/ventas'); ?>?action=pdf&id=<?php echo $sale['id']; ?>" class="btn btn-sm btn-secondary" target="_blank" title="Descargar PDF"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line></svg></a>
+                            <a href="<?php echo $ventasBase; ?>?action=pdf&id=<?php echo $sale['id']; ?>" class="btn btn-sm btn-secondary" target="_blank" title="Descargar PDF"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line></svg></a>
                             <?php if (in_array($sale['payment_status'], ['pending', 'partial'])): ?>
                                 <button onclick="openPaymentModal(<?php echo $sale['id']; ?>,<?php echo $sale['total']; ?>,<?php echo ($sale['paid_amount'] ?? 0); ?>)" class="btn btn-sm btn-success" title="Registrar abono"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg></button>
                             <?php endif; ?>
                             <?php if ($canDeleteSale && $sale['status'] !== 'cancelled'): ?>
-                                <form method="POST" action="<?php echo $viewInstance->route('app/ventas'); ?>?action=cancel" style="display:inline;" data-ajax="true">
+                                <form method="POST" action="<?php echo $ventasBase; ?>?action=cancel" style="display:inline;" data-ajax="true">
                                     <?php echo \SoftNova\Core\csrf_field(); ?>
-                                    <input type="hidden" name="id" value="<?php echo $sale['id']; ?>">
+                                    <input type="hidden" name="id" value="<?php echo (int)$sale['id']; ?>">
                                     <button type="submit" data-confirm="Eliminar esta venta? Se cancelara, se devolvera el stock y se ajustara la caja." class="btn btn-sm btn-danger" title="Eliminar venta"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg></button>
                                 </form>
                             <?php endif; ?>
@@ -89,8 +126,8 @@ function fmtV(float $a, array $c): string
             </table></div>
             <?php
             $pagination = $pagination ?? null;
-            $paginationBaseUrl = $viewInstance->route('app/ventas');
-            $paginationQuery = [];
+            $paginationBaseUrl = $ventasBase;
+            $paginationQuery = $filters['query'] ?? [];
             $viewInstance->partial('pagination', compact('pagination', 'paginationBaseUrl', 'paginationQuery'));
             ?>
         <?php endif; ?>
@@ -101,7 +138,7 @@ function fmtV(float $a, array $c): string
 <div id="saleModal" class="modal-overlay" style="display:none;">
     <div class="modal-content neumorphic" style="max-width:750px;max-height:90vh;overflow-y:auto;">
         <div class="modal-header"><h3>Nueva Venta</h3><button onclick="closeSaleModal()" class="modal-close">&times;</button></div>
-        <form method="POST" action="<?php echo $viewInstance->route('app/ventas'); ?>?action=create" data-ajax="true" data-prepare="saleItems" onsubmit="return prepareSaleItems()">
+        <form method="POST" action="<?php echo $ventasBase; ?>?action=create" data-ajax="true" data-prepare="saleItems" onsubmit="return prepareSaleItems()">
             <?php echo \SoftNova\Core\csrf_field(); ?>
             <div class="form-group">
                 <label>Cliente <span class="field-tip" data-tip="Escriba para buscar por nombre o documento y elija un cliente. Deje vacío o seleccione Consumidor Final si no aplica.">?</span></label>

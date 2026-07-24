@@ -183,6 +183,14 @@ class TenantConfigController extends Controller
                 $this->upsertSetting($field, (string)$value);
             }
         }
+
+        $primaryColor = $this->request->post('primary_color');
+        if ($primaryColor !== null) {
+            $primaryColor = trim((string)$primaryColor);
+            if ($primaryColor === '' || preg_match('/^#[0-9A-Fa-f]{6}$/', $primaryColor)) {
+                $this->upsertSetting('primary_color', strtoupper($primaryColor));
+            }
+        }
         
         $this->respond(true, 'Configuración guardada exitosamente', '/app/configuracion');
     }

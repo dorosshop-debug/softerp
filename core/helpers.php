@@ -23,12 +23,23 @@ function config(string $key, $default = null)
             CONFIG_PATH . '/security.php',
             CONFIG_PATH . '/ai.php',
             CONFIG_PATH . '/ai_personality.php',
+            CONFIG_PATH . '/alegra.php',
+            CONFIG_PATH . '/integrations.php',
         ];
         
         foreach ($configFiles as $file) {
-            if (file_exists($file)) {
-                $config = array_merge($config, require $file);
+            if (!file_exists($file)) {
+                continue;
             }
+            $loaded = require $file;
+            // Algunos configs (ej. personalidad IA) pueden devolver un Closure.
+            if ($loaded instanceof \Closure) {
+                $loaded = $loaded([]);
+            }
+            if (!is_array($loaded)) {
+                continue;
+            }
+            $config = array_merge($config, $loaded);
         }
     }
     
@@ -43,6 +54,79 @@ function config(string $key, $default = null)
     }
     
     return $value;
+}
+
+/**
+ * Personalidad de Seri filtrada por módulos activos del plan.
+ */
+function ai_personality(array $activeModules = []): array
+{
+    static $factory = null;
+    if ($factory === null) {
+        $file = CONFIG_PATH . '/ai_personality.php';
+        $factory = is_file($file) ? require $file : [];
+    }
+
+    if ($factory instanceof \Closure) {
+        $resolved = $factory($activeModules);
+        return is_array($resolved['ai_personality'] ?? null) ? $resolved['ai_personality'] : [];
+    }
+
+    if (is_array($factory)) {
+        return is_array($factory['ai_personality'] ?? null) ? $factory['ai_personality'] : $factory;
+    }
+
+    return [];
+}
+
+/**
+ * Genera variables CSS de tema a partir de un color primario hex (#RRGGBB).
+ * Ajusta el color de texto sobre el primario para mantener contraste (WCAG).
+ * Devuelve un bloque <style> listo para inyectar, o '' si el color es inválido.
+ */
+function theme_color_style(?string $hex): string
+{
+    $hex = trim((string)$hex);
+    if ($hex === '' || !preg_match('/^#[0-9A-Fa-f]{6}$/', $hex)) {
+        return '';
+    }
+
+    $r = hexdec(substr($hex, 1, 2));
+    $g = hexdec(substr($hex, 3, 2));
+    $b = hexdec(substr($hex, 5, 2));
+
+    // Luminancia relativa (WCAG) para decidir texto claro u oscuro.
+    $toLinear = static function (int $c): float {
+        $c /= 255;
+        return $c <= 0.03928 ? $c / 12.92 : (($c + 0.055) / 1.055) ** 2.4;
+    };
+    $luminance = 0.2126 * $toLinear($r) + 0.7152 * $toLinear($g) + 0.0722 * $toLinear($b);
+    $textOnPrimary = $luminance > 0.4 ? '#1A1A2E' : '#FFFFFF';
+
+    // Variante más oscura para hover (mezcla con negro ~22%).
+    $darken = static function (int $c): int {
+        return max(0, (int)round($c * 0.78));
+    };
+    $hover = sprintf('#%02X%02X%02X', $darken($r), $darken($g), $darken($b));
+
+    // Fondo sutil (tinte translúcido del primario).
+    $tint = sprintf('rgba(%d, %d, %d, 0.06)', $r, $g, $b);
+
+    return "<style id=\"tenant-theme\">:root{"
+        . "--color-primary: {$hex};"
+        . "--bg-btn-primary: {$hex};"
+        . "--bg-btn-primary-hover: {$hover};"
+        . "--color-btn-primary-text: {$textOnPrimary};"
+        . "--color-datetime-icon: {$hex};"
+        . "--color-datetime-time: {$hex};"
+        . "--bg-table-hover: {$tint};"
+        . "}"
+        . "body.dark-mode{"
+        . "--color-primary: {$hex};"
+        . "--bg-btn-primary: {$hex};"
+        . "--bg-btn-primary-hover: {$hover};"
+        . "--color-btn-primary-text: {$textOnPrimary};"
+        . "}</style>";
 }
 
 /**

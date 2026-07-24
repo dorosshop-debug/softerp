@@ -5,6 +5,8 @@ $pageTitle = 'Gestión de Cotizaciones';
 $tenantName = $tenantName ?? 'Mi Empresa'; $userName = $userName ?? 'Usuario';
 $quotes = $quotes ?? []; $products = $products ?? []; $customers = $customers ?? [];
 $currency = $currency ?? ['symbol'=>'$','decimals'=>0];
+$filters = $filters ?? ['q'=>'','from'=>'','to'=>'','status'=>'','sort'=>'date','dir'=>'desc','query'=>[]];
+$cotizBase = $viewInstance->route('app/cotizaciones');
 function fmtQ(float $a, array $c): string { return $c['symbol'].' '.number_format($a, $c['decimals'], $c['decimal']??',', $c['thousands']??'.'); }
 ?>
 <meta name="currency-symbol" content="<?php echo $currency['symbol']; ?>">
@@ -13,17 +15,52 @@ function fmtQ(float $a, array $c): string { return $c['symbol'].' '.number_forma
 
 <div style="display:flex;gap:15px;margin-bottom:20px;flex-wrap:wrap;">
     <button onclick="openQuoteModal()" class="btn btn-primary neumorphic-btn" title="Nueva cotizacion">Nueva Cotizacion</button>
-    <a href="<?php echo $viewInstance->route('app/cotizaciones'); ?>?action=export" class="btn btn-secondary" title="Exportar CSV">Exportar CSV</a>
+    <a href="<?php echo $cotizBase; ?>?action=export" class="btn btn-secondary" title="Exportar CSV">Exportar CSV</a>
+</div>
+
+<div class="card neumorphic" style="margin-bottom:18px;">
+    <div class="card-body" style="padding:14px 18px;">
+        <form method="GET" action="<?php echo $cotizBase; ?>" style="display:flex;gap:10px;align-items:end;flex-wrap:wrap;">
+            <input type="hidden" name="sort" value="<?php echo htmlspecialchars($filters['sort']); ?>">
+            <input type="hidden" name="dir" value="<?php echo htmlspecialchars($filters['dir']); ?>">
+            <div class="form-group" style="margin:0;min-width:220px;flex:1;">
+                <label>Buscar</label>
+                <input class="form-control" type="search" name="q" value="<?php echo htmlspecialchars($filters['q']); ?>" placeholder="Número, cliente o documento...">
+            </div>
+            <div class="form-group" style="margin:0;"><label>Desde</label><input class="form-control" type="date" name="from" value="<?php echo htmlspecialchars($filters['from']); ?>"></div>
+            <div class="form-group" style="margin:0;"><label>Hasta</label><input class="form-control" type="date" name="to" value="<?php echo htmlspecialchars($filters['to']); ?>"></div>
+            <div class="form-group" style="margin:0;min-width:150px;">
+                <label>Estado</label>
+                <select class="form-control" name="status">
+                    <option value="">Todos</option>
+                    <option value="pending" <?php echo $filters['status']==='pending'?'selected':''; ?>>Pendiente</option>
+                    <option value="accepted" <?php echo $filters['status']==='accepted'?'selected':''; ?>>Aceptada</option>
+                    <option value="converted" <?php echo $filters['status']==='converted'?'selected':''; ?>>Convertida</option>
+                    <option value="rejected" <?php echo $filters['status']==='rejected'?'selected':''; ?>>Rechazada</option>
+                </select>
+            </div>
+            <button class="btn btn-primary" type="submit">Filtrar</button>
+            <a class="btn btn-secondary" href="<?php echo $cotizBase; ?>">Limpiar</a>
+        </form>
+    </div>
 </div>
 
 <div class="card neumorphic">
     <div class="card-header"><h3>Cotizaciones</h3></div>
     <div class="card-body">
         <?php if (empty($quotes)): ?>
-            <p style="text-align:center;color:var(--color-text-secondary);padding:20px;">No hay cotizaciones</p>
+            <p style="text-align:center;color:var(--color-text-secondary);padding:20px;">No hay cotizaciones con esos filtros</p>
         <?php else: ?>
             <div class="table-container"><table>
-                <thead><tr><th>Número</th><th>Cliente</th><th>Fecha</th><th>Total</th><th>Válido hasta</th><th>Estado</th><th>Acciones</th></tr></thead>
+                <thead><tr>
+                    <th><?php $viewInstance->partial('sortable_th', ['label'=>'Número','column'=>'number','filters'=>$filters,'baseUrl'=>$cotizBase]); ?></th>
+                    <th><?php $viewInstance->partial('sortable_th', ['label'=>'Cliente','column'=>'customer','filters'=>$filters,'baseUrl'=>$cotizBase]); ?></th>
+                    <th><?php $viewInstance->partial('sortable_th', ['label'=>'Fecha','column'=>'date','filters'=>$filters,'baseUrl'=>$cotizBase]); ?></th>
+                    <th><?php $viewInstance->partial('sortable_th', ['label'=>'Total','column'=>'total','filters'=>$filters,'baseUrl'=>$cotizBase]); ?></th>
+                    <th><?php $viewInstance->partial('sortable_th', ['label'=>'Válido hasta','column'=>'valid','filters'=>$filters,'baseUrl'=>$cotizBase]); ?></th>
+                    <th><?php $viewInstance->partial('sortable_th', ['label'=>'Estado','column'=>'status','filters'=>$filters,'baseUrl'=>$cotizBase]); ?></th>
+                    <th>Acciones</th>
+                </tr></thead>
                 <tbody>
                 <?php foreach ($quotes as $q): ?>
                     <tr>
@@ -31,7 +68,7 @@ function fmtQ(float $a, array $c): string { return $c['symbol'].' '.number_forma
                         <td><?php echo htmlspecialchars($q['customer_name'] ?? 'General'); ?></td>
                         <td><?php echo date('d/m/Y', strtotime($q['quote_date'])); ?></td>
                         <td style="font-weight:600;"><?php echo fmtQ($q['total'], $currency); ?></td>
-                        <td><?php echo date('d/m/Y', strtotime($q['valid_until'])); ?></td>
+                        <td><?php echo !empty($q['valid_until']) ? date('d/m/Y', strtotime($q['valid_until'])) : '-'; ?></td>
                         <td>
                             <span class="badge <?php echo $q['status']==='pending'?'badge-warning':($q['status']==='accepted'?'badge-success':($q['status']==='converted'?'badge-info':'badge-danger')); ?>">
                                 <?php echo $q['status']==='pending'?'Pendiente':($q['status']==='accepted'?'Aceptada':($q['status']==='converted'?'Convertida':'Rechazada')); ?>
@@ -39,11 +76,11 @@ function fmtQ(float $a, array $c): string { return $c['symbol'].' '.number_forma
                         </td>
                         <td class="table-actions">
                             <button onclick="viewQuoteDetail(<?php echo $q['id']; ?>)" class="btn btn-sm btn-info" title="Ver detalle"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg></button>
-                            <a href="<?php echo $viewInstance->route('app/cotizaciones'); ?>?action=pdf&id=<?php echo $q['id']; ?>" class="btn btn-sm btn-secondary" target="_blank" title="Descargar PDF"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line></svg></a>
+                            <a href="<?php echo $cotizBase; ?>?action=pdf&id=<?php echo $q['id']; ?>" class="btn btn-sm btn-secondary" target="_blank" title="Descargar PDF"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line></svg></a>
                             <?php if (in_array($q['status'], ['pending', 'accepted'])): ?>
                                 <button onclick="openConvertModal(<?php echo $q['id']; ?>,<?php echo $q['total']; ?>)" class="btn btn-sm btn-success" title="Convertir a venta"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg></button>
                             <?php endif; ?>
-                            <form method="POST" action="<?php echo $viewInstance->route('app/cotizaciones'); ?>?action=delete" style="display:inline;" data-ajax="true">
+                            <form method="POST" action="<?php echo $cotizBase; ?>?action=delete" style="display:inline;" data-ajax="true">
                                 <?php echo \SoftNova\Core\csrf_field(); ?><input type="hidden" name="id" value="<?php echo $q['id']; ?>">
                                 <button type="submit" data-confirm="Eliminar esta cotizacion?" class="btn btn-sm btn-danger" title="Eliminar"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg></button>
                             </form>
@@ -54,8 +91,8 @@ function fmtQ(float $a, array $c): string { return $c['symbol'].' '.number_forma
             </table></div>
             <?php
             $pagination = $pagination ?? null;
-            $paginationBaseUrl = $viewInstance->route('app/cotizaciones');
-            $paginationQuery = [];
+            $paginationBaseUrl = $cotizBase;
+            $paginationQuery = $filters['query'] ?? [];
             $viewInstance->partial('pagination', compact('pagination', 'paginationBaseUrl', 'paginationQuery'));
             ?>
         <?php endif; ?>
@@ -66,7 +103,7 @@ function fmtQ(float $a, array $c): string { return $c['symbol'].' '.number_forma
 <div id="quoteModal" class="modal-overlay" style="display:none;">
     <div class="modal-content neumorphic" style="max-width:750px;max-height:90vh;overflow-y:auto;">
         <div class="modal-header"><h3>Nueva Cotización</h3><button onclick="closeQuoteModal()" class="modal-close">&times;</button></div>
-        <form method="POST" action="<?php echo $viewInstance->route('app/cotizaciones'); ?>?action=create" data-ajax="true" data-prepare="quoteItems" onsubmit="return prepareQuoteItems()">
+        <form method="POST" action="<?php echo $cotizBase; ?>?action=create" data-ajax="true" data-prepare="quoteItems" onsubmit="return prepareQuoteItems()">
             <?php echo \SoftNova\Core\csrf_field(); ?>
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:15px;">
                 <div class="form-group">

@@ -4,6 +4,7 @@ namespace SoftNova\Controllers;
 
 use SoftNova\Core\TenantController;
 use SoftNova\Services\CashService;
+use SoftNova\Services\AccountingService;
 
 /**
  * Modulo Gastos del tenant (tabla expenses)
@@ -11,12 +12,14 @@ use SoftNova\Services\CashService;
 class TenantGastosController extends TenantController
 {
     private CashService $cash;
+    private AccountingService $accounting;
     
     public function __construct()
     {
         parent::__construct();
         \SoftNova\Core\TenantMiddleware::authorize('gastos');
         $this->cash = new CashService($this->db);
+        $this->accounting = new AccountingService($this->db);
     }
     
     public function index(): void
@@ -94,26 +97,46 @@ class TenantGastosController extends TenantController
             return;
         }
         
-        $this->query(
-            "INSERT INTO expenses
-                (description, amount, category, expense_date, supplier_id, payment_method, receipt_number, notes, user_id)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            [
-                $description,
-                $amount,
-                $category,
-                $expenseDate,
-                $supplierId,
-                $paymentMethod,
-                $receiptNumber ?: null,
-                $notes ?: null,
-                $_SESSION['tenant_user_id'],
-            ]
-        );
+        try {
+            $this->db->beginTransaction();
+            $this->query(
+                "INSERT INTO expenses
+                    (description, amount, category, expense_date, supplier_id, payment_method, receipt_number, notes, user_id)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                [
+                    $description,
+                    $amount,
+                    $category,
+                    $expenseDate,
+                    $supplierId,
+                    $paymentMethod,
+                    $receiptNumber ?: null,
+                    $notes ?: null,
+                    $_SESSION['tenant_user_id'],
+                ]
+            );
+
+            $expenseId = (int)$this->db->lastInsertId();
+            $this->db->commit();
+        } catch (\Throwable $e) {
+            if ($this->db->inTransaction()) {
+                $this->db->rollBack();
+            }
+            $this->respond(false, 'No se pudo registrar el gasto: ' . $e->getMessage(), '/app/gastos');
+            return;
+        }
+
+        // Contabilización fuera de la transacción: un periodo cerrado u otro
+        // problema contable NO debe impedir registrar el gasto.
+        try {
+            $this->accounting->postExpense($expenseId, $affectCash);
+        } catch (\Throwable $e) {
+            error_log('Contabilidad gasto ' . $expenseId . ': ' . $e->getMessage());
+        }
         
-        $expenseId = (int)$this->db->lastInsertId();
-        
-        if ($affectCash) {
+        // Solo el efectivo afecta la caja física; tarjeta/transferencia salen del
+        // banco en contabilidad, no del arqueo de caja.
+        if ($affectCash && $paymentMethod === 'cash') {
             $this->cash->registerMovement(
                 $amount,
                 'Gasto: ' . $description,
@@ -138,6 +161,20 @@ class TenantGastosController extends TenantController
         
         if ($id <= 0 || $description === '' || $amount <= 0) {
             $this->respond(false, 'Datos invalidos', '/app/gastos');
+            return;
+        }
+
+        $posted = $this->query(
+            "SELECT 1 FROM accounting_entries
+             WHERE source_type = 'expense' AND source_id = ? AND status = 'posted' LIMIT 1",
+            [$id]
+        )->fetchColumn();
+        if ($posted) {
+            $this->respond(
+                false,
+                'El gasto ya está contabilizado. Elimínelo para generar una reversión y registre uno nuevo.',
+                '/app/gastos'
+            );
             return;
         }
         
@@ -168,8 +205,36 @@ class TenantGastosController extends TenantController
         }
         
         $id = (int)$this->request->post('id');
-        $this->query("DELETE FROM expenses WHERE id = ?", [$id]);
-        $this->respond(true, 'Gasto eliminado', '/app/gastos');
+        try {
+            $expense = $this->query(
+                "SELECT description FROM expenses WHERE id = ?",
+                [$id]
+            )->fetch();
+            if (!$expense) {
+                throw new \RuntimeException('Gasto no encontrado');
+            }
+            // Reversa contable antes de borrar; si falla (p.ej. periodo cerrado)
+            // no debe impedir eliminar el gasto.
+            $reversed = true;
+            try {
+                $this->accounting->reverseSource('expense', $id, 'Gasto eliminado');
+            } catch (\Throwable $e) {
+                $reversed = false;
+                error_log('Reversa contable gasto ' . $id . ': ' . $e->getMessage());
+            }
+            $this->query("DELETE FROM expenses WHERE id = ?", [$id]);
+            $cashReversed = $this->cash->reverseExpenseMovements($id, $expense['description']);
+            $message = $reversed ? 'Gasto eliminado y asiento revertido' : 'Gasto eliminado (revisar asiento contable manualmente)';
+            if ($cashReversed > 0) {
+                $message .= '. Caja ajustada: +' . $this->formatMoney($cashReversed);
+            }
+            $this->respond(true, $message, '/app/gastos');
+        } catch (\Throwable $e) {
+            if ($this->db->inTransaction()) {
+                $this->db->rollBack();
+            }
+            $this->respond(false, 'No se pudo eliminar: ' . $e->getMessage(), '/app/gastos');
+        }
     }
     
     private function exportExpenses(): void

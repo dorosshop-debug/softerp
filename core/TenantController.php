@@ -84,6 +84,50 @@ abstract class TenantController extends Controller
             'totalPages' => $totalPages,
         ];
     }
+
+    /**
+     * Filtros de listado: búsqueda, fechas, estado y ordenamiento seguro.
+     *
+     * @param array<string,string> $sortableMap columna_request => expresión SQL
+     * @return array{q:string,from:string,to:string,status:string,sort:string,dir:string,orderSql:string,query:array}
+     */
+    protected function listFilters(array $sortableMap, string $defaultSort, string $defaultDir = 'desc'): array
+    {
+        $q = trim((string)$this->request->get('q', ''));
+        $from = trim((string)$this->request->get('from', ''));
+        $to = trim((string)$this->request->get('to', ''));
+        $status = trim((string)$this->request->get('status', ''));
+        $sort = (string)$this->request->get('sort', $defaultSort);
+        $dir = strtolower((string)$this->request->get('dir', $defaultDir)) === 'asc' ? 'asc' : 'desc';
+
+        if (!isset($sortableMap[$sort])) {
+            $sort = $defaultSort;
+        }
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $from)) {
+            $from = '';
+        }
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $to)) {
+            $to = '';
+        }
+
+        return [
+            'q' => $q,
+            'from' => $from,
+            'to' => $to,
+            'status' => $status,
+            'sort' => $sort,
+            'dir' => $dir,
+            'orderSql' => $sortableMap[$sort] . ' ' . strtoupper($dir),
+            'query' => array_filter([
+                'q' => $q !== '' ? $q : null,
+                'from' => $from !== '' ? $from : null,
+                'to' => $to !== '' ? $to : null,
+                'status' => $status !== '' ? $status : null,
+                'sort' => $sort !== $defaultSort ? $sort : null,
+                'dir' => ($sort !== $defaultSort || $dir !== $defaultDir) ? $dir : null,
+            ], static fn($v) => $v !== null && $v !== ''),
+        ];
+    }
     
     /**
      * Exportar CSV y terminar la petición

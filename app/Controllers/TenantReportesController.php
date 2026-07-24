@@ -31,6 +31,8 @@ class TenantReportesController extends TenantController
             return;
         }
         
+        $this->ensureSaleItemCostColumn();
+
         $currency = $this->getCurrency();
         $dateFrom = $_GET['from'] ?? date('Y-m-d', strtotime('-30 days'));
         $dateTo = $_GET['to'] ?? date('Y-m-d');
@@ -68,6 +70,102 @@ class TenantReportesController extends TenantController
         )->fetchAll();
         
         $avgTicket = $totalSalesCount > 0 ? $totalSales / $totalSalesCount : 0;
+
+        // === Reportes gancho (todos los planes) ===
+        // 1) Utilidad del periodo: ingresos - costo de ventas - gastos
+        $revenue = (float)$this->query(
+            "SELECT COALESCE(SUM(si.subtotal), 0) t
+             FROM sale_items si JOIN sales s ON si.sale_id = s.id
+             WHERE s.status = 'completed' AND DATE(s.sale_date) BETWEEN ? AND ?",
+            [$dateFrom, $dateTo]
+        )->fetch()['t'];
+        $costOfSales = (float)$this->query(
+            "SELECT COALESCE(SUM(si.quantity * COALESCE(NULLIF(si.unit_cost, 0), p.purchase_price, 0)), 0) t
+             FROM sale_items si
+             JOIN sales s ON si.sale_id = s.id
+             LEFT JOIN products p ON p.id = si.product_id
+             WHERE s.status = 'completed' AND DATE(s.sale_date) BETWEEN ? AND ?",
+            [$dateFrom, $dateTo]
+        )->fetch()['t'];
+        $periodExpenses = (float)$this->query(
+            "SELECT COALESCE(SUM(amount), 0) t FROM expenses WHERE expense_date BETWEEN ? AND ?",
+            [$dateFrom, $dateTo]
+        )->fetch()['t'];
+        $grossProfit = $revenue - $costOfSales;
+        $netProfit = $grossProfit - $periodExpenses;
+        $margin = $revenue > 0 ? round(($netProfit / $revenue) * 100, 1) : 0.0;
+        $profitSummary = [
+            'revenue' => $revenue,
+            'cost' => $costOfSales,
+            'gross' => $grossProfit,
+            'expenses' => $periodExpenses,
+            'net' => $netProfit,
+            'margin' => $margin,
+        ];
+
+        // 2) Cuentas por cobrar (aging) sobre saldo pendiente
+        $receivablesAging = $this->query(
+            "SELECT
+                COALESCE(SUM(bal), 0) total,
+                COALESCE(SUM(CASE WHEN days <= 30 THEN bal ELSE 0 END), 0) d0,
+                COALESCE(SUM(CASE WHEN days BETWEEN 31 AND 60 THEN bal ELSE 0 END), 0) d30,
+                COALESCE(SUM(CASE WHEN days BETWEEN 61 AND 90 THEN bal ELSE 0 END), 0) d60,
+                COALESCE(SUM(CASE WHEN days > 90 THEN bal ELSE 0 END), 0) d90,
+                COUNT(*) cnt
+             FROM (
+                SELECT (s.total - COALESCE((SELECT SUM(sp.amount) FROM sale_payments sp WHERE sp.sale_id = s.id), 0)) bal,
+                       DATEDIFF(NOW(), s.sale_date) days
+                FROM sales s
+                WHERE s.status != 'cancelled' AND s.payment_status IN ('pending','partial')
+             ) x
+             WHERE bal > 0.009"
+        )->fetch() ?: [];
+        $topDebtors = $this->query(
+            "SELECT COALESCE(c.name, 'General') customer_name,
+                    SUM(s.total - COALESCE((SELECT SUM(sp.amount) FROM sale_payments sp WHERE sp.sale_id = s.id), 0)) balance,
+                    MAX(DATEDIFF(NOW(), s.sale_date)) max_days
+             FROM sales s
+             LEFT JOIN customers c ON c.id = s.customer_id
+             WHERE s.status != 'cancelled' AND s.payment_status IN ('pending','partial')
+             GROUP BY s.customer_id, c.name
+             HAVING balance > 0.009
+             ORDER BY balance DESC LIMIT 8"
+        )->fetchAll();
+
+        // 3) Caja del día (sesiones abiertas hoy)
+        $cashToday = $this->query(
+            "SELECT
+                COALESCE(SUM(CASE WHEN cm.type = 'income' THEN cm.amount ELSE 0 END), 0) income,
+                COALESCE(SUM(CASE WHEN cm.type = 'expense' THEN cm.amount ELSE 0 END), 0) expense
+             FROM cash_movements cm
+             WHERE DATE(cm.created_at) = CURDATE()"
+        )->fetch() ?: ['income' => 0, 'expense' => 0];
+        $openSession = $this->query(
+            "SELECT cs.*, u.name user_name FROM cash_sessions cs
+             LEFT JOIN users u ON u.id = cs.user_id
+             WHERE cs.status = 'open' ORDER BY cs.opening_date DESC LIMIT 1"
+        )->fetch();
+        $cashSummary = [
+            'income' => (float)$cashToday['income'],
+            'expense' => (float)$cashToday['expense'],
+            'net' => (float)$cashToday['income'] - (float)$cashToday['expense'],
+            'opening' => $openSession ? (float)$openSession['opening_amount'] : 0.0,
+            'expected' => $openSession
+                ? (float)$openSession['opening_amount'] + (float)$cashToday['income'] - (float)$cashToday['expense']
+                : 0.0,
+            'session' => $openSession ?: null,
+        ];
+
+        // 4) Top productos (compacto, todos los planes) + stock crítico ya calculado
+        $topSellers = $this->query(
+            "SELECT p.name, SUM(si.quantity) qty, SUM(si.subtotal) total
+             FROM sale_items si
+             JOIN products p ON p.id = si.product_id
+             JOIN sales s ON s.id = si.sale_id
+             WHERE s.status = 'completed' AND DATE(s.sale_date) BETWEEN ? AND ?
+             GROUP BY p.id, p.name ORDER BY qty DESC LIMIT 5",
+            [$dateFrom, $dateTo]
+        )->fetchAll();
         
         // Defaults avanzados
         $prevTotalSales = 0;
@@ -182,6 +280,11 @@ class TenantReportesController extends TenantController
         $this->view('tenant.reportes', $this->tenantViewData([
             'plan' => $plan,
             'reportsFull' => $reportsFull,
+            'profitSummary' => $profitSummary,
+            'receivablesAging' => $receivablesAging,
+            'topDebtors' => $topDebtors,
+            'cashSummary' => $cashSummary,
+            'topSellers' => $topSellers,
             'dateFrom' => $dateFrom,
             'dateTo' => $dateTo,
             'prevFrom' => $prevFrom,
@@ -210,6 +313,24 @@ class TenantReportesController extends TenantController
         ]));
     }
     
+    /** Asegura la columna unit_cost en tenants sin migrar (COGS histórico). */
+    private function ensureSaleItemCostColumn(): void
+    {
+        static $done = false;
+        if ($done) {
+            return;
+        }
+        $done = true;
+        try {
+            $col = $this->query("SHOW COLUMNS FROM sale_items LIKE 'unit_cost'")->fetch();
+            if (!$col) {
+                $this->query("ALTER TABLE sale_items ADD COLUMN unit_cost DECIMAL(12,2) NOT NULL DEFAULT 0.00 AFTER unit_price");
+            }
+        } catch (\Throwable $e) {
+            // silencioso
+        }
+    }
+
     private function exportReport(): void
     {
         $dateFrom = $_GET['from'] ?? date('Y-m-d', strtotime('-30 days'));

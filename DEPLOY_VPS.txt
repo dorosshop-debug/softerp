@@ -1,0 +1,122 @@
+SERI ERP - DESPLIEGUE EN VPS POR FTP
+====================================
+
+Para hosting compartido cPanel (dominio seri.heraconsultores.com) use
+en su lugar el archivo:
+
+  DEPLOY_CPANEL.txt
+
+
+REQUISITOS
+- Linux + Apache 2.4 (mod_rewrite) o Nginx
+- PHP 8.2+ con: pdo_mysql, mbstring, json, openssl, fileinfo, dom
+- MariaDB 10.4+ / MySQL 8
+- HTTPS activo
+- Acceso FTP/SFTP y una base de datos con usuario que pueda crear tablas
+
+1. PREPARAR PAQUETE EN WINDOWS
+Abra PowerShell en la raíz del proyecto y ejecute:
+
+  powershell -ExecutionPolicy Bypass -File deploy/prepare_ftp.ps1
+
+El archivo resultante será:
+
+  build/seri-erp-ftp.zip
+
+Incluye vendor/ para que no sea obligatorio ejecutar Composer en el VPS.
+No incluye .env ni las credenciales locales.
+
+2. SUBIR POR FTP/SFTP
+Descomprima el ZIP y suba su contenido al directorio del sitio.
+
+Configuración recomendada:
+- DocumentRoot del dominio: /ruta/seri-erp/public
+- Si no puede cambiar DocumentRoot, suba el proyecto completo al public_html;
+  el .htaccess raíz redirige las rutas hacia public/.
+
+Permisos recomendados:
+- Carpetas: 755
+- Archivos: 644
+- Temporalmente config/: 775 durante la instalación
+- storage/ y public/uploads/: 775
+
+Nunca use 777 salvo que el proveedor lo exija temporalmente.
+
+3. CREAR BASE DE DATOS
+Desde el panel del VPS/hosting cree:
+- Base maestra (ejemplo: softnova_master)
+- Usuario de BD con permisos sobre esa base
+
+El usuario también necesita permiso CREATE DATABASE para que Seri cree
+automáticamente una BD aislada para cada tenant. Si el hosting no lo permite,
+las bases tenant deberán crearse manualmente y cargarse con:
+
+  database/install_tenant.sql
+
+4. EJECUTAR INSTALADOR WEB
+Visite:
+
+  https://su-dominio.com/install.php
+
+Si el proyecto vive en una subcarpeta:
+
+  https://su-dominio.com/seri-erp/install.php
+
+Complete:
+- Host, puerto, base, usuario y contraseña MariaDB/MySQL
+- URL pública exacta
+- Primer superadministrador
+
+El instalador:
+- Ejecuta database/install_master.sql
+- Escribe config/database.php y config/app.php
+- Crea el primer superadministrador
+- Crea storage/installed.lock
+
+5. SEGURIDAD DESPUÉS DE INSTALAR
+- Elimine install.php y public/install.php mediante FTP.
+- Deje config/ en 755 y sus archivos en 640 o 644.
+- Mantenga HTTPS.
+- Configure backups externos del directorio storage/backups y de MariaDB.
+- No suba .env con claves reales a Git.
+
+Si actualiza un servidor con tenants ya creados, ejecute:
+
+  php database/migrate_existing.php
+
+Eso habilita tablas legacy y el esquema contable en cada BD tenant.
+
+6. APACHE
+Active:
+
+  a2enmod rewrite
+
+En el VirtualHost, para el DocumentRoot del proyecto:
+
+  AllowOverride All
+
+Reinicie Apache.
+
+7. NGINX (SI NO USA APACHE)
+Use public/ como raíz y envíe las rutas no encontradas a index.php:
+
+  root /ruta/seri-erp/public;
+  index index.php;
+
+  location / {
+      try_files $uri $uri/ /index.php?$query_string;
+  }
+
+Bloquee acceso a .env, SQL, config, storage y vendor desde la web.
+
+8. VALIDACIÓN FINAL
+- Iniciar sesión en /login
+- Crear un tenant
+- Iniciar sesión tenant en /app/login
+- Probar venta, gasto, caja y Contabilidad
+- Confirmar escritura en storage/logs y public/uploads
+
+NOTA CONTABLE
+El catálogo inicial y los asientos automáticos son una plantilla. Un contador
+debe validar cuentas, impuestos, retenciones, cierres y estados financieros
+antes de usar la información como contabilidad oficial.

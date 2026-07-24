@@ -129,4 +129,30 @@ class CashService
         
         return $total;
     }
+
+    public function reverseExpenseMovements(int $expenseId, string $description): float
+    {
+        $openSession = $this->getOpenSession();
+        if (!$openSession) {
+            return 0.0;
+        }
+        $total = (float)$this->query(
+            "SELECT COALESCE(SUM(amount), 0)
+             FROM cash_movements
+             WHERE cash_session_id = ? AND type = 'expense'
+               AND reference_type = 'expense' AND reference_id = ?",
+            [$openSession['id'], $expenseId]
+        )->fetchColumn();
+        if ($total <= 0) {
+            return 0.0;
+        }
+        $this->registerMovement(
+            $total,
+            'Reverso gasto eliminado: ' . $description,
+            'income',
+            'expense_cancel',
+            $expenseId
+        );
+        return $total;
+    }
 }

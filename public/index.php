@@ -12,6 +12,17 @@ define('CONFIG_PATH', ROOT_PATH . '/config');
 define('PUBLIC_PATH', __DIR__);
 define('STORAGE_PATH', ROOT_PATH . '/storage');
 
+// Si aún no se instaló el sistema, guiar al instalador web.
+$installedLock = STORAGE_PATH . '/installed.lock';
+$installer = ROOT_PATH . '/install.php';
+$requestPath = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/';
+$isInstallerRequest = str_ends_with($requestPath, '/install.php') || str_contains($requestPath, '/install.php');
+if (!is_file($installedLock) && is_file($installer) && !$isInstallerRequest) {
+    $base = rtrim(str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? '/')), '/');
+    header('Location: ' . ($base === '' ? '' : $base) . '/install.php');
+    exit;
+}
+
 // Cargar variables de entorno desde .env (si existe)
 $envFile = ROOT_PATH . '/.env';
 if (is_readable($envFile)) {
@@ -38,7 +49,7 @@ require_once ROOT_PATH . '/vendor/autoload.php';
 require_once CORE_PATH . '/helpers.php';
 
 // Configurar sesión segura antes de iniciarla
-$sessionConfig = \SoftNova\Core\config('app.session', []);
+$sessionConfig = \SoftNova\Core\config('session', []);
 if (!empty($sessionConfig['name'])) {
     session_name($sessionConfig['name']);
 }

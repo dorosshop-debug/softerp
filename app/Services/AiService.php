@@ -10,6 +10,7 @@ class AiService
 {
     private \PDO $db;
     private array $config;
+    private static array $historySchemaDone = [];
     
     public function __construct(\PDO $db)
     {
@@ -23,6 +24,133 @@ class AiService
         $stmt->execute($params);
         return $stmt;
     }
+
+    public function ensureHistorySchema(): void
+    {
+        $key = spl_object_id($this->db);
+        if (isset(self::$historySchemaDone[$key])) {
+            return;
+        }
+        $this->db->exec(
+            "CREATE TABLE IF NOT EXISTS ai_conversations (
+                id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+                user_id INT UNSIGNED NULL,
+                title VARCHAR(180) NOT NULL DEFAULT 'Nueva conversación',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                INDEX idx_ai_conv_user (user_id),
+                INDEX idx_ai_conv_updated (updated_at)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
+        );
+        $this->db->exec(
+            "CREATE TABLE IF NOT EXISTS ai_messages (
+                id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+                conversation_id INT UNSIGNED NOT NULL,
+                role ENUM('user','assistant') NOT NULL,
+                content MEDIUMTEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                INDEX idx_ai_msg_conv (conversation_id),
+                CONSTRAINT fk_ai_msg_conv FOREIGN KEY (conversation_id)
+                    REFERENCES ai_conversations(id) ON DELETE CASCADE
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
+        );
+        self::$historySchemaDone[$key] = true;
+    }
+
+    /** @return array<int,array{id:int,title:string,updated_at:string}> */
+    public function conversations(?int $userId = null, int $limit = 50): array
+    {
+        $this->ensureHistorySchema();
+        $limit = max(1, min(100, $limit));
+        if ($userId !== null) {
+            return $this->query(
+                "SELECT id, title, updated_at FROM ai_conversations
+                 WHERE user_id = ? ORDER BY updated_at DESC LIMIT {$limit}",
+                [$userId]
+            )->fetchAll();
+        }
+        return $this->query(
+            "SELECT id, title, updated_at FROM ai_conversations
+             ORDER BY updated_at DESC LIMIT {$limit}"
+        )->fetchAll();
+    }
+
+    /** @return array<int,array{role:string,content:string,created_at:string}> */
+    public function messages(int $conversationId, int $limit = 100): array
+    {
+        $this->ensureHistorySchema();
+        $limit = max(1, min(200, $limit));
+        return $this->query(
+            "SELECT role, content, created_at FROM ai_messages
+             WHERE conversation_id = ? ORDER BY id ASC LIMIT {$limit}",
+            [$conversationId]
+        )->fetchAll();
+    }
+
+    public function conversationOwnedBy(int $conversationId, ?int $userId): bool
+    {
+        $this->ensureHistorySchema();
+        $row = $this->query(
+            "SELECT user_id FROM ai_conversations WHERE id = ? LIMIT 1",
+            [$conversationId]
+        )->fetch();
+        if (!$row) {
+            return false;
+        }
+        if ($userId === null) {
+            return true;
+        }
+        return $row['user_id'] === null || (int)$row['user_id'] === $userId;
+    }
+
+    public function createConversation(?int $userId, string $title = 'Nueva conversación'): int
+    {
+        $this->ensureHistorySchema();
+        $title = trim($title) !== '' ? mb_substr(trim($title), 0, 180) : 'Nueva conversación';
+        $this->query(
+            "INSERT INTO ai_conversations (user_id, title) VALUES (?, ?)",
+            [$userId, $title]
+        );
+        return (int)$this->db->lastInsertId();
+    }
+
+    public function saveMessage(int $conversationId, string $role, string $content): void
+    {
+        $this->ensureHistorySchema();
+        $role = $role === 'assistant' ? 'assistant' : 'user';
+        $this->query(
+            "INSERT INTO ai_messages (conversation_id, role, content) VALUES (?, ?, ?)",
+            [$conversationId, $role, $content]
+        );
+        $this->query(
+            "UPDATE ai_conversations SET updated_at = NOW() WHERE id = ?",
+            [$conversationId]
+        );
+    }
+
+    public function renameConversationFromMessage(int $conversationId, string $firstMessage): void
+    {
+        $this->ensureHistorySchema();
+        $row = $this->query(
+            "SELECT title FROM ai_conversations WHERE id = ? LIMIT 1",
+            [$conversationId]
+        )->fetch();
+        if ($row && $row['title'] === 'Nueva conversación') {
+            $title = mb_substr(trim(preg_replace('/\s+/', ' ', $firstMessage)), 0, 60);
+            if ($title !== '') {
+                $this->query(
+                    "UPDATE ai_conversations SET title = ? WHERE id = ?",
+                    [$title, $conversationId]
+                );
+            }
+        }
+    }
+
+    public function deleteConversation(int $conversationId): void
+    {
+        $this->ensureHistorySchema();
+        $this->query("DELETE FROM ai_conversations WHERE id = ?", [$conversationId]);
+    }
     
     public function isConfigured(): bool
     {
@@ -34,7 +162,7 @@ class AiService
     /**
      * Genera respuesta del asistente Seri
      */
-    public function chat(string $userMessage, string $tenantName = 'Mi Empresa', string $userName = 'Usuario'): string
+    public function chat(string $userMessage, string $tenantName = 'Mi Empresa', string $userName = 'Usuario', array $history = []): string
     {
         $userMessage = trim($userMessage);
         if ($userMessage === '') {
@@ -50,7 +178,7 @@ class AiService
         
         try {
             $context = $this->buildBusinessContext($tenantName, $userName);
-            $reply = $this->callOpenRouter($userMessage, $context);
+            $reply = $this->callOpenRouter($userMessage, $context, $history);
             if ($reply !== '') {
                 return $reply;
             }
@@ -128,6 +256,7 @@ class AiService
             'empresa' => $tenantName,
             'usuario' => $userName,
             'moneda' => $currencyCode,
+            'modulos_activos' => $this->activeModules(),
             'productos_activos' => $totalProducts,
             'servicios_activos' => $totalServices,
             'clientes_activos' => $totalCustomers,
@@ -141,8 +270,31 @@ class AiService
             'top_clientes' => $topCustomers,
         ];
     }
+
+    private function activeModules(): array
+    {
+        $tenantId = (int)($_SESSION['tenant_id'] ?? 0);
+        if ($tenantId <= 0) {
+            return [];
+        }
+
+        try {
+            $masterDb = \SoftNova\Core\Database::getInstance();
+            $plan = $masterDb->query(
+                "SELECT sp.modules
+                 FROM tenants t
+                 JOIN subscription_plans sp ON t.subscription_plan_id = sp.id
+                 WHERE t.id = ? LIMIT 1",
+                [$tenantId]
+            )->fetch();
+            $modules = json_decode((string)($plan['modules'] ?? '[]'), true);
+            return is_array($modules) ? array_values(array_filter($modules, 'is_string')) : [];
+        } catch (\Throwable $e) {
+            return [];
+        }
+    }
     
-    private function callOpenRouter(string $userMessage, array $context): string
+    private function callOpenRouter(string $userMessage, array $context, array $history = []): string
     {
         $baseUrl = rtrim((string)($this->config['base_url'] ?? 'https://openrouter.ai/api/v1'), '/');
         $url = $baseUrl . '/chat/completions';
@@ -150,13 +302,25 @@ class AiService
         $model = (string)($this->config['model'] ?? 'nvidia/nemotron-3-ultra-550b-a55b:free');
         
         $system = $this->systemPrompt($context);
-        
+
+        $messages = [['role' => 'system', 'content' => $system]];
+        // Historial previo (limitado a los últimos turnos para no exceder el contexto).
+        $maxHistory = (int)($this->config['max_history'] ?? 10);
+        if ($maxHistory > 0 && $history) {
+            $recent = array_slice($history, -$maxHistory);
+            foreach ($recent as $h) {
+                $role = ($h['role'] ?? '') === 'assistant' ? 'assistant' : 'user';
+                $content = trim((string)($h['content'] ?? ''));
+                if ($content !== '') {
+                    $messages[] = ['role' => $role, 'content' => $content];
+                }
+            }
+        }
+        $messages[] = ['role' => 'user', 'content' => $userMessage];
+
         $payload = [
             'model' => $model,
-            'messages' => [
-                ['role' => 'system', 'content' => $system],
-                ['role' => 'user', 'content' => $userMessage],
-            ],
+            'messages' => $messages,
             'temperature' => (float)($this->config['temperature'] ?? 0.4),
             'max_tokens' => (int)($this->config['max_tokens'] ?? 1200),
         ];
@@ -201,7 +365,8 @@ class AiService
     private function systemPrompt(array $context): string
     {
         $json = json_encode($context, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-        $p = \SoftNova\Core\config('ai_personality', []);
+        $modules = is_array($context['modulos_activos'] ?? null) ? $context['modulos_activos'] : [];
+        $p = \SoftNova\Core\ai_personality($modules);
         
         $name = (string)($p['name'] ?? 'Seri');
         $tone = (string)($p['tone'] ?? 'clara, profesional y concisa');

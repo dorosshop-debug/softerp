@@ -1,0 +1,311 @@
+<?php
+
+namespace SoftNova\Controllers;
+
+use SoftNova\Core\TenantController;
+use SoftNova\Core\TenantMiddleware;
+use SoftNova\Services\AccountingService;
+use SoftNova\Services\Integrations\IntegrationManager;
+
+class TenantContabilidadController extends TenantController
+{
+    private AccountingService $accounting;
+
+    public function __construct()
+    {
+        parent::__construct();
+        TenantMiddleware::authorize('contabilidad');
+        $this->accounting = new AccountingService($this->db);
+    }
+
+    public function index(): void
+    {
+        $action = (string)$this->request->get('action', '');
+
+        if ($this->request->method() === 'POST') {
+            $redirect = match ($action) {
+                'save-integration', 'set-active-provider' => '/app/contabilidad?tab=integrations',
+                'save-account' => '/app/contabilidad?tab=accounts',
+                'period' => '/app/contabilidad?tab=periods',
+                'manual-entry' => '/app/contabilidad?tab=entries',
+                default => '/app/contabilidad',
+            };
+            if (!$this->validateCsrfOrFail($redirect)) {
+                return;
+            }
+            match ($action) {
+                'manual-entry' => $this->createManualEntry(),
+                'save-account' => $this->saveAccount(),
+                'period' => $this->updatePeriod(),
+                'sync' => $this->syncOperations(),
+                'save-integration' => $this->saveIntegration(),
+                'set-active-provider' => $this->setActiveProvider(),
+                default => $this->respond(false, 'Acción contable inválida', '/app/contabilidad'),
+            };
+            return;
+        }
+
+        if ($action === 'entry') {
+            $this->entryDetail();
+            return;
+        }
+        if ($action === 'integration-test') {
+            $this->testIntegration();
+            return;
+        }
+        if ($action === 'export') {
+            TenantMiddleware::authorize('contabilidad', 'export');
+            $this->exportReport();
+            return;
+        }
+
+        $from = $this->validDate((string)$this->request->get('from', date('Y-m-01')), date('Y-m-01'));
+        $to = $this->validDate((string)$this->request->get('to', date('Y-m-d')), date('Y-m-d'));
+        if ($from > $to) {
+            [$from, $to] = [$to, $from];
+        }
+        $tab = (string)$this->request->get('tab', 'dashboard');
+        $accountId = max(0, (int)$this->request->get('account_id', 0));
+        $integrations = new IntegrationManager($this->db);
+
+        $accounts = $this->accounting->accounts();
+        $trialBalance = $this->accounting->trialBalance($from, $to);
+        $statements = $this->accounting->financialStatements($from, $to);
+        $ledger = $accountId > 0
+            ? $this->accounting->ledger($accountId, $from, $to)
+            : [];
+
+        $this->view('tenant.contabilidad', $this->tenantViewData([
+            'tab' => $tab,
+            'dateFrom' => $from,
+            'dateTo' => $to,
+            'accounts' => $accounts,
+            'entries' => $this->accounting->entries($from, $to),
+            'trialBalance' => $trialBalance,
+            'statements' => $statements,
+            'ledger' => $ledger,
+            'selectedAccountId' => $accountId,
+            'periods' => $this->accounting->periods(),
+            'integrationStatuses' => $integrations->statuses(),
+            'activeProvider' => $integrations->settings()->getActiveProvider(),
+        ]));
+    }
+
+    private function saveIntegration(): void
+    {
+        TenantMiddleware::authorize('contabilidad', 'edit');
+        $provider = (string)$this->request->post('provider', '');
+        $makeActive = $this->request->post('make_active', '0') === '1';
+        try {
+            $manager = new IntegrationManager($this->db);
+            $manager->saveProvider($provider, [
+                'enabled' => $this->request->post('enabled', '0'),
+                'email' => $this->request->post('email', ''),
+                'token' => $this->request->post('token', ''),
+                'base_url' => $this->request->post('base_url', ''),
+                'tax_id' => $this->request->post('tax_id', ''),
+                'stamp' => $this->request->post('stamp', '0'),
+                'sync_sales' => $this->request->post('sync_sales', '0'),
+                'sync_payments' => $this->request->post('sync_payments', '0'),
+                'sync_expenses' => $this->request->post('sync_expenses', '0'),
+                'username' => $this->request->post('username', ''),
+                'access_key' => $this->request->post('access_key', ''),
+                'partner_id' => $this->request->post('partner_id', 'SeriERP'),
+                'client_id' => $this->request->post('client_id', ''),
+                'client_secret' => $this->request->post('client_secret', ''),
+                'password' => $this->request->post('password', ''),
+                'nit' => $this->request->post('nit', ''),
+                'dv' => $this->request->post('dv', ''),
+                'legal_name' => $this->request->post('legal_name', ''),
+                'resolution_number' => $this->request->post('resolution_number', ''),
+                'prefix' => $this->request->post('prefix', ''),
+                'range_from' => $this->request->post('range_from', ''),
+                'range_to' => $this->request->post('range_to', ''),
+                'technical_key' => $this->request->post('technical_key', ''),
+                'software_id' => $this->request->post('software_id', ''),
+                'pin' => $this->request->post('pin', ''),
+                'environment' => $this->request->post('environment', 'habilitacion'),
+            ], $makeActive);
+            $this->respond(true, 'Integración guardada', '/app/contabilidad?tab=integrations&provider=' . urlencode($provider));
+        } catch (\Throwable $e) {
+            $this->respond(false, $e->getMessage(), '/app/contabilidad?tab=integrations');
+        }
+    }
+
+    private function setActiveProvider(): void
+    {
+        TenantMiddleware::authorize('contabilidad', 'edit');
+        try {
+            $provider = trim((string)$this->request->post('provider', ''));
+            (new IntegrationManager($this->db))->setActive($provider !== '' ? $provider : null);
+            $this->respond(true, $provider !== '' ? 'Proveedor activo actualizado' : 'Sin proveedor activo', '/app/contabilidad?tab=integrations');
+        } catch (\Throwable $e) {
+            $this->respond(false, $e->getMessage(), '/app/contabilidad?tab=integrations');
+        }
+    }
+
+    private function testIntegration(): void
+    {
+        TenantMiddleware::authorize('contabilidad', 'edit');
+        $provider = (string)$this->request->get('provider', '');
+        $this->json((new IntegrationManager($this->db))->test($provider));
+    }
+
+    private function createManualEntry(): void
+    {
+        TenantMiddleware::authorize('contabilidad', 'create');
+        $date = $this->validDate(
+            (string)$this->request->post('entry_date', date('Y-m-d')),
+            date('Y-m-d')
+        );
+        $description = trim((string)$this->request->post('description', ''));
+        $accountCodes = $this->request->post('account_code', []);
+        $debits = $this->request->post('debit', []);
+        $credits = $this->request->post('credit', []);
+        $lineDescriptions = $this->request->post('line_description', []);
+
+        if ($description === '' || !is_array($accountCodes)) {
+            $this->respond(false, 'Descripción y líneas contables son obligatorias', '/app/contabilidad');
+            return;
+        }
+
+        $lines = [];
+        foreach ($accountCodes as $i => $code) {
+            $code = trim((string)$code);
+            $debit = round((float)($debits[$i] ?? 0), 2);
+            $credit = round((float)($credits[$i] ?? 0), 2);
+            if ($code === '' || ($debit <= 0 && $credit <= 0)) {
+                continue;
+            }
+            $lines[] = [
+                'account_code' => $code,
+                'debit' => $debit,
+                'credit' => $credit,
+                'description' => trim((string)($lineDescriptions[$i] ?? '')),
+            ];
+        }
+
+        try {
+            $this->db->beginTransaction();
+            $id = $this->accounting->postEntry($date, $description, $lines, 'manual', null, null);
+            $this->db->commit();
+            $this->respond(true, 'Comprobante contable registrado', '/app/contabilidad?tab=entries&entry=' . $id);
+        } catch (\Throwable $e) {
+            if ($this->db->inTransaction()) {
+                $this->db->rollBack();
+            }
+            $this->respond(false, $e->getMessage(), '/app/contabilidad?tab=entries');
+        }
+    }
+
+    private function saveAccount(): void
+    {
+        TenantMiddleware::authorize('contabilidad', 'edit');
+        try {
+            $this->accounting->saveAccount([
+                'id' => (int)$this->request->post('id', 0),
+                'code' => $this->request->post('code', ''),
+                'name' => $this->request->post('name', ''),
+                'account_type' => $this->request->post('account_type', ''),
+                'nature' => $this->request->post('nature', ''),
+                'accepts_entries' => $this->request->post('accepts_entries', '0') === '1',
+                'status' => $this->request->post('status', 'active'),
+            ]);
+            $this->respond(true, 'Cuenta contable guardada', '/app/contabilidad?tab=accounts');
+        } catch (\Throwable $e) {
+            $this->respond(false, $e->getMessage(), '/app/contabilidad?tab=accounts');
+        }
+    }
+
+    private function updatePeriod(): void
+    {
+        TenantMiddleware::authorize('contabilidad', 'edit');
+        try {
+            $this->accounting->closePeriod(
+                (int)$this->request->post('year'),
+                (int)$this->request->post('month'),
+                $this->request->post('status') === 'closed',
+                trim((string)$this->request->post('notes', '')) ?: null
+            );
+            $this->respond(true, 'Periodo contable actualizado', '/app/contabilidad?tab=periods');
+        } catch (\Throwable $e) {
+            $this->respond(false, $e->getMessage(), '/app/contabilidad?tab=periods');
+        }
+    }
+
+    private function syncOperations(): void
+    {
+        TenantMiddleware::authorize('contabilidad', 'create');
+        // Procesa por lotes para evitar timeouts con históricos grandes.
+        $result = $this->accounting->syncExistingOperations(200);
+        $message = sprintf(
+            'Sincronización: %d ventas, %d abonos y %d gastos contabilizados',
+            $result['sales'],
+            $result['payments'] ?? 0,
+            $result['expenses']
+        );
+        if (!empty($result['remaining'])) {
+            $message .= sprintf('. Quedan %d operaciones: vuelve a ejecutar para continuar', $result['remaining']);
+        }
+        if ($result['errors'] > 0) {
+            $message .= sprintf('. %d operaciones requieren revisión', $result['errors']);
+        }
+        $this->respond($result['errors'] === 0, $message, '/app/contabilidad');
+    }
+
+    private function entryDetail(): void
+    {
+        $entry = $this->accounting->entry((int)$this->request->get('id', 0));
+        if (!$entry) {
+            $this->json(['success' => false, 'message' => 'Comprobante no encontrado']);
+            return;
+        }
+        $this->json(['success' => true, 'entry' => $entry]);
+    }
+
+    private function exportReport(): void
+    {
+        $from = $this->validDate((string)$this->request->get('from', date('Y-m-01')), date('Y-m-01'));
+        $to = $this->validDate((string)$this->request->get('to', date('Y-m-d')), date('Y-m-d'));
+        $report = (string)$this->request->get('report', 'trial-balance');
+
+        if ($report === 'journal') {
+            $rows = [];
+            foreach ($this->accounting->entries($from, $to, 500) as $entry) {
+                $rows[] = [
+                    $entry['entry_number'],
+                    $entry['entry_date'],
+                    $entry['description'],
+                    $entry['total_debit'],
+                    $entry['total_credit'],
+                    $entry['status'],
+                ];
+            }
+            $this->exportCsv(
+                'libro_diario_' . $from . '_' . $to . '.csv',
+                ['Comprobante', 'Fecha', 'Concepto', 'Debe', 'Haber', 'Estado'],
+                $rows
+            );
+            return;
+        }
+
+        $rows = [];
+        foreach ($this->accounting->trialBalance($from, $to) as $row) {
+            $rows[] = [
+                $row['code'], $row['name'], $row['opening_balance'],
+                $row['debit'], $row['credit'], $row['closing_balance'],
+            ];
+        }
+        $this->exportCsv(
+            'balance_prueba_' . $from . '_' . $to . '.csv',
+            ['Código', 'Cuenta', 'Saldo inicial', 'Debe', 'Haber', 'Saldo final'],
+            $rows
+        );
+    }
+
+    private function validDate(string $date, string $fallback): string
+    {
+        $parsed = \DateTimeImmutable::createFromFormat('Y-m-d', $date);
+        return $parsed && $parsed->format('Y-m-d') === $date ? $date : $fallback;
+    }
+}

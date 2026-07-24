@@ -132,6 +132,34 @@ $avatarUrl = $settings['user_avatar'] ?? null;
                 <button onclick="setTheme('light')" id="btnLight" class="btn btn-secondary" style="flex:1;">☀️ Claro</button>
                 <button onclick="setTheme('dark')" id="btnDark" class="btn btn-secondary" style="flex:1;">🌙 Oscuro</button>
             </div>
+
+            <?php
+            $currentColor = $settings['primary_color'] ?? '';
+            $currentColor = preg_match('/^#[0-9A-Fa-f]{6}$/', (string)$currentColor) ? strtoupper($currentColor) : '#0D7C4A';
+            $presetColors = ['#0D7C4A', '#2563EB', '#7C3AED', '#DB2777', '#EA580C', '#0891B2', '#DC2626', '#4F46E5'];
+            ?>
+            <p style="margin-bottom:12px;color:var(--color-text-secondary);font-size:13px;">🎨 Color principal del programa</p>
+            <form method="POST" action="<?php echo $viewInstance->route('app/configuracion'); ?>?action=save" data-ajax="true" id="colorForm" style="margin-bottom:20px;">
+                <?php echo \SoftNova\Core\csrf_field(); ?>
+                <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;" id="colorPresets">
+                    <?php foreach ($presetColors as $preset): ?>
+                        <button type="button" class="color-swatch" data-color="<?php echo $preset; ?>"
+                                onclick="pickColor('<?php echo $preset; ?>')"
+                                title="<?php echo $preset; ?>"
+                                style="width:34px;height:34px;border-radius:50%;cursor:pointer;background:<?php echo $preset; ?>;border:3px solid <?php echo strcasecmp($preset, $currentColor) === 0 ? 'var(--color-text-primary)' : 'transparent'; ?>;box-shadow:0 2px 6px rgba(0,0,0,0.15);"></button>
+                    <?php endforeach; ?>
+                </div>
+                <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+                    <input type="color" name="primary_color" id="primaryColorInput" value="<?php echo $currentColor; ?>"
+                           class="form-control" style="width:60px;height:42px;padding:4px;cursor:pointer;" onchange="pickColor(this.value)">
+                    <span id="colorPreview" style="font-size:13px;color:var(--color-text-secondary);"><?php echo $currentColor; ?></span>
+                    <button type="submit" class="btn btn-primary" id="colorPreviewBtn">Guardar color</button>
+                    <button type="button" class="btn btn-secondary" onclick="pickColor('#0D7C4A')">Restablecer</button>
+                </div>
+                <p style="margin-top:8px;color:var(--color-text-secondary);font-size:12px;">
+                    El texto de los botones se ajusta automáticamente para mantener buen contraste.
+                </p>
+            </form>
             
             <p style="margin-bottom:12px;color:var(--color-text-secondary);font-size:13px;">🌐 Idioma del Sistema</p>
             <form method="POST" action="<?php echo $viewInstance->route('app/configuracion'); ?>?action=save" data-ajax="true" id="langForm">
@@ -443,6 +471,40 @@ function setTheme(t){
     if(t==='dark'){document.body.classList.add('dark-mode');document.getElementById('btnDark').className='btn btn-primary neumorphic-btn';document.getElementById('btnLight').className='btn btn-secondary';}
     else{document.body.classList.remove('dark-mode');document.getElementById('btnLight').className='btn btn-primary neumorphic-btn';document.getElementById('btnDark').className='btn btn-secondary';}
     localStorage.setItem('theme',t);
+}
+
+function contrastText(hex){
+    var r = parseInt(hex.substr(1,2),16)/255;
+    var g = parseInt(hex.substr(3,2),16)/255;
+    var b = parseInt(hex.substr(5,2),16)/255;
+    function lin(c){ return c <= 0.03928 ? c/12.92 : Math.pow((c+0.055)/1.055, 2.4); }
+    var L = 0.2126*lin(r) + 0.7152*lin(g) + 0.0722*lin(b);
+    return L > 0.4 ? '#1A1A2E' : '#FFFFFF';
+}
+function darken(hex){
+    var r = Math.round(parseInt(hex.substr(1,2),16)*0.78);
+    var g = Math.round(parseInt(hex.substr(3,2),16)*0.78);
+    var b = Math.round(parseInt(hex.substr(5,2),16)*0.78);
+    return '#' + [r,g,b].map(function(c){ return ('0'+c.toString(16)).slice(-2); }).join('').toUpperCase();
+}
+function pickColor(hex){
+    if(!/^#[0-9A-Fa-f]{6}$/.test(hex)) return;
+    hex = hex.toUpperCase();
+    document.getElementById('primaryColorInput').value = hex;
+    document.getElementById('colorPreview').textContent = hex;
+    // Previsualización en vivo
+    var root = document.documentElement.style;
+    var txt = contrastText(hex);
+    root.setProperty('--color-primary', hex);
+    root.setProperty('--bg-btn-primary', hex);
+    root.setProperty('--bg-btn-primary-hover', darken(hex));
+    root.setProperty('--color-btn-primary-text', txt);
+    root.setProperty('--color-datetime-icon', hex);
+    root.setProperty('--color-datetime-time', hex);
+    // Marcar swatch activo
+    document.querySelectorAll('#colorPresets .color-swatch').forEach(function(s){
+        s.style.borderColor = (s.dataset.color.toUpperCase() === hex) ? 'var(--color-text-primary)' : 'transparent';
+    });
 }
 
 function setLang(l){

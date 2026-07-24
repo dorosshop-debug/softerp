@@ -1,0 +1,225 @@
+SERI ERP — INSTALACIÓN EN HOSTING COMPARTIDO (cPanel)
+=====================================================
+Dominio objetivo: https://seri.heraconsultores.com
+
+REQUISITOS DEL HOSTING
+- cPanel con PHP 8.2+ (Selector de PHP / MultiPHP)
+- Extensiones PHP: pdo_mysql, mbstring, json, openssl, fileinfo, curl, dom, gd
+- MySQL / MariaDB (phpMyAdmin)
+- Acceso FTP o Administrador de archivos
+- SSL (Let's Encrypt) activo para el dominio
+
+IMPORTANTE EN HOSTING COMPARTIDO
+En muchos planes compartidos el usuario MySQL NO puede crear bases de datos
+nuevas desde PHP (CREATE DATABASE). Seri ERP crea una BD por cada empresa
+(tenant). Antes de crear tenants desde el panel, confirme:
+
+A) Ideal: el usuario MySQL tiene privilegio CREATE (poco común en compartido)
+B) Alternativa (recomendada en compartido): cree manualmente cada BD tenant
+   en cPanel → MySQL Databases y ejecute database/install_tenant.sql en ella.
+   Luego registre el tenant apuntando a esa BD (ver sección 8).
+
+=====================================================
+1. PREPARAR EL PAQUETE EN SU PC (Windows)
+=====================================================
+En PowerShell, desde la raíz del proyecto:
+
+  powershell -ExecutionPolicy Bypass -File deploy/prepare_ftp.ps1
+
+Resultado:
+
+  build/seri-erp-ftp.zip
+
+Ese ZIP incluye vendor/ (Composer) para no instalar Composer en el hosting.
+NO incluye .env ni credenciales locales.
+
+Si no genera el ZIP, suba el proyecto completo excepto:
+  .git, .env, storage/logs/*, storage/cache/*, storage/sessions/*,
+  storage/backups/*, storage/installed.lock, public/uploads/* (deje carpetas vacías)
+
+=====================================================
+2. CREAR LA BASE DE DATOS MAESTRA EN cPanel
+=====================================================
+cPanel → MySQL Databases (o MySQL® Databases):
+
+1) Crear base de datos, ejemplo:
+     heraconsu_seri_master
+   (cPanel suele anteponer el prefijo de usuario: heraconsu_)
+
+2) Crear usuario MySQL, ejemplo:
+     heraconsu_seri
+   con una contraseña fuerte.
+
+3) Añadir el usuario a la base con privilegios ALL PRIVILEGES.
+
+Anote exactamente:
+  - Host: casi siempre "localhost"
+  - Nombre de la BD: heraconsu_seri_master
+  - Usuario: heraconsu_seri
+  - Contraseña: (la que generó)
+
+NO ejecute aún el SQL a mano si va a usar el instalador web (paso 5).
+El instalador corre database/install_master.sql automáticamente.
+
+Si prefiere cargar el SQL a mano (phpMyAdmin):
+  1) Abra phpMyAdmin → seleccione heraconsu_seri_master
+  2) Importar → elija database/install_master.sql → Ejecutar
+  3) Luego use el instalador web o complete config/database.php a mano
+
+=====================================================
+3. SUBIR ARCHIVOS AL DOMINIO
+=====================================================
+El dominio seri.heraconsultores.com debe apuntar a la carpeta del sitio
+(en cPanel: Dominios → Document Root, normalmente algo como):
+
+  /home/USUARIO/seri.heraconsultores.com
+  o
+  /home/USUARIO/public_html/seri
+  (según cómo creó el subdominio/addon)
+
+Opción recomendada (Document Root = carpeta public):
+----------------------------------------------------
+1) Suba TODO el proyecto a:
+     /home/USUARIO/seri_app/
+   (fuera de public_html si el hosting lo permite)
+
+2) En cPanel → Dominios → seri.heraconsultores.com
+   cambie Document Root a:
+     /home/USUARIO/seri_app/public
+
+Así solo public/ es visible desde Internet (más seguro).
+
+Opción alternativa (todo dentro del Document Root):
+----------------------------------------------------
+Si no puede cambiar Document Root, suba el contenido del ZIP
+directamente a la carpeta del dominio (ej. public_html del subdominio).
+El archivo .htaccess de la raíz redirige hacia public/.
+
+Permisos (Administrador de archivos → Cambiar permisos):
+  Carpetas: 755
+  Archivos: 644
+  storage/          → 775
+  public/uploads/   → 775
+  config/           → 775 solo durante la instalación (luego 755)
+
+=====================================================
+4. PHP EN cPanel
+=====================================================
+cPanel → MultiPHP Manager / Select PHP Version:
+  - Versión: 8.2 o superior
+  - Active: pdo_mysql, mbstring, openssl, curl, fileinfo, json, gd, dom
+
+=====================================================
+5. INSTALADOR WEB
+=====================================================
+Abra en el navegador:
+
+  https://seri.heraconsultores.com/install.php
+
+Complete el formulario:
+  - Host BD: localhost
+  - Puerto: 3306
+  - Base de datos: heraconsu_seri_master   (el nombre exacto de cPanel)
+  - Usuario / contraseña MySQL
+  - URL pública: https://seri.heraconsultores.com
+  - Primer superadministrador (email + contraseña)
+
+El instalador:
+  - Ejecuta database/install_master.sql
+  - Escribe config/database.php y config/app.php
+  - Crea el superadmin
+  - Genera storage/installed.lock
+
+Si falla la escritura de config/, suba permisos 775 a config/ y reintente.
+
+=====================================================
+6. SEGURIDAD INMEDIATA DESPUÉS DE INSTALAR
+=====================================================
+Por FTP / Administrador de archivos ELIMINE:
+  - install.php
+  - public/install.php
+
+Deje:
+  - config/ en 755 (archivos 644)
+  - HTTPS forzado (cPanel → SSL/TLS Status → emitir certificado)
+
+No suba .env con secretos a Git. Las APIs de facturación (Alegra/Siigo/Factus)
+se configuran desde Contabilidad → Integraciones (quedan cifradas en la BD).
+
+=====================================================
+7. PRIMERA ENTRADA
+=====================================================
+Superadmin:
+  https://seri.heraconsultores.com/superadmin
+
+Login de empresa (tenant):
+  https://seri.heraconsultores.com/app/login
+
+=====================================================
+8. CREAR EMPRESAS (TENANTS) EN HOSTING COMPARTIDO
+=====================================================
+Caso A — el MySQL permite CREATE DATABASE desde PHP:
+  Cree el tenant desde el panel Superadmin como de costumbre.
+  Seri creará la BD y ejecutará install_tenant.sql sola.
+
+Caso B — hosting compartido SIN CREATE DATABASE (lo más frecuente):
+  1) En cPanel → MySQL Databases cree una BD nueva, ejemplo:
+       heraconsu_seri_emp01
+     y asigne el mismo usuario MySQL (o uno dedicado) con ALL PRIVILEGES.
+
+  2) phpMyAdmin → seleccione heraconsu_seri_emp01
+     → Importar → database/install_tenant.sql → Ejecutar
+
+  3) En Superadmin cree el tenant indicando el nombre de BD exacto
+     (si el panel no pide BD manual, cree el tenant y luego actualice
+     la fila en softnova_master.tenants → columna database_name =
+     heraconsu_seri_emp01 mediante phpMyAdmin).
+
+  4) Verifique login del tenant en /app/login
+
+Cada empresa nueva = una BD nueva + install_tenant.sql.
+
+=====================================================
+9. ACTUALIZAR UN SERVIDOR YA INSTALADO
+=====================================================
+1) Suba los archivos nuevos por FTP (sin pisar config/database.php ni
+   config/app.php, ni storage/installed.lock, ni public/uploads/).
+
+2) Si tiene acceso SSH / Terminal en cPanel:
+
+     cd ~/seri_app
+     php database/migrate_existing.php
+
+   Eso actualiza esquema contable, unit_cost, historial IA e integraciones
+   en todos los tenants existentes.
+
+3) Si NO hay SSH, para cada BD tenant abra phpMyAdmin y ejecute a mano
+   las ALTER/CREATE que falten, o contacte soporte para correr el script.
+
+=====================================================
+10. ARCHIVOS SQL DE REFERENCIA
+=====================================================
+  database/install_master.sql   → esquema + seeds de la BD maestra
+  database/install_tenant.sql   → esquema completo de cada empresa
+  database/migrate_existing.php → actualiza tenants ya creados (CLI)
+
+=====================================================
+11. CHECKLIST FINAL
+=====================================================
+[ ] SSL verde en https://seri.heraconsultores.com
+[ ] install.php eliminado
+[ ] Superadmin inicia sesión
+[ ] Se crea / importa al menos un tenant
+[ ] Venta de prueba + caja (solo efectivo afecta caja física)
+[ ] Contabilidad → sincronizar operaciones (si hay histórico)
+[ ] storage/logs escribe sin error 500
+[ ] Backup cPanel de archivos + MySQL activado
+
+SOPORTE RÁPIDO DE ERRORES
+- Página en blanco / 500: active display_errors temporal o revise
+  storage/logs y error_log de cPanel.
+- "No se pudo escribir config": permisos 775 en config/ durante install.
+- Rutas rotas / CSS 404: confirme Document Root = .../public y URL
+  exacta https://seri.heraconsultores.com (sin /public al final).
+- Tenant no conecta: verifique database_name en la BD maestra y que
+  install_tenant.sql se ejecutó en esa BD.

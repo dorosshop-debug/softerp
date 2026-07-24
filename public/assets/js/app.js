@@ -39,13 +39,13 @@ document.addEventListener('DOMContentLoaded', function() {
     const forms = document.querySelectorAll('form');
     forms.forEach(form => {
         form.addEventListener('submit', function(e) {
-            if (form.dataset.ajax === 'true') {
-                e.preventDefault();
-                handleAjaxSubmit(form);
+            if (e.defaultPrevented) {
                 return;
             }
             
-            if (e.defaultPrevented) {
+            if (form.dataset.ajax === 'true') {
+                e.preventDefault();
+                handleAjaxSubmit(form);
                 return;
             }
             

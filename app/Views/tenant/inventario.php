@@ -11,6 +11,9 @@ $totalProducts = $totalProducts ?? 0;
 $totalServices = $totalServices ?? 0;
 $currency = $currency ?? ['symbol' => '$', 'decimals' => 0];
 $typeFilter = $typeFilter ?? '';
+$categoryFilter = $categoryFilter ?? 0;
+$stockFilter = $stockFilter ?? '';
+$filters = $filters ?? ['q' => '', 'sort' => 'name', 'dir' => 'asc', 'query' => []];
 $canCreateProduct = \SoftNova\Core\TenantMiddleware::canDo('create', 'inventario');
 $canEditProduct = \SoftNova\Core\TenantMiddleware::canDo('edit', 'inventario');
 $canDeleteProduct = \SoftNova\Core\TenantMiddleware::canDo('delete', 'inventario');
@@ -32,24 +35,88 @@ function fmtI(float $a, array $c): string
     <div class="stat-card neumorphic"><h4>Total Ítems</h4><div class="stat-value"><?php echo $totalProducts + $totalServices; ?></div></div>
 </div>
 
+<?php
+$invBase = $viewInstance->route('app/inventario');
+$sortOptions = [
+    'name-asc' => 'Nombre (A-Z)',
+    'name-desc' => 'Nombre (Z-A)',
+    'price-asc' => 'Precio (menor a mayor)',
+    'price-desc' => 'Precio (mayor a menor)',
+    'stock-asc' => 'Stock (menor a mayor)',
+    'stock-desc' => 'Stock (mayor a menor)',
+    'created-desc' => 'Más recientes',
+    'created-asc' => 'Más antiguos',
+];
+$currentSortKey = ($filters['sort'] ?? 'name') . '-' . ($filters['dir'] ?? 'asc');
+if (!isset($sortOptions[$currentSortKey])) {
+    $currentSortKey = 'name-asc';
+}
+$exportQuery = http_build_query(array_merge(['action' => 'export'], $filters['query'] ?? []));
+?>
+<form method="GET" action="<?php echo $invBase; ?>" style="margin-bottom:20px;">
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
+        <div class="form-group" style="margin:0;flex:1;min-width:200px;">
+            <label style="font-size:12px;">Buscar</label>
+            <input type="text" name="q" value="<?php echo htmlspecialchars($filters['q'] ?? ''); ?>" class="form-control" placeholder="Nombre, código o descripción...">
+        </div>
+        <div class="form-group" style="margin:0;">
+            <label style="font-size:12px;">Tipo</label>
+            <select name="type" class="form-control" style="width:auto;">
+                <option value="">Todos</option>
+                <option value="product" <?php echo $typeFilter === 'product' ? 'selected' : ''; ?>>Productos</option>
+                <option value="service" <?php echo $typeFilter === 'service' ? 'selected' : ''; ?>>Servicios</option>
+            </select>
+        </div>
+        <div class="form-group" style="margin:0;">
+            <label style="font-size:12px;">Categoría</label>
+            <select name="category_id" class="form-control" style="width:auto;">
+                <option value="0">Todas</option>
+                <?php foreach ($categories as $cat): ?>
+                    <option value="<?php echo $cat['id']; ?>" <?php echo (int)$categoryFilter === (int)$cat['id'] ? 'selected' : ''; ?>>
+                        <?php echo htmlspecialchars($cat['name']); ?>
+                    </option>
+                <?php endforeach; ?>
+            </select>
+        </div>
+        <div class="form-group" style="margin:0;">
+            <label style="font-size:12px;">Stock</label>
+            <select name="stock_state" class="form-control" style="width:auto;">
+                <option value="">Cualquiera</option>
+                <option value="low" <?php echo $stockFilter === 'low' ? 'selected' : ''; ?>>Stock bajo</option>
+                <option value="out" <?php echo $stockFilter === 'out' ? 'selected' : ''; ?>>Agotado</option>
+            </select>
+        </div>
+        <div class="form-group" style="margin:0;">
+            <label style="font-size:12px;">Ordenar por</label>
+            <select name="_sortkey" class="form-control" style="width:auto;" onchange="var p=this.value.split('-');this.form.sort.value=p[0];this.form.dir.value=p[1];">
+                <?php foreach ($sortOptions as $key => $label): ?>
+                    <option value="<?php echo $key; ?>" <?php echo $currentSortKey === $key ? 'selected' : ''; ?>><?php echo $label; ?></option>
+                <?php endforeach; ?>
+            </select>
+        </div>
+        <input type="hidden" name="sort" value="<?php echo htmlspecialchars($filters['sort'] ?? 'name'); ?>">
+        <input type="hidden" name="dir" value="<?php echo htmlspecialchars($filters['dir'] ?? 'asc'); ?>">
+        <div style="display:flex;gap:6px;">
+            <button type="submit" class="btn btn-primary" title="Aplicar filtros">Filtrar</button>
+            <a href="<?php echo $invBase; ?>" class="btn btn-secondary" title="Limpiar filtros">Limpiar</a>
+        </div>
+    </div>
+</form>
+
 <div style="display:flex;gap:10px;margin-bottom:20px;flex-wrap:wrap;align-items:center;">
-    <select onchange="window.location='<?php echo $viewInstance->route('app/inventario'); ?>?type='+this.value" class="form-control" style="width:auto;" title="Filtrar tipo">
-        <option value="">Todos</option>
-        <option value="product" <?php echo $typeFilter === 'product' ? 'selected' : ''; ?>>Productos</option>
-        <option value="service" <?php echo $typeFilter === 'service' ? 'selected' : ''; ?>>Servicios</option>
-    </select>
     <?php if ($canCreateProduct): ?>
         <button onclick="openInventarioModal()" class="btn btn-primary neumorphic-btn" title="Nuevo producto">+ Nuevo Producto</button>
     <?php endif; ?>
     <?php if ($canExportInv): ?>
-        <a href="<?php echo $viewInstance->route('app/inventario'); ?>?action=export<?php echo $typeFilter ? '&type=' . urlencode($typeFilter) : ''; ?>" class="btn btn-secondary" title="Exportar CSV">Exportar CSV</a>
+        <a href="<?php echo $invBase . '?' . $exportQuery; ?>" class="btn btn-secondary" title="Exportar CSV">Exportar CSV</a>
     <?php endif; ?>
 </div>
 
 <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:20px;">
     <?php if (empty($products)): ?>
         <div class="card neumorphic" style="text-align:center;padding:40px;grid-column:1/-1;">
-            <p style="color:var(--color-text-secondary);">No hay ítems registrados</p>
+            <?php $hasFilters = ($filters['q'] ?? '') !== '' || $typeFilter !== '' || (int)$categoryFilter > 0 || $stockFilter !== ''; ?>
+            <p style="color:var(--color-text-secondary);"><?php echo $hasFilters ? 'No hay ítems con esos filtros' : 'No hay ítems registrados'; ?></p>
         </div>
     <?php else: ?>
         <?php foreach ($products as $p): ?>
@@ -154,7 +221,7 @@ function fmtI(float $a, array $c): string
         <?php
         $pagination = $pagination ?? null;
         $paginationBaseUrl = $viewInstance->route('app/inventario');
-        $paginationQuery = $typeFilter ? ['type' => $typeFilter] : [];
+        $paginationQuery = $filters['query'] ?? [];
         echo '<div style="grid-column:1/-1;">';
         $viewInstance->partial('pagination', compact('pagination', 'paginationBaseUrl', 'paginationQuery'));
         echo '</div>';

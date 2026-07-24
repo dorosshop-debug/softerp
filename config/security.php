@@ -13,7 +13,7 @@ return [
         'require_special' => true,
     ],
     
-    'session' => [
+    'session_security' => [
         'regenerate_id' => true,
         'regenerate_interval' => 300,
     ],

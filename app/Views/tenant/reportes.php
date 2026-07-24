@@ -27,6 +27,11 @@ $salesTrend = $salesTrend ?? 0;
 $ticketTrend = $ticketTrend ?? 0;
 $dateFrom = $dateFrom ?? date('Y-m-d', strtotime('-30 days'));
 $dateTo = $dateTo ?? date('Y-m-d');
+$profitSummary = $profitSummary ?? ['revenue'=>0,'cost'=>0,'gross'=>0,'expenses'=>0,'net'=>0,'margin'=>0];
+$receivablesAging = $receivablesAging ?? ['total'=>0,'d0'=>0,'d30'=>0,'d60'=>0,'d90'=>0,'cnt'=>0];
+$topDebtors = $topDebtors ?? [];
+$cashSummary = $cashSummary ?? ['income'=>0,'expense'=>0,'net'=>0,'opening'=>0,'expected'=>0,'session'=>null];
+$topSellers = $topSellers ?? [];
 
 function fmtR(float $a, array $c): string {
     return $c['symbol'].' '.number_format($a, $c['decimals'], $c['decimal']??',', $c['thousands']??'.');
@@ -133,6 +138,126 @@ $planName = htmlspecialchars($plan['plan_name'] ?? 'Plan Basico');
             <?php echo trendArrow((float)$ticketTrend); ?> <?php echo abs((float)$ticketTrend); ?>% vs periodo anterior
         </div>
         <?php endif; ?>
+    </div>
+</div>
+
+<!-- ===== Reportes clave (disponibles en todos los planes) ===== -->
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:20px;margin-bottom:20px;">
+
+    <!-- Utilidad del periodo -->
+    <div class="card neumorphic">
+        <div class="card-header"><h3>💰 Utilidad del periodo</h3></div>
+        <div class="card-body">
+            <div style="display:flex;justify-content:space-between;padding:6px 0;">
+                <span style="color:var(--color-text-secondary);">Ingresos</span>
+                <strong style="color:#10B981;"><?php echo fmtR((float)$profitSummary['revenue'], $currency); ?></strong>
+            </div>
+            <div style="display:flex;justify-content:space-between;padding:6px 0;">
+                <span style="color:var(--color-text-secondary);">− Costo de ventas</span>
+                <span><?php echo fmtR((float)$profitSummary['cost'], $currency); ?></span>
+            </div>
+            <div style="display:flex;justify-content:space-between;padding:6px 0;border-top:1px dashed var(--color-border);">
+                <span>Utilidad bruta</span>
+                <strong><?php echo fmtR((float)$profitSummary['gross'], $currency); ?></strong>
+            </div>
+            <div style="display:flex;justify-content:space-between;padding:6px 0;">
+                <span style="color:var(--color-text-secondary);">− Gastos</span>
+                <span><?php echo fmtR((float)$profitSummary['expenses'], $currency); ?></span>
+            </div>
+            <div style="display:flex;justify-content:space-between;padding:10px 0 0;border-top:2px solid var(--color-border);margin-top:6px;">
+                <strong>Utilidad neta</strong>
+                <strong style="font-size:18px;color:<?php echo (float)$profitSummary['net'] >= 0 ? '#10B981' : '#DC2626'; ?>;">
+                    <?php echo fmtR((float)$profitSummary['net'], $currency); ?>
+                </strong>
+            </div>
+            <div style="text-align:right;font-size:12px;color:var(--color-text-secondary);margin-top:4px;">
+                Margen: <?php echo (float)$profitSummary['margin']; ?>%
+            </div>
+        </div>
+    </div>
+
+    <!-- Cuentas por cobrar -->
+    <div class="card neumorphic">
+        <div class="card-header"><h3>📥 Cuentas por cobrar</h3></div>
+        <div class="card-body">
+            <div style="text-align:center;margin-bottom:12px;">
+                <div style="font-size:24px;font-weight:700;color:var(--color-primary);"><?php echo fmtR((float)$receivablesAging['total'], $currency); ?></div>
+                <small style="color:var(--color-text-secondary);"><?php echo (int)$receivablesAging['cnt']; ?> facturas pendientes</small>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:13px;">
+                <div style="display:flex;justify-content:space-between;"><span>0-30 días</span><strong><?php echo fmtR((float)$receivablesAging['d0'], $currency); ?></strong></div>
+                <div style="display:flex;justify-content:space-between;"><span>31-60</span><strong><?php echo fmtR((float)$receivablesAging['d30'], $currency); ?></strong></div>
+                <div style="display:flex;justify-content:space-between;"><span>61-90</span><strong style="color:#F59E0B;"><?php echo fmtR((float)$receivablesAging['d60'], $currency); ?></strong></div>
+                <div style="display:flex;justify-content:space-between;"><span>+90 días</span><strong style="color:#DC2626;"><?php echo fmtR((float)$receivablesAging['d90'], $currency); ?></strong></div>
+            </div>
+            <?php if (!empty($topDebtors)): ?>
+                <div style="margin-top:12px;border-top:1px dashed var(--color-border);padding-top:8px;">
+                    <?php foreach (array_slice($topDebtors, 0, 4) as $d): ?>
+                        <div style="display:flex;justify-content:space-between;font-size:12px;padding:3px 0;">
+                            <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:60%;"><?php echo htmlspecialchars($d['customer_name']); ?></span>
+                            <span><?php echo fmtR((float)$d['balance'], $currency); ?> <small style="color:var(--color-text-secondary);">(<?php echo (int)$d['max_days']; ?>d)</small></span>
+                        </div>
+                    <?php endforeach; ?>
+                </div>
+            <?php endif; ?>
+        </div>
+    </div>
+
+    <!-- Caja del día -->
+    <div class="card neumorphic">
+        <div class="card-header"><h3>🧾 Caja de hoy</h3></div>
+        <div class="card-body">
+            <?php if ($cashSummary['session']): ?>
+                <div style="display:flex;justify-content:space-between;padding:6px 0;">
+                    <span style="color:var(--color-text-secondary);">Base inicial</span>
+                    <span><?php echo fmtR((float)$cashSummary['opening'], $currency); ?></span>
+                </div>
+                <div style="display:flex;justify-content:space-between;padding:6px 0;">
+                    <span style="color:var(--color-text-secondary);">+ Ingresos</span>
+                    <strong style="color:#10B981;"><?php echo fmtR((float)$cashSummary['income'], $currency); ?></strong>
+                </div>
+                <div style="display:flex;justify-content:space-between;padding:6px 0;">
+                    <span style="color:var(--color-text-secondary);">− Egresos</span>
+                    <strong style="color:#DC2626;"><?php echo fmtR((float)$cashSummary['expense'], $currency); ?></strong>
+                </div>
+                <div style="display:flex;justify-content:space-between;padding:10px 0 0;border-top:2px solid var(--color-border);margin-top:6px;">
+                    <strong>Esperado en caja</strong>
+                    <strong style="font-size:18px;color:var(--color-primary);"><?php echo fmtR((float)$cashSummary['expected'], $currency); ?></strong>
+                </div>
+                <small style="color:var(--color-text-secondary);">Sesión de <?php echo htmlspecialchars($cashSummary['session']['user_name'] ?? 'Usuario'); ?></small>
+            <?php else: ?>
+                <p style="text-align:center;color:var(--color-text-secondary);padding:20px;">No hay caja abierta.<br>
+                    <a href="<?php echo $viewInstance->route('app/caja'); ?>" style="color:var(--color-primary);">Abrir caja</a>
+                </p>
+                <div style="display:flex;justify-content:space-between;font-size:13px;">
+                    <span>Movimientos hoy (neto)</span>
+                    <strong><?php echo fmtR((float)$cashSummary['net'], $currency); ?></strong>
+                </div>
+            <?php endif; ?>
+        </div>
+    </div>
+
+    <!-- Top productos + stock crítico -->
+    <div class="card neumorphic">
+        <div class="card-header"><h3>🏆 Más vendidos</h3></div>
+        <div class="card-body">
+            <?php if (empty($topSellers)): ?>
+                <p style="text-align:center;color:var(--color-text-secondary);padding:20px;">Sin ventas en el periodo</p>
+            <?php else: ?>
+                <?php foreach ($topSellers as $i => $ts): ?>
+                    <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--color-border);">
+                        <span><strong><?php echo $i + 1; ?>.</strong> <?php echo htmlspecialchars($ts['name']); ?></span>
+                        <span><span class="badge badge-success"><?php echo (int)$ts['qty']; ?></span> <?php echo fmtR((float)$ts['total'], $currency); ?></span>
+                    </div>
+                <?php endforeach; ?>
+            <?php endif; ?>
+            <?php if ((int)$lowStock > 0): ?>
+                <div style="margin-top:12px;padding:10px;background:rgba(220,38,38,0.06);border-radius:8px;font-size:13px;">
+                    ⚠️ <strong><?php echo (int)$lowStock; ?></strong> producto(s) con stock crítico.
+                    <a href="<?php echo $viewInstance->route('app/inventario'); ?>?stock_state=low" style="color:var(--color-primary);">Ver</a>
+                </div>
+            <?php endif; ?>
+        </div>
     </div>
 </div>
 

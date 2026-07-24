@@ -1,6 +1,7 @@
 # Dependencias
 /vendor/
 /node_modules/
+/build/
 
 # Entorno
 .env
@@ -24,6 +25,8 @@ desktop.ini
 /storage/cache/*
 /storage/sessions/*
 /storage/backups/*
+/storage/installed.lock
+/storage/app.key
 !/storage/logs/.gitkeep
 !/storage/cache/.gitkeep
 !/storage/sessions/.gitkeep

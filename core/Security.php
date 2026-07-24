@@ -72,4 +72,52 @@ class Security
     {
         return bin2hex(random_bytes($length / 2));
     }
+
+    /**
+     * Clave de aplicación para cifrado (storage/app.key o APP_KEY).
+     */
+    public static function appKey(): string
+    {
+        $fromEnv = trim((string)(getenv('APP_KEY') ?: ''));
+        if ($fromEnv !== '') {
+            return hash('sha256', $fromEnv, true);
+        }
+
+        $path = defined('STORAGE_PATH') ? STORAGE_PATH . '/app.key' : (dirname(__DIR__) . '/storage/app.key');
+        if (!is_file($path)) {
+            $dir = dirname($path);
+            if (!is_dir($dir)) {
+                @mkdir($dir, 0755, true);
+            }
+            file_put_contents($path, bin2hex(random_bytes(32)));
+            @chmod($path, 0600);
+        }
+        $raw = trim((string)@file_get_contents($path));
+        return hash('sha256', $raw !== '' ? $raw : 'softnova-fallback-key', true);
+    }
+
+    public static function encrypt(string $plain): string
+    {
+        $key = self::appKey();
+        $iv = random_bytes(12);
+        $tag = '';
+        $cipher = openssl_encrypt($plain, 'aes-256-gcm', $key, OPENSSL_RAW_DATA, $iv, $tag);
+        if ($cipher === false) {
+            throw new \RuntimeException('No se pudo cifrar el secreto');
+        }
+        return base64_encode($iv . $tag . $cipher);
+    }
+
+    public static function decrypt(string $payload): ?string
+    {
+        $raw = base64_decode($payload, true);
+        if ($raw === false || strlen($raw) < 28) {
+            return null;
+        }
+        $iv = substr($raw, 0, 12);
+        $tag = substr($raw, 12, 16);
+        $cipher = substr($raw, 28);
+        $plain = openssl_decrypt($cipher, 'aes-256-gcm', self::appKey(), OPENSSL_RAW_DATA, $iv, $tag);
+        return $plain === false ? null : $plain;
+    }
 }

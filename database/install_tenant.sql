@@ -238,6 +238,7 @@ CREATE TABLE `sale_items` (
   `product_name` varchar(255) NOT NULL,
   `quantity` int(11) NOT NULL DEFAULT 1,
   `unit_price` decimal(12,2) NOT NULL DEFAULT 0.00,
+  `unit_cost` decimal(12,2) NOT NULL DEFAULT 0.00,
   `subtotal` decimal(12,2) NOT NULL DEFAULT 0.00,
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
   PRIMARY KEY (`id`),
@@ -280,6 +281,10 @@ CREATE TABLE `sales` (
   `payment_method` enum('cash','card','transfer','credit','other') DEFAULT 'cash',
   `payment_status` enum('paid','pending','partial','cancelled') DEFAULT 'paid',
   `notes` text DEFAULT NULL,
+  `external_provider` varchar(30) DEFAULT NULL,
+  `external_id` varchar(80) DEFAULT NULL,
+  `external_status` varchar(40) DEFAULT NULL,
+  `external_error` text DEFAULT NULL,
   `status` enum('completed','pending','cancelled') DEFAULT 'completed',
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
   `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
@@ -373,6 +378,165 @@ CREATE TABLE `users` (
   KEY `idx_role` (`role`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+
+-- =========================================================
+-- Contabilidad nativa - partida doble
+-- El catálogo inicial debe ser validado por el contador.
+-- =========================================================
+DROP TABLE IF EXISTS `accounting_lines`;
+DROP TABLE IF EXISTS `accounting_entries`;
+DROP TABLE IF EXISTS `accounting_periods`;
+DROP TABLE IF EXISTS `accounting_settings`;
+DROP TABLE IF EXISTS `accounting_accounts`;
+
+CREATE TABLE `accounting_accounts` (
+  `id` int unsigned NOT NULL AUTO_INCREMENT,
+  `code` varchar(30) NOT NULL,
+  `name` varchar(180) NOT NULL,
+  `account_type` enum('asset','liability','equity','revenue','expense') NOT NULL,
+  `nature` enum('debit','credit') NOT NULL,
+  `parent_id` int unsigned DEFAULT NULL,
+  `level` tinyint unsigned NOT NULL DEFAULT 1,
+  `accepts_entries` tinyint(1) NOT NULL DEFAULT 1,
+  `is_system` tinyint(1) NOT NULL DEFAULT 0,
+  `status` enum('active','inactive') NOT NULL DEFAULT 'active',
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_account_code` (`code`),
+  KEY `idx_account_type` (`account_type`),
+  KEY `idx_parent` (`parent_id`),
+  KEY `idx_status` (`status`),
+  CONSTRAINT `fk_account_parent` FOREIGN KEY (`parent_id`) REFERENCES `accounting_accounts` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE `accounting_entries` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `entry_number` varchar(40) NOT NULL,
+  `entry_date` date NOT NULL,
+  `description` varchar(255) NOT NULL,
+  `source_type` varchar(50) DEFAULT NULL,
+  `source_id` bigint unsigned DEFAULT NULL,
+  `source_event` varchar(50) DEFAULT NULL,
+  `status` enum('draft','posted','reversed') NOT NULL DEFAULT 'posted',
+  `reversal_of_id` bigint unsigned DEFAULT NULL,
+  `created_by` int unsigned DEFAULT NULL,
+  `approved_by` int unsigned DEFAULT NULL,
+  `posted_at` datetime DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_entry_number` (`entry_number`),
+  UNIQUE KEY `uq_accounting_source` (`source_type`,`source_id`,`source_event`),
+  KEY `idx_entry_date` (`entry_date`),
+  KEY `idx_entry_status` (`status`),
+  KEY `idx_entry_source` (`source_type`,`source_id`),
+  KEY `idx_reversal_of` (`reversal_of_id`),
+  CONSTRAINT `fk_entry_reversal` FOREIGN KEY (`reversal_of_id`) REFERENCES `accounting_entries` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE `accounting_lines` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `entry_id` bigint unsigned NOT NULL,
+  `account_id` int unsigned NOT NULL,
+  `description` varchar(255) DEFAULT NULL,
+  `debit` decimal(14,2) NOT NULL DEFAULT 0,
+  `credit` decimal(14,2) NOT NULL DEFAULT 0,
+  `third_party_type` varchar(30) DEFAULT NULL,
+  `third_party_id` int unsigned DEFAULT NULL,
+  `third_party_name` varchar(180) DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_line_entry` (`entry_id`),
+  KEY `idx_line_account` (`account_id`),
+  KEY `idx_line_third_party` (`third_party_type`,`third_party_id`),
+  CONSTRAINT `fk_line_entry` FOREIGN KEY (`entry_id`) REFERENCES `accounting_entries` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_line_account` FOREIGN KEY (`account_id`) REFERENCES `accounting_accounts` (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE `accounting_periods` (
+  `id` int unsigned NOT NULL AUTO_INCREMENT,
+  `year` smallint unsigned NOT NULL,
+  `month` tinyint unsigned NOT NULL,
+  `status` enum('open','closed') NOT NULL DEFAULT 'open',
+  `closed_at` datetime DEFAULT NULL,
+  `closed_by` int unsigned DEFAULT NULL,
+  `notes` varchar(255) DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_accounting_period` (`year`,`month`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE `accounting_settings` (
+  `setting_key` varchar(80) NOT NULL,
+  `setting_value` text DEFAULT NULL,
+  `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  PRIMARY KEY (`setting_key`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE `integration_settings` (
+  `provider` varchar(30) NOT NULL,
+  `setting_key` varchar(80) NOT NULL,
+  `setting_value` text DEFAULT NULL,
+  `is_secret` tinyint(1) NOT NULL DEFAULT 0,
+  `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  PRIMARY KEY (`provider`,`setting_key`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE `ai_conversations` (
+  `id` int unsigned NOT NULL AUTO_INCREMENT,
+  `user_id` int unsigned DEFAULT NULL,
+  `title` varchar(180) NOT NULL DEFAULT 'Nueva conversación',
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_ai_conv_user` (`user_id`),
+  KEY `idx_ai_conv_updated` (`updated_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE `ai_messages` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `conversation_id` int unsigned NOT NULL,
+  `role` enum('user','assistant') NOT NULL,
+  `content` mediumtext NOT NULL,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_ai_msg_conv` (`conversation_id`),
+  CONSTRAINT `fk_ai_msg_conv` FOREIGN KEY (`conversation_id`) REFERENCES `ai_conversations` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+INSERT INTO `accounting_accounts`
+  (`code`,`name`,`account_type`,`nature`,`is_system`) VALUES
+('110505','Caja general','asset','debit',1),
+('111005','Bancos y medios electrónicos','asset','debit',1),
+('130505','Clientes nacionales','asset','debit',1),
+('143501','Inventarios de mercancías','asset','debit',1),
+('220505','Proveedores nacionales','liability','credit',1),
+('233595','Costos y gastos por pagar','liability','credit',1),
+('240801','IVA generado','liability','credit',1),
+('240802','IVA descontable','asset','debit',1),
+('310505','Capital social','equity','credit',1),
+('360505','Utilidad del ejercicio','equity','credit',1),
+('413501','Ingresos por ventas','revenue','credit',1),
+('417501','Devoluciones en ventas','revenue','debit',1),
+('510505','Gastos generales','expense','debit',1),
+('513505','Servicios','expense','debit',1),
+('519595','Otros gastos operacionales','expense','debit',1),
+('613501','Costo de ventas','expense','debit',1);
+
+INSERT INTO `accounting_settings` (`setting_key`,`setting_value`) VALUES
+('cash_account','110505'),
+('bank_account','111005'),
+('receivable_account','130505'),
+('inventory_account','143501'),
+('payable_account','220505'),
+('expense_payable_account','233595'),
+('vat_generated_account','240801'),
+('vat_deductible_account','240802'),
+('sales_account','413501'),
+('sales_returns_account','417501'),
+('general_expense_account','510505'),
+('cost_of_sales_account','613501');
+
 /*!40103 SET TIME_ZONE=@OLD_TIME_ZONE */;
 
 /*!40101 SET SQL_MODE=@OLD_SQL_MODE */;

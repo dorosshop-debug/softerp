@@ -7,12 +7,15 @@ use SoftNova\Core\TenantMiddleware;
 use SoftNova\Services\SaleService;
 use SoftNova\Services\CashService;
 use SoftNova\Services\ReceivableService;
+use SoftNova\Services\AccountingService;
+use SoftNova\Services\Integrations\IntegrationManager;
 
 class TenantVentasController extends TenantController
 {
     private SaleService $sales;
     private CashService $cash;
     private ReceivableService $receivables;
+    private AccountingService $accounting;
     
     public function __construct()
     {
@@ -20,6 +23,7 @@ class TenantVentasController extends TenantController
         $this->sales = new SaleService($this->db);
         $this->cash = new CashService($this->db);
         $this->receivables = new ReceivableService($this->db);
+        $this->accounting = new AccountingService($this->db);
     }
     
     public function index(): void
@@ -56,8 +60,45 @@ class TenantVentasController extends TenantController
             $this->exportSales();
             return;
         }
-        
-        $total = (int)$this->query("SELECT COUNT(*) as c FROM sales WHERE status != 'cancelled'")->fetch()['c'];
+
+        $filters = $this->listFilters([
+            'invoice' => 's.invoice_number',
+            'customer' => 'c.name',
+            'date' => 's.sale_date',
+            'total' => 's.total',
+            'paid' => 'paid_amount',
+            'method' => 's.payment_method',
+            'status' => 's.payment_status',
+        ], 'date', 'desc');
+
+        $where = ["s.status != 'cancelled'"];
+        $params = [];
+        if ($filters['q'] !== '') {
+            $where[] = '(s.invoice_number LIKE ? OR c.name LIKE ? OR c.first_name LIKE ? OR c.last_name LIKE ? OR c.document_number LIKE ?)';
+            $like = '%' . $filters['q'] . '%';
+            array_push($params, $like, $like, $like, $like, $like);
+        }
+        if ($filters['from'] !== '') {
+            $where[] = 'DATE(s.sale_date) >= ?';
+            $params[] = $filters['from'];
+        }
+        if ($filters['to'] !== '') {
+            $where[] = 'DATE(s.sale_date) <= ?';
+            $params[] = $filters['to'];
+        }
+        if (in_array($filters['status'], ['paid', 'partial', 'pending'], true)) {
+            $where[] = 's.payment_status = ?';
+            $params[] = $filters['status'];
+        }
+        $whereSql = implode(' AND ', $where);
+
+        $total = (int)$this->query(
+            "SELECT COUNT(*) as c
+             FROM sales s
+             LEFT JOIN customers c ON s.customer_id = c.id
+             WHERE {$whereSql}",
+            $params
+        )->fetch()['c'];
         $pagination = $this->paginate($total);
         
         $sales = $this->query(
@@ -71,9 +112,10 @@ class TenantVentasController extends TenantController
                 FROM sale_payments
                 GROUP BY sale_id
              ) p ON p.sale_id = s.id
-             WHERE s.status != 'cancelled'
-             ORDER BY s.created_at DESC
-             LIMIT {$pagination['perPage']} OFFSET {$pagination['offset']}"
+             WHERE {$whereSql}
+             ORDER BY {$filters['orderSql']}, s.id DESC
+             LIMIT {$pagination['perPage']} OFFSET {$pagination['offset']}",
+            $params
         )->fetchAll();
         
         $todayStats = $this->query(
@@ -101,6 +143,7 @@ class TenantVentasController extends TenantController
             'products' => $products,
             'customers' => $customers,
             'pagination' => $pagination,
+            'filters' => $filters,
         ]));
     }
     
@@ -174,6 +217,7 @@ class TenantVentasController extends TenantController
                 'product_name' => $product['name'],
                 'quantity' => $quantity,
                 'unit_price' => $up,
+                'unit_cost' => (float)($product['purchase_price'] ?? 0),
                 'subtotal' => $is,
                 'product_type' => $product['product_type'] ?? 'product',
             ];
@@ -222,9 +266,9 @@ class TenantVentasController extends TenantController
             
             foreach ($validItems as $vi) {
                 $this->query(
-                    "INSERT INTO sale_items (sale_id, product_id, product_name, quantity, unit_price, subtotal)
-                     VALUES (?, ?, ?, ?, ?, ?)",
-                    [$saleId, $vi['product_id'], $vi['product_name'], $vi['quantity'], $vi['unit_price'], $vi['subtotal']]
+                    "INSERT INTO sale_items (sale_id, product_id, product_name, quantity, unit_price, unit_cost, subtotal)
+                     VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    [$saleId, $vi['product_id'], $vi['product_name'], $vi['quantity'], $vi['unit_price'], $vi['unit_cost'] ?? 0, $vi['subtotal']]
                 );
                 $this->sales->stock()->decrease(
                     $vi['product_id'],
@@ -254,10 +298,20 @@ class TenantVentasController extends TenantController
                     $this->query("UPDATE sales SET payment_status = 'partial' WHERE id = ?", [$saleId]);
                 }
             }
-            
+
             $this->db->commit();
-            
-            if ($cashAmount > 0) {
+
+            // Contabilización fuera de la transacción: un periodo cerrado u otro
+            // problema contable NO debe impedir registrar la venta.
+            try {
+                $this->accounting->postSaleCascade($saleId);
+            } catch (\Throwable $e) {
+                error_log('Contabilidad venta ' . $saleId . ': ' . $e->getMessage());
+            }
+
+            // Solo el efectivo entra a la caja física; tarjeta/transferencia van al
+            // banco en contabilidad, por lo que no deben inflar el arqueo de caja.
+            if ($cashAmount > 0 && $paymentMethod === 'cash') {
                 $label = ($paymentType === 'credit' && $paymentStatus !== 'paid')
                     ? 'Abono inicial: ' . $invoiceNumber
                     : 'Venta: ' . $invoiceNumber;
@@ -279,11 +333,25 @@ class TenantVentasController extends TenantController
                     );
                 }
             }
+
+            // Factura electrónica (fuera de la transacción local): no bloquea la venta.
+            $einvoiceNote = '';
+            try {
+                $emit = (new IntegrationManager($this->db))->emitSale($saleId);
+                if (!empty($emit['success'])) {
+                    $einvoiceNote = ' · FE: ' . ($emit['message'] ?? 'OK');
+                } elseif (($emit['message'] ?? '') !== 'No hay proveedor de facturación activo') {
+                    $einvoiceNote = ' · FE pendiente: ' . ($emit['message'] ?? 'error');
+                }
+            } catch (\Throwable $e) {
+                $einvoiceNote = ' · FE no enviada';
+                error_log('emitSale: ' . $e->getMessage());
+            }
             
             $msg = $paymentType === 'credit' && $paymentStatus !== 'paid'
                 ? 'Venta a credito creada: ' . $invoiceNumber . ' (Pendiente: ' . $this->formatMoney($total - $initialPayment) . ')'
                 : 'Venta creada: ' . $invoiceNumber;
-            $this->respond(true, $msg, '/app/ventas');
+            $this->respond(true, $msg . $einvoiceNote, '/app/ventas');
         } catch (\Exception $e) {
             if ($this->db->inTransaction()) {
                 $this->db->rollBack();
@@ -347,6 +415,7 @@ class TenantVentasController extends TenantController
                  VALUES (?, ?, NOW(), ?, ?, ?)",
                 [$saleId, $amount, $method, $notes, $_SESSION['tenant_user_id']]
             );
+            $paymentId = (int)$this->db->lastInsertId();
             
             $totalPaid = round($alreadyPaid + $amount, 2);
             $remaining = round((float)$sale['total'] - $totalPaid, 2);
@@ -357,10 +426,21 @@ class TenantVentasController extends TenantController
             } else {
                 $this->query("UPDATE sales SET payment_status = 'partial' WHERE id = ?", [$saleId]);
             }
-            
+
             $this->db->commit();
-            
-            $this->cash->registerIncome($amount, 'Abono: ' . $sale['invoice_number'], 'sale_payment', $saleId);
+
+            // Contabilización fuera de la transacción: un periodo cerrado no debe
+            // impedir registrar el abono.
+            try {
+                $this->accounting->postSalePayment($paymentId);
+            } catch (\Throwable $e) {
+                error_log('Contabilidad abono ' . $paymentId . ': ' . $e->getMessage());
+            }
+
+            // Solo el efectivo entra a la caja física (evita descuadre con contabilidad).
+            if ($method === 'cash') {
+                $this->cash->registerIncome($amount, 'Abono: ' . $sale['invoice_number'], 'sale_payment', $saleId);
+            }
             $this->receivables->applyPayment($saleId, $totalPaid, (float)$sale['total']);
             
             $this->respond(true, 'Abono registrado. Pendiente: ' . $this->formatMoney(max(0, $remaining)), '/app/ventas');
@@ -384,6 +464,12 @@ class TenantVentasController extends TenantController
             $result = $this->sales->cancelSale($id);
             $this->receivables->cancelBySale($id);
             $msg = 'Venta eliminada. Stock devuelto.';
+            try {
+                $this->accounting->reverseSaleCascade($id, 'Venta cancelada');
+            } catch (\Throwable $accountingError) {
+                error_log('Accounting sale reversal: ' . $accountingError->getMessage());
+                $msg .= ' La reversión contable quedó pendiente de revisión.';
+            }
             if ($result['reversed_cash'] > 0) {
                 $msg .= ' Caja ajustada: -' . $this->formatMoney($result['reversed_cash']);
             }

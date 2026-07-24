@@ -7,11 +7,13 @@ use SoftNova\Core\TenantMiddleware;
 use SoftNova\Services\SaleService;
 use SoftNova\Services\CashService;
 use SoftNova\Services\ReceivableService;
+use SoftNova\Services\AccountingService;
 
 class TenantCotizacionesController extends TenantController
 {
     private SaleService $sales;
     private CashService $cash;
+    private AccountingService $accounting;
     
     public function __construct()
     {
@@ -20,6 +22,7 @@ class TenantCotizacionesController extends TenantController
         $this->ensureQuotesSchema();
         $this->sales = new SaleService($this->db);
         $this->cash = new CashService($this->db);
+        $this->accounting = new AccountingService($this->db);
     }
     
     public function index(): void
@@ -54,8 +57,44 @@ class TenantCotizacionesController extends TenantController
             $this->exportQuotes();
             return;
         }
-        
-        $total = (int)$this->query("SELECT COUNT(*) as c FROM quotes")->fetch()['c'];
+
+        $filters = $this->listFilters([
+            'number' => 'q.quote_number',
+            'customer' => 'c.name',
+            'date' => 'q.quote_date',
+            'total' => 'q.total',
+            'valid' => 'q.valid_until',
+            'status' => 'q.status',
+        ], 'date', 'desc');
+
+        $where = ['1=1'];
+        $params = [];
+        if ($filters['q'] !== '') {
+            $where[] = '(q.quote_number LIKE ? OR c.name LIKE ? OR c.first_name LIKE ? OR c.last_name LIKE ? OR c.document_number LIKE ?)';
+            $like = '%' . $filters['q'] . '%';
+            array_push($params, $like, $like, $like, $like, $like);
+        }
+        if ($filters['from'] !== '') {
+            $where[] = 'DATE(q.quote_date) >= ?';
+            $params[] = $filters['from'];
+        }
+        if ($filters['to'] !== '') {
+            $where[] = 'DATE(q.quote_date) <= ?';
+            $params[] = $filters['to'];
+        }
+        if (in_array($filters['status'], ['pending', 'accepted', 'converted', 'rejected'], true)) {
+            $where[] = 'q.status = ?';
+            $params[] = $filters['status'];
+        }
+        $whereSql = implode(' AND ', $where);
+
+        $total = (int)$this->query(
+            "SELECT COUNT(*) as c
+             FROM quotes q
+             LEFT JOIN customers c ON q.customer_id = c.id
+             WHERE {$whereSql}",
+            $params
+        )->fetch()['c'];
         $pagination = $this->paginate($total);
         
         $quotes = $this->query(
@@ -63,8 +102,10 @@ class TenantCotizacionesController extends TenantController
              FROM quotes q
              LEFT JOIN customers c ON q.customer_id = c.id
              LEFT JOIN users u ON q.user_id = u.id
-             ORDER BY q.created_at DESC
-             LIMIT {$pagination['perPage']} OFFSET {$pagination['offset']}"
+             WHERE {$whereSql}
+             ORDER BY {$filters['orderSql']}, q.id DESC
+             LIMIT {$pagination['perPage']} OFFSET {$pagination['offset']}",
+            $params
         )->fetchAll();
         
         $products = $this->query(
@@ -79,6 +120,7 @@ class TenantCotizacionesController extends TenantController
             'products' => $products,
             'customers' => $customers,
             'pagination' => $pagination,
+            'filters' => $filters,
         ]));
     }
     
@@ -276,10 +318,17 @@ class TenantCotizacionesController extends TenantController
             $saleId = (int)$this->db->lastInsertId();
             
             foreach ($items as $item) {
+                $unitCost = 0.0;
+                if (!empty($item['product_id'])) {
+                    $unitCost = (float)$this->query(
+                        "SELECT COALESCE(purchase_price, 0) FROM products WHERE id = ?",
+                        [$item['product_id']]
+                    )->fetchColumn();
+                }
                 $this->query(
-                    "INSERT INTO sale_items (sale_id, product_id, product_name, quantity, unit_price, subtotal)
-                     VALUES (?, ?, ?, ?, ?, ?)",
-                    [$saleId, $item['product_id'], $item['product_name'], $item['quantity'], $item['unit_price'], $item['subtotal']]
+                    "INSERT INTO sale_items (sale_id, product_id, product_name, quantity, unit_price, unit_cost, subtotal)
+                     VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    [$saleId, $item['product_id'], $item['product_name'], $item['quantity'], $item['unit_price'], $unitCost, $item['subtotal']]
                 );
                 if (!empty($item['product_id'])) {
                     $this->sales->stock()->decrease(
@@ -292,28 +341,50 @@ class TenantCotizacionesController extends TenantController
                 }
             }
             
-            if ($paymentType === 'credit' && $initialPayment > 0) {
+            $cashAmount = 0.0;
+            if ($paymentType === 'credit') {
+                $paidNow = max(0, min($initialPayment, (float)$quote['total']));
+                if ($paidNow > 0) {
+                    $this->query(
+                        "INSERT INTO sale_payments (sale_id, amount, payment_method, notes, user_id)
+                         VALUES (?, ?, ?, ?, ?)",
+                        [$saleId, $paidNow, $paymentMethod, 'Pago inicial desde cotizacion', $_SESSION['tenant_user_id']]
+                    );
+                    $cashAmount = $paidNow;
+                    if ($paidNow >= (float)$quote['total']) {
+                        $this->query("UPDATE sales SET payment_status = 'paid', status = 'completed' WHERE id = ?", [$saleId]);
+                        $paymentStatus = 'paid';
+                    } else {
+                        $this->query("UPDATE sales SET payment_status = 'partial' WHERE id = ?", [$saleId]);
+                        $paymentStatus = 'partial';
+                    }
+                }
+            } else {
                 $this->query(
                     "INSERT INTO sale_payments (sale_id, amount, payment_method, notes, user_id)
                      VALUES (?, ?, ?, ?, ?)",
-                    [$saleId, $initialPayment, $paymentMethod, 'Pago inicial desde cotizacion', $_SESSION['tenant_user_id']]
+                    [$saleId, (float)$quote['total'], $paymentMethod, 'Pago completo desde cotizacion', $_SESSION['tenant_user_id']]
                 );
-                if ($initialPayment >= (float)$quote['total']) {
-                    $this->query("UPDATE sales SET payment_status = 'paid', status = 'completed' WHERE id = ?", [$saleId]);
-                    $paymentStatus = 'paid';
-                } else {
-                    $this->query("UPDATE sales SET payment_status = 'partial' WHERE id = ?", [$saleId]);
-                    $paymentStatus = 'partial';
-                }
+                $cashAmount = (float)$quote['total'];
             }
-            
+
             $this->query("UPDATE quotes SET status = 'converted', updated_at = NOW() WHERE id = ?", [$id]);
             $this->db->commit();
-            
-            if ($paymentStatus === 'paid') {
-                $this->cash->registerIncome((float)$quote['total'], 'Venta (desde cotizacion): ' . $invoiceNumber, 'sale', $saleId);
-            } elseif ($initialPayment > 0) {
-                $this->cash->registerIncome($initialPayment, 'Abono inicial (cotizacion): ' . $invoiceNumber, 'sale', $saleId);
+
+            // Contabilización fuera de la transacción: un periodo cerrado u otro
+            // problema contable NO debe impedir convertir la cotización.
+            try {
+                $this->accounting->postSaleCascade($saleId);
+            } catch (\Throwable $e) {
+                error_log('Contabilidad venta (cotizacion) ' . $saleId . ': ' . $e->getMessage());
+            }
+
+            // Solo el efectivo entra a la caja física (evita descuadre con contabilidad).
+            if ($cashAmount > 0 && $paymentMethod === 'cash') {
+                $label = ($paymentType === 'credit' && $paymentStatus !== 'paid')
+                    ? 'Abono inicial (cotizacion): ' . $invoiceNumber
+                    : 'Venta (desde cotizacion): ' . $invoiceNumber;
+                $this->cash->registerIncome($cashAmount, $label, 'sale', $saleId);
             }
             
             if ($paymentType === 'credit' && $paymentStatus !== 'paid') {
@@ -326,8 +397,20 @@ class TenantCotizacionesController extends TenantController
                     'Convertido de cotizacion: ' . $quote['quote_number']
                 );
             }
+
+            $einvoiceNote = '';
+            try {
+                $emit = (new \SoftNova\Services\Integrations\IntegrationManager($this->db))->emitSale($saleId);
+                if (!empty($emit['success'])) {
+                    $einvoiceNote = ' · FE: ' . ($emit['message'] ?? 'OK');
+                } elseif (($emit['message'] ?? '') !== 'No hay proveedor de facturación activo') {
+                    $einvoiceNote = ' · FE pendiente: ' . ($emit['message'] ?? 'error');
+                }
+            } catch (\Throwable $e) {
+                $einvoiceNote = ' · FE no enviada';
+            }
             
-            $this->respond(true, 'Cotizacion convertida a venta: ' . $invoiceNumber, '/app/ventas');
+            $this->respond(true, 'Cotizacion convertida a venta: ' . $invoiceNumber . $einvoiceNote, '/app/ventas');
         } catch (\Exception $e) {
             if ($this->db->inTransaction()) {
                 $this->db->rollBack();

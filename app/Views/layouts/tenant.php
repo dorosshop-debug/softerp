@@ -6,6 +6,15 @@
     <meta name="csrf-token" content="<?php echo htmlspecialchars(\SoftNova\Core\csrf_token()); ?>">
     <title><?php echo htmlspecialchars($title ?? 'Seri ERP'); ?></title>
     <link rel="stylesheet" href="<?php echo $viewInstance->asset('css/style.css'); ?>">
+    <?php
+    try {
+        $themeDb = \SoftNova\Core\TenantMiddleware::getDb();
+        $tc = $themeDb->prepare("SELECT setting_value FROM settings WHERE setting_key = 'primary_color'");
+        $tc->execute();
+        $primaryColor = $tc->fetchColumn() ?: '';
+        echo \SoftNova\Core\theme_color_style($primaryColor);
+    } catch (\Exception $e) { /* silencioso */ }
+    ?>
 </head>
 <body>
     <div class="app-layout">
