@@ -43,6 +43,10 @@ desktop.ini
 /public/uploads/avatars/*
 !/public/uploads/avatars/.htaccess
 !/public/uploads/avatars/.gitkeep
+!/public/uploads/branding/
+/public/uploads/branding/*
+!/public/uploads/branding/.htaccess
+!/public/uploads/branding/.gitkeep
 
 # Composer
 # composer.lock debe versionarse para consistencia (NO ignorar)

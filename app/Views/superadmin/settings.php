@@ -3,6 +3,15 @@ $layout = 'superadmin';
 $title = 'Super Administrador - Configuración';
 $pageTitle = 'Configuración';
 $userName = $_SESSION['super_admin_name'] ?? 'Super Admin';
+$ogImage = $ogImage ?? '';
+$ogTitle = $ogTitle ?? 'Seri ERP';
+$ogDescription = $ogDescription ?? '';
+$ogImageUrl = '';
+if ($ogImage !== '') {
+    $ogImageUrl = preg_match('#^https?://#i', $ogImage)
+        ? $ogImage
+        : $viewInstance->route(ltrim($ogImage, '/'));
+}
 ?>
 
 <?php if (isset($_SESSION['success'])): ?>
@@ -19,6 +28,68 @@ $userName = $_SESSION['super_admin_name'] ?? 'Super Admin';
 
 <div class="settings-container">
     <div class="settings-grid">
+        <div class="settings-card neumorphic" style="grid-column:1/-1;">
+            <div class="settings-card-icon">
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="3" y="3" width="18" height="18" rx="2"></rect>
+                    <circle cx="8.5" cy="8.5" r="1.5"></circle>
+                    <path d="M21 15l-5-5L5 21"></path>
+                </svg>
+            </div>
+            <h3>Imagen al compartir el enlace (Open Graph)</h3>
+            <p style="color:var(--color-text-secondary);font-size:13px;margin:0 0 16px;">
+                Esta imagen y textos aparecen como miniatura cuando alguien envía
+                <strong>https://seri.heraconsultores.com</strong> por WhatsApp, Telegram, Facebook, LinkedIn, etc.
+                Recomendado: <strong>1200 × 630 px</strong>, JPG o PNG, máximo 2&nbsp;MB.
+            </p>
+            <form method="POST"
+                  action="<?php echo $viewInstance->route('superadmin/settings'); ?>?action=save_share_preview"
+                  enctype="multipart/form-data"
+                  class="settings-form"
+                  data-ajax="true">
+                <?php echo \SoftNova\Core\csrf_field(); ?>
+                <div style="display:grid;grid-template-columns:minmax(200px,280px) 1fr;gap:20px;align-items:start;">
+                    <div>
+                        <?php if ($ogImageUrl !== ''): ?>
+                            <img src="<?php echo htmlspecialchars($ogImageUrl); ?>?v=<?php echo time(); ?>"
+                                 alt="Vista previa OG"
+                                 style="width:100%;max-width:280px;border-radius:10px;border:1px solid var(--color-border);aspect-ratio:1200/630;object-fit:cover;background:#eee;">
+                            <label style="display:flex;align-items:center;gap:8px;margin-top:10px;font-size:13px;">
+                                <input type="checkbox" name="remove_og_image" value="1"> Quitar imagen actual
+                            </label>
+                        <?php else: ?>
+                            <div style="width:100%;max-width:280px;aspect-ratio:1200/630;border-radius:10px;border:2px dashed var(--color-border);display:flex;align-items:center;justify-content:center;color:var(--color-text-secondary);font-size:13px;text-align:center;padding:12px;">
+                                Sin imagen destacada
+                            </div>
+                        <?php endif; ?>
+                        <div class="form-group" style="margin-top:12px;">
+                            <label>Subir imagen</label>
+                            <input type="file" name="og_image" accept="image/jpeg,image/png,image/webp" class="neumorphic-input">
+                        </div>
+                    </div>
+                    <div>
+                        <div class="form-group">
+                            <label>Título al compartir</label>
+                            <input type="text" name="og_title" maxlength="120" class="neumorphic-input"
+                                   value="<?php echo htmlspecialchars($ogTitle); ?>"
+                                   placeholder="Seri ERP — Gestión empresarial">
+                        </div>
+                        <div class="form-group">
+                            <label>Descripción corta</label>
+                            <textarea name="og_description" rows="3" maxlength="300" class="neumorphic-input"
+                                      placeholder="Ventas, inventario, caja y contabilidad en un solo lugar."><?php echo htmlspecialchars($ogDescription); ?></textarea>
+                        </div>
+                        <button type="submit" class="btn btn-primary neumorphic-btn">Guardar vista previa</button>
+                        <p style="font-size:12px;color:var(--color-text-secondary);margin-top:10px;">
+                            Tras guardar, WhatsApp/Facebook pueden tardar en refrescar la miniatura.
+                            Puede forzar la actualización en
+                            <a href="https://developers.facebook.com/tools/debug/" target="_blank" rel="noopener">Facebook Sharing Debugger</a>.
+                        </p>
+                    </div>
+                </div>
+            </form>
+        </div>
+
         <div class="settings-card neumorphic">
             <div class="settings-card-icon">
                 <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -113,37 +184,29 @@ $userName = $_SESSION['super_admin_name'] ?? 'Super Admin';
 function validatePasswordForm(form) {
     const newPassword = form.querySelector('input[name="new_password"]').value;
     const confirmPassword = form.querySelector('input[name="confirm_password"]').value;
-    
+
     if (newPassword !== confirmPassword) {
         alert('Las contraseñas nuevas no coinciden');
         return false;
     }
-    
+
     if (newPassword.length < 8) {
         alert('La contraseña debe tener al menos 8 caracteres');
         return false;
     }
-    
+
     return true;
 }
 
-document.addEventListener('DOMContentLoaded', function() {
-    const savedTheme = localStorage.getItem('theme');
-    if (savedTheme === 'dark') {
-        document.getElementById('themeDark').classList.add('active');
-    } else {
-        document.getElementById('themeLight').classList.add('active');
-    }
-});
-
 function changeTheme(theme) {
-    document.getElementById('themeLight').classList.remove('active');
-    document.getElementById('themeDark').classList.remove('active');
-    
-    if (theme === 'dark') {
-        document.getElementById('themeDark').classList.add('active');
-    } else {
-        document.getElementById('themeLight').classList.add('active');
-    }
+    document.body.classList.toggle('dark-mode', theme === 'dark');
+    localStorage.setItem('theme', theme);
+    document.getElementById('themeLight')?.classList.toggle('active', theme === 'light');
+    document.getElementById('themeDark')?.classList.toggle('active', theme === 'dark');
 }
+
+document.addEventListener('DOMContentLoaded', function() {
+    const theme = localStorage.getItem('theme') || 'light';
+    changeTheme(theme);
+});
 </script>

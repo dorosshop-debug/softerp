@@ -647,8 +647,139 @@ class SuperAdminController extends Controller
             $this->changePassword();
             return;
         }
+        if ($action === 'save_share_preview') {
+            $this->saveSharePreview();
+            return;
+        }
+
+        $ogImage = '';
+        $ogTitle = '';
+        $ogDescription = '';
+        try {
+            $rows = $this->db->query(
+                "SELECT setting_key, setting_value FROM system_settings
+                 WHERE setting_key IN ('og_image','og_title','og_description','app_name')"
+            )->fetchAll();
+            $map = [];
+            foreach ($rows as $row) {
+                $map[$row['setting_key']] = (string)$row['setting_value'];
+            }
+            $ogImage = $map['og_image'] ?? '';
+            $ogTitle = $map['og_title'] ?? ($map['app_name'] ?? 'Seri ERP');
+            $ogDescription = $map['og_description'] ?? '';
+        } catch (\Throwable $e) {
+            // BD aún no migrada
+        }
         
-        $this->view('superadmin.settings');
+        $this->view('superadmin.settings', [
+            'ogImage' => $ogImage,
+            'ogTitle' => $ogTitle,
+            'ogDescription' => $ogDescription,
+        ]);
+    }
+
+    private function upsertSystemSetting(string $key, string $value, string $description = ''): void
+    {
+        $existing = $this->db->query(
+            "SELECT setting_key FROM system_settings WHERE setting_key = ? LIMIT 1",
+            [$key]
+        )->fetch();
+        if ($existing) {
+            $this->db->query(
+                "UPDATE system_settings SET setting_value = ? WHERE setting_key = ?",
+                [$value, $key]
+            );
+        } else {
+            $this->db->query(
+                "INSERT INTO system_settings (setting_key, setting_value, description) VALUES (?, ?, ?)",
+                [$key, $value, $description]
+            );
+        }
+    }
+
+    private function saveSharePreview(): void
+    {
+        if (!$this->validateCsrfOrFail('/superadmin/settings')) {
+            return;
+        }
+
+        $title = trim((string)$this->request->post('og_title', ''));
+        $description = trim((string)$this->request->post('og_description', ''));
+        if (mb_strlen($title) > 120) {
+            $title = mb_substr($title, 0, 120);
+        }
+        if (mb_strlen($description) > 300) {
+            $description = mb_substr($description, 0, 300);
+        }
+
+        $this->upsertSystemSetting('og_title', $title, 'Titulo al compartir el URL (Open Graph)');
+        $this->upsertSystemSetting('og_description', $description, 'Descripcion al compartir el URL');
+
+        $remove = $this->request->post('remove_og_image') === '1';
+        if ($remove) {
+            $current = $this->db->query(
+                "SELECT setting_value FROM system_settings WHERE setting_key = 'og_image' LIMIT 1"
+            )->fetch();
+            if ($current && !empty($current['setting_value'])) {
+                $rel = ltrim((string)$current['setting_value'], '/');
+                $full = PUBLIC_PATH . '/' . $rel;
+                if (is_file($full) && str_contains(str_replace('\\', '/', $rel), 'uploads/branding/')) {
+                    @unlink($full);
+                }
+            }
+            $this->upsertSystemSetting('og_image', '', 'Imagen destacada al compartir el URL');
+        }
+
+        if (!empty($_FILES['og_image']['tmp_name']) && is_uploaded_file($_FILES['og_image']['tmp_name'])) {
+            $file = $_FILES['og_image'];
+            if (($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
+                $this->respond(false, 'Error al subir la imagen', '/superadmin/settings');
+                return;
+            }
+            if (($file['size'] ?? 0) > 2 * 1024 * 1024) {
+                $this->respond(false, 'La imagen no puede superar 2 MB', '/superadmin/settings');
+                return;
+            }
+
+            $finfo = new \finfo(FILEINFO_MIME_TYPE);
+            $mime = $finfo->file($file['tmp_name']) ?: '';
+            $extMap = [
+                'image/jpeg' => 'jpg',
+                'image/png' => 'png',
+                'image/webp' => 'webp',
+            ];
+            if (!isset($extMap[$mime])) {
+                $this->respond(false, 'Formato no permitido. Use JPG, PNG o WebP', '/superadmin/settings');
+                return;
+            }
+
+            $dir = PUBLIC_PATH . '/uploads/branding';
+            if (!is_dir($dir)) {
+                mkdir($dir, 0755, true);
+            }
+            $htaccess = $dir . '/.htaccess';
+            if (!is_file($htaccess)) {
+                file_put_contents($htaccess, "Options -Indexes\n<FilesMatch \"\\.(php|phtml|php3|php4|php5|phar)$\">\nDeny from all\n</FilesMatch>\n");
+            }
+
+            $filename = 'og-image.' . $extMap[$mime];
+            $dest = $dir . '/' . $filename;
+            // Eliminar variantes anteriores
+            foreach (['jpg', 'png', 'webp'] as $oldExt) {
+                $old = $dir . '/og-image.' . $oldExt;
+                if (is_file($old) && $old !== $dest) {
+                    @unlink($old);
+                }
+            }
+            if (!move_uploaded_file($file['tmp_name'], $dest)) {
+                $this->respond(false, 'No se pudo guardar la imagen en el servidor', '/superadmin/settings');
+                return;
+            }
+            @chmod($dest, 0644);
+            $this->upsertSystemSetting('og_image', 'uploads/branding/' . $filename, 'Imagen destacada al compartir el URL');
+        }
+
+        $this->respond(true, 'Vista previa al compartir actualizada', '/superadmin/settings');
     }
     
     private function changePassword(): void

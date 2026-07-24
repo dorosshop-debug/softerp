@@ -570,7 +570,10 @@ VALUES
 
 INSERT INTO system_settings (setting_key, setting_value, description) VALUES
 ('app_name', 'Seri ERP', 'Nombre de la aplicacion'),
-('app_version', '1.0.0', 'Version')
+('app_version', '1.0.0', 'Version'),
+('og_title', 'Seri ERP', 'Titulo al compartir el URL (Open Graph)'),
+('og_description', 'Sistema de gestion empresarial Seri ERP: ventas, inventario, caja y contabilidad.', 'Descripcion al compartir el URL'),
+('og_image', '', 'Imagen destacada al compartir el URL (ruta relativa en public/)')
 ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value);
 
 -- Crear super admin despues de instalar (usar password_hash de PHP).

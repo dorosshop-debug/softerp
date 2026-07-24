@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="csrf-token" content="<?php echo htmlspecialchars(\SoftNova\Core\csrf_token()); ?>">
     <title><?php echo htmlspecialchars($title ?? 'Seri ERP'); ?></title>
+    <?php echo \SoftNova\Core\og_meta_tags($title ?? null); ?>
     <link rel="stylesheet" href="<?php echo $viewInstance->asset('css/style.css'); ?>">
     <?php
     try {

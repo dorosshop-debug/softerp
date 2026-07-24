@@ -206,3 +206,82 @@ function csrf_field(): string
 {
     return '<input type="hidden" name="csrf_token" value="' . Security::generateCsrfToken() . '">';
 }
+
+/**
+ * Leer un setting de la BD maestra (system_settings).
+ */
+function system_setting(string $key, string $default = ''): string
+{
+    static $cache = [];
+    if (array_key_exists($key, $cache)) {
+        return $cache[$key];
+    }
+    try {
+        $db = Database::getInstance();
+        $row = $db->query(
+            "SELECT setting_value FROM system_settings WHERE setting_key = ? LIMIT 1",
+            [$key]
+        )->fetch();
+        $cache[$key] = $row ? (string)$row['setting_value'] : $default;
+    } catch (\Throwable $e) {
+        $cache[$key] = $default;
+    }
+    return $cache[$key];
+}
+
+/**
+ * Meta tags Open Graph / Twitter Card para miniatura al compartir el URL.
+ * Imagen configurable en Superadmin → Configuración.
+ */
+function og_meta_tags(?string $pageTitle = null): string
+{
+    $appName = system_setting('app_name', config('app.name', 'Seri ERP'));
+    $title = trim((string)($pageTitle ?: system_setting('og_title', $appName)));
+    if ($title === '') {
+        $title = $appName;
+    }
+    $description = trim(system_setting(
+        'og_description',
+        'Sistema de gestión empresarial Seri ERP — ventas, inventario, caja y contabilidad.'
+    ));
+    $imageRel = trim(system_setting('og_image', ''));
+    $siteUrl = rtrim((string)config('app.url', ''), '/');
+    $canonical = $siteUrl !== '' ? $siteUrl . '/' : '';
+
+    $imageUrl = '';
+    if ($imageRel !== '') {
+        if (preg_match('#^https?://#i', $imageRel)) {
+            $imageUrl = $imageRel;
+        } else {
+            $imageUrl = $siteUrl . '/' . ltrim($imageRel, '/');
+        }
+    } elseif (is_file(PUBLIC_PATH . '/assets/img/og-image.jpg')) {
+        $imageUrl = $siteUrl . '/assets/img/og-image.jpg';
+    } elseif (is_file(PUBLIC_PATH . '/assets/img/og-image.png')) {
+        $imageUrl = $siteUrl . '/assets/img/og-image.png';
+    }
+
+    $esc = static fn(string $v): string => htmlspecialchars($v, ENT_QUOTES, 'UTF-8');
+    $html = "\n"
+        . '<meta name="description" content="' . $esc($description) . '">' . "\n"
+        . '<meta property="og:type" content="website">' . "\n"
+        . '<meta property="og:site_name" content="' . $esc($appName) . '">' . "\n"
+        . '<meta property="og:title" content="' . $esc($title) . '">' . "\n"
+        . '<meta property="og:description" content="' . $esc($description) . '">' . "\n"
+        . '<meta name="twitter:card" content="' . ($imageUrl !== '' ? 'summary_large_image' : 'summary') . '">' . "\n"
+        . '<meta name="twitter:title" content="' . $esc($title) . '">' . "\n"
+        . '<meta name="twitter:description" content="' . $esc($description) . '">' . "\n";
+
+    if ($canonical !== '') {
+        $html .= '<meta property="og:url" content="' . $esc($canonical) . '">' . "\n"
+            . '<link rel="canonical" href="' . $esc($canonical) . '">' . "\n";
+    }
+    if ($imageUrl !== '') {
+        $html .= '<meta property="og:image" content="' . $esc($imageUrl) . '">' . "\n"
+            . '<meta property="og:image:width" content="1200">' . "\n"
+            . '<meta property="og:image:height" content="630">' . "\n"
+            . '<meta name="twitter:image" content="' . $esc($imageUrl) . '">' . "\n";
+    }
+
+    return $html;
+}
