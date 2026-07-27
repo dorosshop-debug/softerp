@@ -95,19 +95,24 @@ class TenantReportesController extends TenantController
         $grossProfit = $revenue - $costOfSales;
         $netProfit = $grossProfit - $periodExpenses;
         $margin = $revenue > 0 ? round(($netProfit / $revenue) * 100, 1) : 0.0;
+
+        $accounting = new \SoftNova\Services\AccountingService($this->db);
+        $accounting->auditCriticalAccounts();
+        $expenseBreakdown = $accounting->expenseBreakdown($dateFrom, $dateTo);
+        $marginByChannel = $accounting->marginByChannel($dateFrom, $dateTo);
+        $dataphoneRecon = $accounting->dataphoneReconciliation($dateFrom, $dateTo);
+
         $profitSummary = [
             'revenue' => $revenue,
             'cost' => $costOfSales,
             'gross' => $grossProfit,
             'expenses' => $periodExpenses,
+            'expenses_fixed' => (float)($expenseBreakdown['fixed'] ?? 0),
+            'expenses_financial' => (float)($expenseBreakdown['financial'] ?? 0),
+            'expenses_operating' => (float)($expenseBreakdown['operating'] ?? 0),
             'net' => $netProfit,
             'margin' => $margin,
         ];
-
-        $accounting = new \SoftNova\Services\AccountingService($this->db);
-        $accounting->auditCriticalAccounts();
-        $marginByChannel = $accounting->marginByChannel($dateFrom, $dateTo);
-        $dataphoneRecon = $accounting->dataphoneReconciliation($dateFrom, $dateTo);
 
         // 2) Cuentas por cobrar (aging) sobre saldo pendiente
         $receivablesAging = $this->query(
@@ -318,6 +323,7 @@ class TenantReportesController extends TenantController
             'paymentMethods' => $paymentMethods,
             'marginByChannel' => $marginByChannel,
             'dataphoneRecon' => $dataphoneRecon,
+            'expenseBreakdown' => $expenseBreakdown,
         ]));
     }
     

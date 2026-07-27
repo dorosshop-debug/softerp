@@ -32,10 +32,37 @@ function expense_categories(): array
     return is_array($cats) ? $cats : [];
 }
 
+function expense_category_groups(): array
+{
+    $groups = config('expense_category_groups', []);
+    return is_array($groups) ? $groups : [];
+}
+
 function expense_category_label(string $code): string
 {
     $cats = expense_categories();
     return $cats[$code] ?? ($code !== '' ? $code : 'General');
+}
+
+/**
+ * Devuelve el grupo contable de una categoría: fixed | financial | operating
+ */
+function expense_category_group(string $code): string
+{
+    foreach (expense_category_groups() as $groupKey => $group) {
+        $cats = $group['categories'] ?? [];
+        if (in_array($code, is_array($cats) ? $cats : [], true)) {
+            return (string)$groupKey;
+        }
+    }
+    // Texto libre antiguo → operativo
+    return 'operating';
+}
+
+function expense_group_label(string $groupKey): string
+{
+    $groups = expense_category_groups();
+    return (string)($groups[$groupKey]['label'] ?? $groupKey);
 }
 
 function product_channels(): array
@@ -58,7 +85,7 @@ function payment_method_options(string $selected = 'cash', bool $includeLegacyCa
     $html = '';
     foreach (payment_methods($includeLegacyCard) as $code => $label) {
         if ($code === 'credit') {
-            continue; // el crédito es payment_type, no método de cobro
+            continue;
         }
         $sel = $code === $selected ? ' selected' : '';
         $html .= '<option value="' . htmlspecialchars($code) . '"' . $sel . '>'
@@ -67,13 +94,44 @@ function payment_method_options(string $selected = 'cash', bool $includeLegacyCa
     return $html;
 }
 
-function expense_category_options(string $selected = 'general'): string
+/**
+ * Select de gastos con optgroups (fijos / financieros / operativos).
+ */
+function expense_category_options(string $selected = 'fixed'): string
 {
+    $all = expense_categories();
+    $groups = expense_category_groups();
     $html = '';
-    foreach (expense_categories() as $code => $label) {
+    $used = [];
+
+    foreach ($groups as $group) {
+        $label = (string)($group['label'] ?? 'Grupo');
+        $html .= '<optgroup label="' . htmlspecialchars($label) . '">';
+        foreach (($group['categories'] ?? []) as $code) {
+            if (!isset($all[$code])) {
+                continue;
+            }
+            $used[$code] = true;
+            $sel = ($code === $selected || strcasecmp((string)$all[$code], $selected) === 0) ? ' selected' : '';
+            $html .= '<option value="' . htmlspecialchars($code) . '"' . $sel . '>'
+                . htmlspecialchars($all[$code]) . '</option>';
+        }
+        $html .= '</optgroup>';
+    }
+
+    // Categorías huérfanas (compatibilidad)
+    $orphan = '';
+    foreach ($all as $code => $label) {
+        if (isset($used[$code])) {
+            continue;
+        }
         $sel = ($code === $selected || strcasecmp($label, $selected) === 0) ? ' selected' : '';
-        $html .= '<option value="' . htmlspecialchars($code) . '"' . $sel . '>'
+        $orphan .= '<option value="' . htmlspecialchars($code) . '"' . $sel . '>'
             . htmlspecialchars($label) . '</option>';
     }
+    if ($orphan !== '') {
+        $html .= '<optgroup label="Otros">' . $orphan . '</optgroup>';
+    }
+
     return $html;
 }

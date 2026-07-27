@@ -123,14 +123,25 @@ $exportQuery = http_build_query(array_merge(['action' => 'export'], $filters['qu
     <?php if ($canExportInv): ?>
         <a href="<?php echo $invBase . '?' . $exportQuery; ?>" class="btn btn-secondary" title="Exportar CSV">Exportar CSV</a>
     <?php endif; ?>
-    <?php if ($canCreateProduct && !empty($catalogStatuses)): ?>
-        <?php foreach ($catalogStatuses as $code => $st): ?>
+    <?php
+    $hasContabilidad = \SoftNova\Core\TenantMiddleware::canAccess('contabilidad');
+    $wooSt = $catalogStatuses['woocommerce'] ?? [];
+    $mlSt = $catalogStatuses['mercadolibre'] ?? [];
+    ?>
+    <?php if ($canCreateProduct): ?>
+        <?php if ($hasContabilidad): ?>
+            <a class="btn btn-secondary" href="<?php echo $viewInstance->route('app/contabilidad'); ?>?tab=integrations&amp;provider=woocommerce"
+               title="Configurar WooCommerce">WooCommerce</a>
+            <a class="btn btn-secondary" href="<?php echo $viewInstance->route('app/contabilidad'); ?>?tab=integrations&amp;provider=mercadolibre"
+               title="Configurar Mercado Libre">Mercado Libre</a>
+        <?php endif; ?>
+        <?php foreach (['woocommerce' => $wooSt, 'mercadolibre' => $mlSt] as $code => $st): ?>
             <?php if (!empty($st['enabled']) && !empty($st['configured'])): ?>
                 <form method="POST" action="<?php echo $invBase; ?>?action=import_catalog" data-ajax="true" style="display:inline;">
                     <?php echo \SoftNova\Core\csrf_field(); ?>
                     <input type="hidden" name="provider" value="<?php echo htmlspecialchars($code); ?>">
-                    <button type="submit" class="btn btn-secondary" onclick="return confirm('¿Importar productos desde <?php echo htmlspecialchars($st['label']); ?>?')">
-                        Importar <?php echo htmlspecialchars($st['label']); ?>
+                    <button type="submit" class="btn btn-primary" onclick="return confirm('¿Importar productos desde <?php echo htmlspecialchars($st['label'] ?? $code); ?>?')">
+                        Importar <?php echo htmlspecialchars($st['label'] ?? $code); ?>
                     </button>
                 </form>
             <?php endif; ?>

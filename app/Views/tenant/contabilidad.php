@@ -355,8 +355,15 @@ foreach ($accounts as $account) {
                     <thead><tr><th>Tipo</th><th>Cantidad</th><th>Total</th></tr></thead>
                     <tbody>
                     <?php foreach ($expenseByType as $row): ?>
+                        <?php
+                        $cat = (string)$row['category'];
+                        $grp = \SoftNova\Core\expense_category_group($cat);
+                        ?>
                         <tr>
-                            <td><?php echo htmlspecialchars(\SoftNova\Core\expense_category_label((string)$row['category'])); ?></td>
+                            <td>
+                                <span class="badge badge-info" style="margin-right:6px;"><?php echo htmlspecialchars(\SoftNova\Core\expense_group_label($grp)); ?></span>
+                                <?php echo htmlspecialchars(\SoftNova\Core\expense_category_label($cat)); ?>
+                            </td>
                             <td><?php echo (int)$row['cnt']; ?></td>
                             <td><?php echo acctFmt((float)$row['total'], $currency); ?></td>
                         </tr>
@@ -406,12 +413,14 @@ foreach ($accounts as $account) {
     ];
     ?>
     <div class="alert alert-info" style="margin-bottom:16px;">
-        Configure las APIs desde esta pantalla. Las credenciales se guardan <strong>por empresa</strong> (cifradas).
-        Facturación electrónica: elija un proveedor activo. Catálogo: WooCommerce y Mercado Libre importan productos diferenciados por canal.
+        Hay dos tipos de integración:
+        <strong>1) Facturación electrónica</strong> (Alegra/Siigo/Factus) y
+        <strong>2) Catálogo e-commerce</strong> (WooCommerce / Mercado Libre → Inventario).
+        Las credenciales se guardan por empresa (cifradas).
     </div>
 
     <div class="card neumorphic" style="margin-bottom:18px;">
-        <div class="card-header"><h3>Proveedor activo</h3></div>
+        <div class="card-header"><h3>Proveedor activo (facturación electrónica)</h3></div>
         <div class="card-body">
             <?php if ($canEdit): ?>
             <form method="POST" action="<?php echo $viewInstance->route('app/contabilidad'); ?>?action=set-active-provider" data-ajax="true" style="display:flex;gap:10px;align-items:end;flex-wrap:wrap;">
@@ -435,7 +444,8 @@ foreach ($accounts as $account) {
         </div>
     </div>
 
-    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;">
+    <h4 style="margin:8px 0 10px;">Facturación electrónica</h4>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:18px;">
         <?php foreach ($integrationStatuses as $code => $st): ?>
             <a class="btn <?php echo $selectedProvider === $code ? 'btn-primary' : 'btn-secondary'; ?>"
                href="<?php echo $viewInstance->route('app/contabilidad'); ?>?tab=integrations&provider=<?php echo urlencode($code); ?>">
@@ -443,13 +453,27 @@ foreach ($accounts as $account) {
                 <?php if (!empty($st['active'])): ?><span class="badge badge-success" style="margin-left:6px;">Activo</span><?php endif; ?>
             </a>
         <?php endforeach; ?>
+    </div>
+
+    <h4 style="margin:8px 0 10px;">Catálogo e-commerce → Inventario</h4>
+    <p style="font-size:13px;color:var(--color-text-secondary);margin-top:0;">
+        Configure WooCommerce o Mercado Libre aquí; luego importe desde Inventario.
+    </p>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;">
+        <?php if (empty($catalogStatuses)): ?>
+            <div class="alert alert-warning">No se cargaron conectores de catálogo. Verifique que el código desplegado incluye CatalogSyncService.</div>
+        <?php endif; ?>
         <?php foreach ($catalogStatuses as $code => $st): ?>
             <a class="btn <?php echo $selectedProvider === $code ? 'btn-primary' : 'btn-secondary'; ?>"
                href="<?php echo $viewInstance->route('app/contabilidad'); ?>?tab=integrations&provider=<?php echo urlencode($code); ?>">
                 <?php echo htmlspecialchars($st['label'] ?? $code); ?>
                 <span class="badge badge-info" style="margin-left:6px;">Catálogo</span>
+                <?php if (!empty($st['enabled']) && !empty($st['configured'])): ?>
+                    <span class="badge badge-success" style="margin-left:4px;">Listo</span>
+                <?php endif; ?>
             </a>
         <?php endforeach; ?>
+        <a class="btn btn-secondary" href="<?php echo $viewInstance->route('app/inventario'); ?>">Ir a Inventario</a>
     </div>
 
     <?php

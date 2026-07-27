@@ -27,7 +27,8 @@ $salesTrend = $salesTrend ?? 0;
 $ticketTrend = $ticketTrend ?? 0;
 $dateFrom = $dateFrom ?? date('Y-m-d', strtotime('-30 days'));
 $dateTo = $dateTo ?? date('Y-m-d');
-$profitSummary = $profitSummary ?? ['revenue'=>0,'cost'=>0,'gross'=>0,'expenses'=>0,'net'=>0,'margin'=>0];
+$profitSummary = $profitSummary ?? ['revenue'=>0,'cost'=>0,'gross'=>0,'expenses'=>0,'expenses_fixed'=>0,'expenses_financial'=>0,'expenses_operating'=>0,'net'=>0,'margin'=>0];
+$expenseBreakdown = $expenseBreakdown ?? ['by_group'=>[], 'by_category'=>[], 'fixed'=>0,'financial'=>0,'operating'=>0,'total'=>0];
 $marginByChannel = $marginByChannel ?? [];
 $dataphoneRecon = $dataphoneRecon ?? [
     'sales_total' => 0, 'expected_total' => 0, 'recorded_total' => 0, 'gap' => 0,
@@ -167,9 +168,17 @@ $planName = htmlspecialchars($plan['plan_name'] ?? 'Plan Basico');
                 <span>Utilidad bruta</span>
                 <strong><?php echo fmtR((float)$profitSummary['gross'], $currency); ?></strong>
             </div>
-            <div style="display:flex;justify-content:space-between;padding:6px 0;">
-                <span style="color:var(--color-text-secondary);">− Gastos</span>
-                <span><?php echo fmtR((float)$profitSummary['expenses'], $currency); ?></span>
+            <div style="display:flex;justify-content:space-between;padding:4px 0;font-size:13px;">
+                <span style="color:var(--color-text-secondary);">− Gastos fijos</span>
+                <span><?php echo fmtR((float)($profitSummary['expenses_fixed'] ?? 0), $currency); ?></span>
+            </div>
+            <div style="display:flex;justify-content:space-between;padding:4px 0;font-size:13px;">
+                <span style="color:var(--color-text-secondary);">− Gastos financieros</span>
+                <span><?php echo fmtR((float)($profitSummary['expenses_financial'] ?? 0), $currency); ?></span>
+            </div>
+            <div style="display:flex;justify-content:space-between;padding:4px 0;font-size:13px;">
+                <span style="color:var(--color-text-secondary);">− Otros gastos</span>
+                <span><?php echo fmtR((float)($profitSummary['expenses_operating'] ?? 0), $currency); ?></span>
             </div>
             <div style="display:flex;justify-content:space-between;padding:10px 0 0;border-top:2px solid var(--color-border);margin-top:6px;">
                 <strong>Utilidad neta</strong>
@@ -234,6 +243,28 @@ $planName = htmlspecialchars($plan['plan_name'] ?? 'Plan Basico');
                             <?php echo fmtR((float)$ch['profit'], $currency); ?>
                             <small style="color:var(--color-text-secondary);">(<?php echo (float)$ch['margin']; ?>%)</small>
                         </span>
+                    </div>
+                <?php endforeach; ?>
+            <?php endif; ?>
+        </div>
+    </div>
+
+    <!-- Gastos fijos vs financieros -->
+    <div class="card neumorphic">
+        <div class="card-header"><h3>Gastos por tipo</h3></div>
+        <div class="card-body">
+            <?php foreach (($expenseBreakdown['by_group'] ?? []) as $g): ?>
+                <div style="display:flex;justify-content:space-between;padding:6px 0;font-size:13px;border-bottom:1px dashed var(--color-border);">
+                    <span><?php echo htmlspecialchars($g['label']); ?></span>
+                    <strong><?php echo fmtR((float)$g['total'], $currency); ?></strong>
+                </div>
+            <?php endforeach; ?>
+            <?php if (!empty($expenseBreakdown['by_category'])): ?>
+                <div style="margin-top:10px;font-size:12px;color:var(--color-text-secondary);">Detalle</div>
+                <?php foreach (array_slice($expenseBreakdown['by_category'], 0, 8) as $row): ?>
+                    <div style="display:flex;justify-content:space-between;padding:3px 0;font-size:12px;">
+                        <span><?php echo htmlspecialchars($row['label']); ?></span>
+                        <span><?php echo fmtR((float)$row['total'], $currency); ?></span>
                     </div>
                 <?php endforeach; ?>
             <?php endif; ?>

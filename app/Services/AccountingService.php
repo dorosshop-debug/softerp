@@ -323,7 +323,7 @@ class AccountingService
                     COALESCE(SUM(amount), 0) total
              FROM expenses
              WHERE expense_date BETWEEN ? AND ?
-               AND category IN ('dataphone_commission','card_commission','financial')
+               AND category IN ('dataphone_commission','card_commission','payment_link_commission','financial','bank_fee')
              GROUP BY COALESCE(category,'general')",
             [$from, $to]
         )->fetchAll();
@@ -754,9 +754,13 @@ class AccountingService
         }
 
         $category = (string)($expense['category'] ?? 'general');
-        $expenseAccount = match ($category) {
-            'financial', 'card_commission', 'dataphone_commission' => $this->setting('financial_expense_account', '530505'),
-            'fixed', 'rent', 'utilities' => $this->setting('fixed_expense_account', '510505'),
+        $group = function_exists('\\SoftNova\\Core\\expense_category_group')
+            ? \SoftNova\Core\expense_category_group($category)
+            : 'operating';
+
+        $expenseAccount = match ($group) {
+            'financial' => $this->setting('financial_expense_account', '530505'),
+            'fixed' => $this->setting('fixed_expense_account', '510505'),
             default => $this->setting('general_expense_account', '510505'),
         };
 
@@ -767,16 +771,19 @@ class AccountingService
         $categoryLabel = function_exists('\\SoftNova\\Core\\expense_category_label')
             ? \SoftNova\Core\expense_category_label($category)
             : $category;
+        $groupLabel = function_exists('\\SoftNova\\Core\\expense_group_label')
+            ? \SoftNova\Core\expense_group_label($group)
+            : $group;
 
         return $this->postEntry(
             $expense['expense_date'],
-            'Gasto: ' . $expense['description'],
+            'Gasto [' . $groupLabel . ']: ' . $expense['description'],
             [
                 $this->line(
                     $expenseAccount,
                     (float)$expense['amount'],
                     0,
-                    $categoryLabel,
+                    $groupLabel . ' · ' . $categoryLabel,
                     'supplier',
                     $expense['supplier_id'],
                     $expense['supplier_name']
@@ -795,6 +802,67 @@ class AccountingService
             $expenseId,
             'created'
         );
+    }
+
+    /**
+     * Totales de gastos del periodo por grupo contable (fijos / financieros / operativos).
+     *
+     * @return array{fixed:float,financial:float,operating:float,total:float,by_category:list<array>}
+     */
+    public function expenseBreakdown(string $from, string $to): array
+    {
+        $rows = $this->query(
+            "SELECT COALESCE(category,'general') category, COALESCE(SUM(amount),0) total, COUNT(*) cnt
+             FROM expenses WHERE expense_date BETWEEN ? AND ?
+             GROUP BY COALESCE(category,'general') ORDER BY total DESC",
+            [$from, $to]
+        )->fetchAll();
+
+        $out = [
+            'fixed' => 0.0,
+            'financial' => 0.0,
+            'operating' => 0.0,
+            'total' => 0.0,
+            'by_category' => [],
+            'by_group' => [],
+        ];
+
+        foreach ($rows as $row) {
+            $code = (string)$row['category'];
+            $amount = (float)$row['total'];
+            $group = function_exists('\\SoftNova\\Core\\expense_category_group')
+                ? \SoftNova\Core\expense_category_group($code)
+                : 'operating';
+            if (!isset($out[$group])) {
+                $group = 'operating';
+            }
+            $out[$group] += $amount;
+            $out['total'] += $amount;
+            $out['by_category'][] = [
+                'category' => $code,
+                'label' => function_exists('\\SoftNova\\Core\\expense_category_label')
+                    ? \SoftNova\Core\expense_category_label($code)
+                    : $code,
+                'group' => $group,
+                'group_label' => function_exists('\\SoftNova\\Core\\expense_group_label')
+                    ? \SoftNova\Core\expense_group_label($group)
+                    : $group,
+                'total' => $amount,
+                'cnt' => (int)$row['cnt'],
+            ];
+        }
+
+        foreach (['fixed', 'financial', 'operating'] as $g) {
+            $out['by_group'][] = [
+                'group' => $g,
+                'label' => function_exists('\\SoftNova\\Core\\expense_group_label')
+                    ? \SoftNova\Core\expense_group_label($g)
+                    : $g,
+                'total' => $out[$g],
+            ];
+        }
+
+        return $out;
     }
 
     /**

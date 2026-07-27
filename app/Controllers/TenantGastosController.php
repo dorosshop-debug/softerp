@@ -47,30 +47,80 @@ class TenantGastosController extends TenantController
             return;
         }
         
-        $total = (int)$this->query("SELECT COUNT(*) as c FROM expenses")->fetch()['c'];
+        $groupFilter = trim((string)$this->request->get('group', ''));
+        $allowedGroups = ['fixed', 'financial', 'operating'];
+        if (!in_array($groupFilter, $allowedGroups, true)) {
+            $groupFilter = '';
+        }
+
+        $where = '1=1';
+        $params = [];
+        if ($groupFilter !== '') {
+            $cats = [];
+            foreach (\SoftNova\Core\expense_category_groups() as $gKey => $g) {
+                if ($gKey === $groupFilter) {
+                    $cats = $g['categories'] ?? [];
+                    break;
+                }
+            }
+            if ($cats) {
+                $ph = implode(',', array_fill(0, count($cats), '?'));
+                $where .= " AND e.category IN ({$ph})";
+                $params = array_merge($params, $cats);
+            }
+        }
+
+        $total = (int)$this->query(
+            "SELECT COUNT(*) as c FROM expenses e WHERE {$where}",
+            $params
+        )->fetch()['c'];
         $pagination = $this->paginate($total);
-        
+
         $expenses = $this->query(
             "SELECT e.*, s.name as supplier_name, u.name as user_name
              FROM expenses e
              LEFT JOIN suppliers s ON e.supplier_id = s.id
              LEFT JOIN users u ON e.user_id = u.id
+             WHERE {$where}
              ORDER BY e.expense_date DESC, e.id DESC
-             LIMIT {$pagination['perPage']} OFFSET {$pagination['offset']}"
+             LIMIT {$pagination['perPage']} OFFSET {$pagination['offset']}",
+            $params
         )->fetchAll();
-        
-        $monthTotal = (float)$this->query(
-            "SELECT COALESCE(SUM(amount), 0) as t FROM expenses
-             WHERE MONTH(expense_date) = MONTH(CURDATE()) AND YEAR(expense_date) = YEAR(CURDATE())"
-        )->fetch()['t'];
-        
+
+        $monthRows = $this->query(
+            "SELECT COALESCE(category,'general') category, COALESCE(SUM(amount), 0) t
+             FROM expenses
+             WHERE MONTH(expense_date) = MONTH(CURDATE()) AND YEAR(expense_date) = YEAR(CURDATE())
+             GROUP BY COALESCE(category,'general')"
+        )->fetchAll();
+        $monthFixed = 0.0;
+        $monthFinancial = 0.0;
+        $monthOperating = 0.0;
+        $monthTotal = 0.0;
+        foreach ($monthRows as $row) {
+            $amt = (float)$row['t'];
+            $monthTotal += $amt;
+            $g = \SoftNova\Core\expense_category_group((string)$row['category']);
+            if ($g === 'fixed') {
+                $monthFixed += $amt;
+            } elseif ($g === 'financial') {
+                $monthFinancial += $amt;
+            } else {
+                $monthOperating += $amt;
+            }
+        }
+
         $suppliers = $this->query(
             "SELECT id, name FROM suppliers WHERE status = 'active' ORDER BY name"
         )->fetchAll();
-        
+
         $this->view('tenant.gastos', $this->tenantViewData([
             'expenses' => $expenses,
             'monthTotal' => $monthTotal,
+            'monthFixed' => $monthFixed,
+            'monthFinancial' => $monthFinancial,
+            'monthOperating' => $monthOperating,
+            'groupFilter' => $groupFilter,
             'suppliers' => $suppliers,
             'pagination' => $pagination,
         ]));
