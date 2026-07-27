@@ -26,7 +26,7 @@ class TenantContabilidadController extends TenantController
             $redirect = match ($action) {
                 'save-integration', 'set-active-provider', 'save-catalog-integration' => '/app/contabilidad?tab=integrations',
                 'save-account' => '/app/contabilidad?tab=accounts',
-                'save-commission-rates' => '/app/contabilidad?tab=accounts',
+                'save-commission-rates', 'save-commission-config', 'save-user-commission', 'settle-commissions' => '/app/contabilidad?tab=commissions',
                 'period' => '/app/contabilidad?tab=periods',
                 'manual-entry' => '/app/contabilidad?tab=entries',
                 default => '/app/contabilidad',
@@ -38,6 +38,9 @@ class TenantContabilidadController extends TenantController
                 'manual-entry' => $this->createManualEntry(),
                 'save-account' => $this->saveAccount(),
                 'save-commission-rates' => $this->saveCommissionRates(),
+                'save-commission-config' => $this->saveCommissionConfig(),
+                'save-user-commission' => $this->saveUserCommission(),
+                'settle-commissions' => $this->settleCommissions(),
                 'period' => $this->updatePeriod(),
                 'sync' => $this->syncOperations(),
                 'save-integration' => $this->saveIntegration(),
@@ -107,6 +110,21 @@ class TenantContabilidadController extends TenantController
             : [];
         $accountAudit = $this->accounting->auditCriticalAccounts();
 
+        $commissionCfg = [];
+        $commissionList = ['rows' => [], 'pending' => 0, 'paid' => 0, 'cancelled' => 0];
+        $commissionUsers = [];
+        if ($tab === 'commissions') {
+            $comm = new \SoftNova\Services\CommissionService($this->db);
+            $commissionCfg = $comm->config();
+            $commissionUsers = $comm->userRates();
+            $commissionList = $comm->list([
+                'from' => $from,
+                'to' => $to,
+                'kind' => (string)$this->request->get('kind', ''),
+                'status' => (string)$this->request->get('status', ''),
+            ], 150);
+        }
+
         $this->view('tenant.contabilidad', $this->tenantViewData([
             'tab' => $tab,
             'dateFrom' => $from,
@@ -126,6 +144,9 @@ class TenantContabilidadController extends TenantController
             'traceMovements' => $trace['rows'],
             'accountAudit' => $accountAudit,
             'mlOAuthRedirect' => \SoftNova\Core\route('app/contabilidad') . '?action=ml-oauth-callback',
+            'commissionCfg' => $commissionCfg,
+            'commissionList' => $commissionList,
+            'commissionUsers' => $commissionUsers,
         ]));
     }
 
@@ -216,16 +237,83 @@ class TenantContabilidadController extends TenantController
 
     private function saveCommissionRates(): void
     {
+        // Compatibilidad con el formulario antiguo de Cuentas: solo tasas de pasarela.
         TenantMiddleware::authorize('contabilidad', 'edit');
-        $dataphone = max(0, min(30, (float)$this->request->post('dataphone_commission_rate', 2.5)));
-        $card = max(0, min(30, (float)$this->request->post('card_commission_rate', 2.8)));
-        $stmt = $this->db->prepare(
-            "INSERT INTO accounting_settings (setting_key, setting_value) VALUES (?, ?)
-             ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)"
-        );
-        $stmt->execute(['dataphone_commission_rate', (string)$dataphone]);
-        $stmt->execute(['card_commission_rate', (string)$card]);
-        $this->respond(true, 'Tasas de comisión actualizadas', '/app/contabilidad?tab=accounts');
+        try {
+            $svc = new \SoftNova\Services\CommissionService($this->db);
+            $cfg = $svc->config();
+            $svc->saveConfig([
+                'seller_enabled' => $cfg['seller_enabled'],
+                'seller_rate' => $cfg['seller_rate'],
+                'seller_base' => $cfg['seller_base'],
+                'seller_trigger' => $cfg['seller_trigger'],
+                'seller_auto_expense' => $cfg['seller_auto_expense'],
+                'gateway_auto' => $cfg['gateway_auto'],
+                'dataphone_rate' => $this->request->post('dataphone_commission_rate', $cfg['dataphone_rate']),
+                'card_rate' => $this->request->post('card_commission_rate', $cfg['card_rate']),
+                'payment_link_rate' => $cfg['payment_link_rate'],
+                'debit_card_rate' => $cfg['debit_card_rate'],
+                'credit_card_rate' => $cfg['credit_card_rate'],
+            ]);
+            $this->respond(true, 'Tasas de pasarela actualizadas. Ver panel Comisiones para el resto.', '/app/contabilidad?tab=commissions');
+        } catch (\Throwable $e) {
+            $this->respond(false, $e->getMessage(), '/app/contabilidad?tab=accounts');
+        }
+    }
+
+    private function saveCommissionConfig(): void
+    {
+        TenantMiddleware::authorize('contabilidad', 'edit');
+        try {
+            $svc = new \SoftNova\Services\CommissionService($this->db);
+            $svc->saveConfig([
+                'seller_enabled' => $this->request->post('seller_enabled', '0') === '1',
+                'seller_rate' => $this->request->post('seller_rate', '3'),
+                'seller_base' => $this->request->post('seller_base', 'total'),
+                'seller_trigger' => $this->request->post('seller_trigger', 'on_payment'),
+                'seller_auto_expense' => $this->request->post('seller_auto_expense', '0') === '1',
+                'gateway_auto' => $this->request->post('gateway_auto', '0') === '1',
+                'dataphone_rate' => $this->request->post('dataphone_rate', '2.5'),
+                'card_rate' => $this->request->post('card_rate', '2.8'),
+                'payment_link_rate' => $this->request->post('payment_link_rate', '2.5'),
+                'debit_card_rate' => $this->request->post('debit_card_rate', '1.5'),
+                'credit_card_rate' => $this->request->post('credit_card_rate', '2.8'),
+            ]);
+            $this->respond(true, 'Parámetros de comisiones guardados', '/app/contabilidad?tab=commissions');
+        } catch (\Throwable $e) {
+            $this->respond(false, $e->getMessage(), '/app/contabilidad?tab=commissions');
+        }
+    }
+
+    private function saveUserCommission(): void
+    {
+        TenantMiddleware::authorize('contabilidad', 'edit');
+        try {
+            $svc = new \SoftNova\Services\CommissionService($this->db);
+            $svc->saveUserRate(
+                (int)$this->request->post('user_id', 0),
+                (float)$this->request->post('rate', 0),
+                $this->request->post('enabled', '0') === '1'
+            );
+            $this->respond(true, 'Tasa de vendedor actualizada', '/app/contabilidad?tab=commissions');
+        } catch (\Throwable $e) {
+            $this->respond(false, $e->getMessage(), '/app/contabilidad?tab=commissions');
+        }
+    }
+
+    private function settleCommissions(): void
+    {
+        TenantMiddleware::authorize('contabilidad', 'edit');
+        try {
+            $ids = $this->request->post('ids', []);
+            if (!is_array($ids)) {
+                $ids = [];
+            }
+            $n = (new \SoftNova\Services\CommissionService($this->db))->settle($ids, false);
+            $this->respond(true, $n . ' comisión(es) liquidada(s)', '/app/contabilidad?tab=commissions');
+        } catch (\Throwable $e) {
+            $this->respond(false, $e->getMessage(), '/app/contabilidad?tab=commissions');
+        }
     }
 
     private function testCatalogIntegration(): void

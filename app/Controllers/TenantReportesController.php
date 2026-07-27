@@ -102,6 +102,14 @@ class TenantReportesController extends TenantController
         $marginByChannel = $accounting->marginByChannel($dateFrom, $dateTo);
         $dataphoneRecon = $accounting->dataphoneReconciliation($dateFrom, $dateTo);
 
+        $commissionSummary = ['pending' => 0.0, 'paid' => 0.0];
+        try {
+            $comm = new \SoftNova\Services\CommissionService($this->db);
+            $commissionSummary = $comm->list(['from' => $dateFrom, 'to' => $dateTo], 1);
+        } catch (\Throwable $e) {
+            // ignore
+        }
+
         $profitSummary = [
             'revenue' => $revenue,
             'cost' => $costOfSales,
@@ -324,6 +332,7 @@ class TenantReportesController extends TenantController
             'marginByChannel' => $marginByChannel,
             'dataphoneRecon' => $dataphoneRecon,
             'expenseBreakdown' => $expenseBreakdown,
+            'commissionSummary' => $commissionSummary,
         ]));
     }
     

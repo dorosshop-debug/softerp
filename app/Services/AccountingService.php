@@ -807,6 +807,30 @@ class AccountingService
     }
 
     /**
+     * Gasto de comisión de vendedor con cuenta específica (510508).
+     */
+    public function postCommissionExpense(
+        int $expenseId,
+        string $expenseAccountCode,
+        float $amount,
+        string $date,
+        string $description,
+        string $creditAccountCode
+    ): int {
+        return $this->postEntry(
+            $date,
+            $description,
+            [
+                $this->line($expenseAccountCode, $amount, 0, 'Comisión sobre ventas'),
+                $this->line($creditAccountCode, 0, $amount, 'Comisión por pagar / banco'),
+            ],
+            'expense',
+            $expenseId,
+            'created'
+        );
+    }
+
+    /**
      * Asiento detallado de nómina: sueldos + aportes patronales/parafiscales
      * contra CxP de seguridad social y banco/caja (neto).
      */

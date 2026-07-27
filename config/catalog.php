@@ -39,6 +39,7 @@ return [
         'withholding_ica' => 'Retención ICA',
         'withholding_iva' => 'Retención IVA',
         // Otros
+        'sales_commission' => 'Comisión de vendedores',
         'general' => 'General / operativo',
         'other' => 'Otro',
     ],
@@ -74,7 +75,7 @@ return [
             'label' => 'Gastos operativos / otros',
             'account_setting' => 'general_expense_account',
             'default_account' => '510505',
-            'categories' => ['marketing', 'general', 'other'],
+            'categories' => ['marketing', 'sales_commission', 'general', 'other'],
         ],
     ],
     'product_channels' => [

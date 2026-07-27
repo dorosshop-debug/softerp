@@ -519,8 +519,10 @@ INSERT INTO `accounting_accounts`
 ('413501','Ingresos por ventas','revenue','credit',1),
 ('417501','Devoluciones en ventas','revenue','debit',1),
 ('510505','Gastos generales','expense','debit',1),
+('510508','Comisiones sobre ventas','expense','debit',1),
 ('513505','Servicios','expense','debit',1),
 ('519595','Otros gastos operacionales','expense','debit',1),
+('530505','Gastos financieros / comisiones','expense','debit',1),
 ('613501','Costo de ventas','expense','debit',1);
 
 INSERT INTO `accounting_settings` (`setting_key`,`setting_value`) VALUES
@@ -537,7 +539,51 @@ INSERT INTO `accounting_settings` (`setting_key`,`setting_value`) VALUES
 ('general_expense_account','510505'),
 ('fixed_expense_account','510505'),
 ('financial_expense_account','530505'),
-('cost_of_sales_account','613501');
+('cost_of_sales_account','613501'),
+('seller_commission_enabled','0'),
+('seller_commission_rate','3'),
+('seller_commission_base','total'),
+('seller_commission_trigger','on_payment'),
+('seller_commission_auto_expense','1'),
+('gateway_commission_auto','1'),
+('dataphone_commission_rate','2.5'),
+('card_commission_rate','2.8'),
+('payment_link_commission_rate','2.5'),
+('debit_card_commission_rate','1.5'),
+('credit_card_commission_rate','2.8'),
+('seller_commission_account','510508'),
+('gateway_commission_account','530505');
+
+CREATE TABLE IF NOT EXISTS `user_commission_rates` (
+  `user_id` int(10) unsigned NOT NULL,
+  `rate` decimal(8,4) NOT NULL DEFAULT 0.0000,
+  `enabled` tinyint(1) NOT NULL DEFAULT 1,
+  `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  PRIMARY KEY (`user_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `sales_commissions` (
+  `id` int(10) unsigned NOT NULL AUTO_INCREMENT,
+  `commission_kind` varchar(20) NOT NULL DEFAULT 'seller',
+  `sale_id` int(10) unsigned NOT NULL,
+  `sale_payment_id` int(10) unsigned DEFAULT NULL,
+  `user_id` int(10) unsigned DEFAULT NULL,
+  `payment_method` varchar(50) DEFAULT NULL,
+  `base_amount` decimal(12,2) NOT NULL DEFAULT 0.00,
+  `rate` decimal(8,4) NOT NULL DEFAULT 0.0000,
+  `amount` decimal(12,2) NOT NULL DEFAULT 0.00,
+  `status` enum('pending','paid','cancelled') NOT NULL DEFAULT 'pending',
+  `expense_id` int(10) unsigned DEFAULT NULL,
+  `notes` varchar(255) DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_sc_sale` (`sale_id`),
+  KEY `idx_sc_user` (`user_id`),
+  KEY `idx_sc_status` (`status`),
+  KEY `idx_sc_kind` (`commission_kind`),
+  KEY `idx_sc_payment` (`sale_payment_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Compras a proveedores
 CREATE TABLE IF NOT EXISTS `purchases` (

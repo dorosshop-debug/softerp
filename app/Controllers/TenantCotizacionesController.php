@@ -379,6 +379,12 @@ class TenantCotizacionesController extends TenantController
                 error_log('Contabilidad venta (cotizacion) ' . $saleId . ': ' . $e->getMessage());
             }
 
+            try {
+                (new \SoftNova\Services\CommissionService($this->db))->processSale($saleId);
+            } catch (\Throwable $e) {
+                error_log('Comisiones venta (cotizacion) ' . $saleId . ': ' . $e->getMessage());
+            }
+
             // Solo el efectivo entra a la caja física (evita descuadre con contabilidad).
             if ($cashAmount > 0 && $paymentMethod === 'cash') {
                 $label = ($paymentType === 'credit' && $paymentStatus !== 'paid')

@@ -309,6 +309,12 @@ class TenantVentasController extends TenantController
                 error_log('Contabilidad venta ' . $saleId . ': ' . $e->getMessage());
             }
 
+            try {
+                (new \SoftNova\Services\CommissionService($this->db))->processSale($saleId);
+            } catch (\Throwable $e) {
+                error_log('Comisiones venta ' . $saleId . ': ' . $e->getMessage());
+            }
+
             // Solo el efectivo entra a la caja física; tarjeta/transferencia van al
             // banco en contabilidad, por lo que no deben inflar el arqueo de caja.
             if ($cashAmount > 0 && $paymentMethod === 'cash') {
@@ -437,6 +443,12 @@ class TenantVentasController extends TenantController
                 error_log('Contabilidad abono ' . $paymentId . ': ' . $e->getMessage());
             }
 
+            try {
+                (new \SoftNova\Services\CommissionService($this->db))->processPayment($paymentId);
+            } catch (\Throwable $e) {
+                error_log('Comisiones abono ' . $paymentId . ': ' . $e->getMessage());
+            }
+
             // Solo el efectivo entra a la caja física (evita descuadre con contabilidad).
             if ($method === 'cash') {
                 $this->cash->registerIncome($amount, 'Abono: ' . $sale['invoice_number'], 'sale_payment', $saleId);
@@ -469,6 +481,11 @@ class TenantVentasController extends TenantController
             } catch (\Throwable $accountingError) {
                 error_log('Accounting sale reversal: ' . $accountingError->getMessage());
                 $msg .= ' La reversión contable quedó pendiente de revisión.';
+            }
+            try {
+                (new \SoftNova\Services\CommissionService($this->db))->cancelForSale($id);
+            } catch (\Throwable $e) {
+                error_log('Comisiones cancel venta ' . $id . ': ' . $e->getMessage());
             }
             if ($result['reversed_cash'] > 0) {
                 $msg .= ' Caja ajustada: -' . $this->formatMoney($result['reversed_cash']);

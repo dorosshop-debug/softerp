@@ -29,6 +29,7 @@ $dateFrom = $dateFrom ?? date('Y-m-d', strtotime('-30 days'));
 $dateTo = $dateTo ?? date('Y-m-d');
 $profitSummary = $profitSummary ?? ['revenue'=>0,'cost'=>0,'gross'=>0,'expenses'=>0,'expenses_fixed'=>0,'expenses_financial'=>0,'expenses_operating'=>0,'net'=>0,'margin'=>0];
 $expenseBreakdown = $expenseBreakdown ?? ['by_group'=>[], 'by_category'=>[], 'fixed'=>0,'financial'=>0,'operating'=>0,'total'=>0];
+$commissionSummary = $commissionSummary ?? ['pending'=>0,'paid'=>0];
 $marginByChannel = $marginByChannel ?? [];
 $dataphoneRecon = $dataphoneRecon ?? [
     'sales_total' => 0, 'expected_total' => 0, 'recorded_total' => 0, 'gap' => 0,
@@ -249,7 +250,7 @@ $planName = htmlspecialchars($plan['plan_name'] ?? 'Plan Basico');
         </div>
     </div>
 
-    <!-- Gastos fijos vs financieros -->
+    <!-- Gastos por tipo -->
     <div class="card neumorphic">
         <div class="card-header"><h3>Gastos por tipo</h3></div>
         <div class="card-body">
@@ -268,6 +269,11 @@ $planName = htmlspecialchars($plan['plan_name'] ?? 'Plan Basico');
                     </div>
                 <?php endforeach; ?>
             <?php endif; ?>
+            <div style="margin-top:12px;padding-top:8px;border-top:1px solid var(--color-border);font-size:13px;">
+                <div style="display:flex;justify-content:space-between;"><span>Comisiones pendientes</span><strong style="color:#F59E0B;"><?php echo fmtR((float)$commissionSummary['pending'], $currency); ?></strong></div>
+                <div style="display:flex;justify-content:space-between;"><span>Comisiones registradas</span><strong><?php echo fmtR((float)$commissionSummary['paid'], $currency); ?></strong></div>
+                <a href="<?php echo $viewInstance->route('app/contabilidad'); ?>?tab=commissions" style="font-size:12px;">Gestionar comisiones →</a>
+            </div>
         </div>
     </div>
 

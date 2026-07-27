@@ -58,9 +58,15 @@ $tabs = [
     'trial' => 'Balance de prueba',
     'statements' => 'Estados financieros',
     'accounts' => 'Plan de cuentas',
+    'commissions' => 'Comisiones',
     'periods' => 'Periodos',
     'integrations' => 'Integraciones',
 ];
+$commissionCfg = $commissionCfg ?? [];
+$commissionList = $commissionList ?? ['rows' => [], 'pending' => 0, 'paid' => 0, 'cancelled' => 0];
+$commissionUsers = $commissionUsers ?? [];
+$kindFilter = (string)($_GET['kind'] ?? '');
+$statusFilterComm = (string)($_GET['status'] ?? '');
 $catalogProviders = ['woocommerce', 'mercadolibre'];
 if (in_array($selectedProvider, $catalogProviders, true)) {
     // ok
@@ -276,24 +282,10 @@ foreach ($accounts as $account) {
                     <li><?php echo htmlspecialchars($note); ?></li>
                 <?php endforeach; ?>
             </ul>
-            <?php if ($canEdit): ?>
-            <form method="POST" action="<?php echo $viewInstance->route('app/contabilidad'); ?>?action=save-commission-rates" data-ajax="true" class="form-grid">
-                <?php echo \SoftNova\Core\csrf_field(); ?>
-                <div class="form-group">
-                    <label>% comisión datáfono</label>
-                    <input class="form-control" type="number" step="0.01" min="0" max="30" name="dataphone_commission_rate"
-                           value="<?php echo htmlspecialchars((string)($accountAudit['settings']['dataphone_commission_rate'] ?? '2.5')); ?>">
-                </div>
-                <div class="form-group">
-                    <label>% comisión tarjetas / link</label>
-                    <input class="form-control" type="number" step="0.01" min="0" max="30" name="card_commission_rate"
-                           value="<?php echo htmlspecialchars((string)($accountAudit['settings']['card_commission_rate'] ?? '2.8')); ?>">
-                </div>
-                <div class="form-group" style="align-self:end;">
-                    <button type="submit" class="btn btn-secondary">Guardar tasas</button>
-                </div>
-            </form>
-            <?php endif; ?>
+            <p style="font-size:13px;margin:0;">
+                Las comisiones de vendedor y pasarela (datáfono, tarjetas, link) se parametrizan y liquidan en
+                <a href="<?php echo $viewInstance->route('app/contabilidad'); ?>?tab=commissions">Contabilidad → Comisiones</a>.
+            </p>
         </div>
     </div>
     <div class="card neumorphic"><div class="card-body"><div class="table-container"><table>
@@ -308,6 +300,155 @@ foreach ($accounts as $account) {
             <td><?php if ($canEdit): ?><button type="button" class="btn btn-sm btn-secondary" onclick='editAccountingAccount(<?php echo json_encode($account, JSON_HEX_APOS | JSON_HEX_QUOT); ?>)'>Editar</button><?php endif; ?></td>
         </tr><?php endforeach; ?></tbody>
     </table></div></div></div>
+
+<?php elseif ($tab === 'commissions'): ?>
+    <?php
+    function fmtComm(float $a, array $c): string {
+        return ($c['symbol'] ?? '$') . ' ' . number_format($a, (int)($c['decimals'] ?? 2), $c['decimal'] ?? ',', $c['thousands'] ?? '.');
+    }
+    ?>
+    <div class="stats-grid" style="margin-bottom:16px;">
+        <div class="stat-card neumorphic"><h4>Pendientes</h4><div class="stat-value" style="color:#F59E0B;"><?php echo fmtComm((float)$commissionList['pending'], $currency); ?></div></div>
+        <div class="stat-card neumorphic"><h4>Pagadas / registradas</h4><div class="stat-value" style="color:#10B981;"><?php echo fmtComm((float)$commissionList['paid'], $currency); ?></div></div>
+        <div class="stat-card neumorphic"><h4>Canceladas</h4><div class="stat-value"><?php echo fmtComm((float)$commissionList['cancelled'], $currency); ?></div></div>
+    </div>
+
+    <div class="card neumorphic" style="margin-bottom:16px;">
+        <div class="card-header"><h3>Parámetros de comisiones</h3></div>
+        <div class="card-body">
+            <?php if ($canEdit): ?>
+            <form method="POST" action="<?php echo $viewInstance->route('app/contabilidad'); ?>?action=save-commission-config" data-ajax="true">
+                <?php echo \SoftNova\Core\csrf_field(); ?>
+                <h4 style="margin:0 0 10px;">Comisión de vendedor</h4>
+                <div class="form-grid">
+                    <div class="form-group"><label><input type="checkbox" name="seller_enabled" value="1" <?php echo !empty($commissionCfg['seller_enabled']) ? 'checked' : ''; ?>> Activar comisión de vendedor</label></div>
+                    <div class="form-group"><label><input type="checkbox" name="seller_auto_expense" value="1" <?php echo !empty($commissionCfg['seller_auto_expense']) ? 'checked' : ''; ?>> Generar gasto/asiento al instante</label></div>
+                    <div class="form-group"><label>% global (si el usuario no tiene tasa propia)</label>
+                        <input class="form-control" type="number" step="0.01" min="0" max="100" name="seller_rate" value="<?php echo htmlspecialchars((string)($commissionCfg['seller_rate'] ?? 3)); ?>">
+                    </div>
+                    <div class="form-group"><label>Base de cálculo</label>
+                        <select class="form-control" name="seller_base">
+                            <option value="total" <?php echo ($commissionCfg['seller_base'] ?? '') === 'total' ? 'selected' : ''; ?>>Total de la venta / abono</option>
+                            <option value="subtotal" <?php echo ($commissionCfg['seller_base'] ?? '') === 'subtotal' ? 'selected' : ''; ?>>Subtotal (sin IVA)</option>
+                            <option value="profit" <?php echo ($commissionCfg['seller_base'] ?? '') === 'profit' ? 'selected' : ''; ?>>Utilidad (total − costo)</option>
+                        </select>
+                    </div>
+                    <div class="form-group"><label>¿Cuándo se genera?</label>
+                        <select class="form-control" name="seller_trigger">
+                            <option value="on_payment" <?php echo ($commissionCfg['seller_trigger'] ?? '') === 'on_payment' ? 'selected' : ''; ?>>Al cobrar (recomendado)</option>
+                            <option value="on_sale" <?php echo ($commissionCfg['seller_trigger'] ?? '') === 'on_sale' ? 'selected' : ''; ?>>Al crear la venta (sobre el total)</option>
+                        </select>
+                    </div>
+                </div>
+                <h4 style="margin:18px 0 10px;">Comisión de pasarela (datáfono / tarjetas / link)</h4>
+                <div class="form-grid">
+                    <div class="form-group" style="grid-column:1/-1;"><label><input type="checkbox" name="gateway_auto" value="1" <?php echo !empty($commissionCfg['gateway_auto']) ? 'checked' : ''; ?>> Generar automáticamente al registrar el pago</label></div>
+                    <div class="form-group"><label>% Datáfono</label><input class="form-control" type="number" step="0.01" name="dataphone_rate" value="<?php echo htmlspecialchars((string)($commissionCfg['dataphone_rate'] ?? 2.5)); ?>"></div>
+                    <div class="form-group"><label>% Link de pago</label><input class="form-control" type="number" step="0.01" name="payment_link_rate" value="<?php echo htmlspecialchars((string)($commissionCfg['payment_link_rate'] ?? 2.5)); ?>"></div>
+                    <div class="form-group"><label>% Débito</label><input class="form-control" type="number" step="0.01" name="debit_card_rate" value="<?php echo htmlspecialchars((string)($commissionCfg['debit_card_rate'] ?? 1.5)); ?>"></div>
+                    <div class="form-group"><label>% Crédito</label><input class="form-control" type="number" step="0.01" name="credit_card_rate" value="<?php echo htmlspecialchars((string)($commissionCfg['credit_card_rate'] ?? 2.8)); ?>"></div>
+                    <div class="form-group"><label>% Tarjeta genérica</label><input class="form-control" type="number" step="0.01" name="card_rate" value="<?php echo htmlspecialchars((string)($commissionCfg['card_rate'] ?? 2.8)); ?>"></div>
+                </div>
+                <button type="submit" class="btn btn-primary" style="margin-top:12px;">Guardar parámetros</button>
+            </form>
+            <?php else: ?>
+                <p class="dashboard-empty">Sin permiso de edición.</p>
+            <?php endif; ?>
+        </div>
+    </div>
+
+    <div class="card neumorphic" style="margin-bottom:16px;">
+        <div class="card-header"><h3>Tasas por vendedor (usuario)</h3></div>
+        <div class="card-body"><div class="table-container"><table>
+            <thead><tr><th>Usuario</th><th>Rol</th><th>% comisión</th><th>Activa</th><th></th></tr></thead>
+            <tbody>
+            <?php foreach ($commissionUsers as $u): ?>
+                <tr>
+                    <td><?php echo htmlspecialchars($u['name']); ?><br><small><?php echo htmlspecialchars($u['email'] ?? ''); ?></small></td>
+                    <td><?php echo htmlspecialchars($u['role'] ?? ''); ?></td>
+                    <?php if ($canEdit): ?>
+                    <td colspan="3">
+                        <form method="POST" action="<?php echo $viewInstance->route('app/contabilidad'); ?>?action=save-user-commission" data-ajax="true" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                            <?php echo \SoftNova\Core\csrf_field(); ?>
+                            <input type="hidden" name="user_id" value="<?php echo (int)$u['id']; ?>">
+                            <input class="form-control" style="width:100px;" type="number" step="0.01" min="0" max="100" name="rate" value="<?php echo htmlspecialchars((string)($u['rate'] ?? ($commissionCfg['seller_rate'] ?? 0))); ?>">
+                            <label><input type="checkbox" name="enabled" value="1" <?php echo !empty($u['rate_enabled']) ? 'checked' : ''; ?>> Usar tasa</label>
+                            <button class="btn btn-sm btn-secondary" type="submit">Guardar</button>
+                        </form>
+                    </td>
+                    <?php else: ?>
+                    <td><?php echo $u['rate'] !== null ? (float)$u['rate'] . '%' : 'Global'; ?></td>
+                    <td><?php echo !empty($u['rate_enabled']) ? 'Sí' : '—'; ?></td>
+                    <td></td>
+                    <?php endif; ?>
+                </tr>
+            <?php endforeach; ?>
+            </tbody>
+        </table></div>
+        <p style="font-size:12px;color:var(--color-text-secondary);margin-top:8px;">Sin «Usar tasa» → aplica el % global. Con tasa 0% activa → ese usuario no genera comisión.</p>
+        </div>
+    </div>
+
+    <div class="card neumorphic">
+        <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+            <h3 style="margin:0;">Movimientos de comisiones</h3>
+            <form method="GET" action="<?php echo $viewInstance->route('app/contabilidad'); ?>" style="display:flex;gap:6px;flex-wrap:wrap;">
+                <input type="hidden" name="tab" value="commissions">
+                <input type="hidden" name="from" value="<?php echo htmlspecialchars($dateFrom); ?>">
+                <input type="hidden" name="to" value="<?php echo htmlspecialchars($dateTo); ?>">
+                <select name="kind" class="form-control" style="width:auto;">
+                    <option value="">Todos los tipos</option>
+                    <option value="seller" <?php echo $kindFilter === 'seller' ? 'selected' : ''; ?>>Vendedor</option>
+                    <option value="gateway" <?php echo $kindFilter === 'gateway' ? 'selected' : ''; ?>>Pasarela</option>
+                </select>
+                <select name="status" class="form-control" style="width:auto;">
+                    <option value="">Todos los estados</option>
+                    <option value="pending" <?php echo $statusFilterComm === 'pending' ? 'selected' : ''; ?>>Pendiente</option>
+                    <option value="paid" <?php echo $statusFilterComm === 'paid' ? 'selected' : ''; ?>>Pagada</option>
+                    <option value="cancelled" <?php echo $statusFilterComm === 'cancelled' ? 'selected' : ''; ?>>Cancelada</option>
+                </select>
+                <button class="btn btn-secondary" type="submit">Filtrar</button>
+            </form>
+        </div>
+        <div class="card-body">
+            <?php if ($canEdit): ?>
+            <form method="POST" action="<?php echo $viewInstance->route('app/contabilidad'); ?>?action=settle-commissions" data-ajax="true">
+                <?php echo \SoftNova\Core\csrf_field(); ?>
+            <?php endif; ?>
+            <div class="table-container"><table>
+                <thead><tr>
+                    <?php if ($canEdit): ?><th></th><?php endif; ?>
+                    <th>Fecha</th><th>Tipo</th><th>Venta</th><th>Vendedor / medio</th><th>Base</th><th>%</th><th>Monto</th><th>Estado</th>
+                </tr></thead>
+                <tbody>
+                <?php if (empty($commissionList['rows'])): ?>
+                    <tr><td colspan="9" class="dashboard-empty">Sin comisiones en el periodo. Active los parámetros y registre ventas.</td></tr>
+                <?php endif; ?>
+                <?php foreach ($commissionList['rows'] as $c): ?>
+                    <tr>
+                        <?php if ($canEdit): ?>
+                        <td><?php if (($c['status'] ?? '') === 'pending'): ?>
+                            <input type="checkbox" name="ids[]" value="<?php echo (int)$c['id']; ?>">
+                        <?php endif; ?></td>
+                        <?php endif; ?>
+                        <td><?php echo date('d/m/Y H:i', strtotime($c['created_at'])); ?></td>
+                        <td><?php echo ($c['commission_kind'] ?? '') === 'gateway' ? 'Pasarela' : 'Vendedor'; ?></td>
+                        <td><?php echo htmlspecialchars($c['invoice_number'] ?? ('#' . $c['sale_id'])); ?></td>
+                        <td><?php echo htmlspecialchars($c['seller_name'] ?? ($c['payment_method'] ?? '—')); ?></td>
+                        <td><?php echo fmtComm((float)$c['base_amount'], $currency); ?></td>
+                        <td><?php echo (float)$c['rate']; ?>%</td>
+                        <td><strong><?php echo fmtComm((float)$c['amount'], $currency); ?></strong></td>
+                        <td><span class="badge"><?php echo htmlspecialchars($c['status']); ?></span></td>
+                    </tr>
+                <?php endforeach; ?>
+                </tbody>
+            </table></div>
+            <?php if ($canEdit): ?>
+                <button type="submit" class="btn btn-primary" style="margin-top:12px;" onclick="return confirm('¿Liquidar seleccionadas (crear gasto + asiento)?')">Liquidar seleccionadas</button>
+            </form>
+            <?php endif; ?>
+        </div>
+    </div>
 
 <?php elseif ($tab === 'periods'): ?>
     <div class="card neumorphic"><div class="card-header"><h3>Cierre de periodos</h3></div><div class="card-body">
