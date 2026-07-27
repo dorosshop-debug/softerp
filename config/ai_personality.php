@@ -14,8 +14,9 @@ return function (array $activeModules = []) {
         'clientes'     => 'Orientar sobre clientes activos, seguimiento comercial básico e historial de compras.',
         'caja'         => 'Explicar movimientos de caja, cuadres, ingresos/egresos recientes y bases de efectivo inicial.',
         'cotizaciones' => 'Analizar presupuestos emitidos, estados de cotizaciones (ganadas/pendientes) y conversión de cotización a factura.',
-        'gastos'       => 'Resumir gastos recientes, categorías frecuentes y su impacto operativo.',
+        'gastos'       => 'Resumir gastos fijos vs financieros (comisiones, retenciones) y su impacto.',
         'contabilidad' => 'Orientar sobre plan de cuentas, libro diario/mayor, balance de prueba y estados financieros del módulo nativo.',
+        'nomina'       => 'Orientar sobre empleados, liquidaciones mensuales, aportes salud/pensión y neto a pagar.',
         'reportes'     => 'Guiar al usuario a los reportes útiles del ERP según la pregunta formulada.',
     ];
 
@@ -74,6 +75,7 @@ return function (array $activeModules = []) {
                 '¿Cuáles son los requisitos de una Factura Electrónica según la DIAN?',
                 in_array('cotizaciones', $activeModules) ? 'Resumen de cotizaciones pendientes' : null,
                 in_array('caja', $activeModules) ? '¿Cómo está el movimiento de caja actual?' : null,
+                in_array('nomina', $activeModules) ? '¿Cuánto debo pagar de nómina este mes?' : null,
             ]),
         ],
     ];

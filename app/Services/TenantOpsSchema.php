@@ -78,6 +78,89 @@ class TenantOpsSchema
         // Unificar payment_method a VARCHAR (evita ENUM frágil en hosting restringido)
         self::paymentMethodToVarchar($db, 'sales');
         self::paymentMethodToVarchar($db, 'expenses');
+
+        self::ensurePayrollSchema($db);
+    }
+
+    private static function ensurePayrollSchema(\PDO $db): void
+    {
+        $db->exec(
+            "CREATE TABLE IF NOT EXISTS employees (
+                id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+                document_type VARCHAR(20) NOT NULL DEFAULT 'CC',
+                document_number VARCHAR(40) NOT NULL,
+                first_name VARCHAR(120) NOT NULL,
+                last_name VARCHAR(120) NOT NULL DEFAULT '',
+                email VARCHAR(180) NULL,
+                phone VARCHAR(40) NULL,
+                position_title VARCHAR(120) NULL,
+                hire_date DATE NULL,
+                salary DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+                contract_type VARCHAR(40) NOT NULL DEFAULT 'indefinido',
+                payment_method VARCHAR(50) NOT NULL DEFAULT 'transfer',
+                bank_account VARCHAR(80) NULL,
+                has_transport_aid TINYINT(1) NOT NULL DEFAULT 1,
+                status ENUM('active','inactive') NOT NULL DEFAULT 'active',
+                notes TEXT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                UNIQUE KEY uq_employee_doc (document_type, document_number),
+                KEY idx_employee_status (status),
+                KEY idx_employee_name (last_name, first_name)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
+        );
+
+        $db->exec(
+            "CREATE TABLE IF NOT EXISTS payroll_runs (
+                id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+                run_number VARCHAR(50) NOT NULL,
+                period_year SMALLINT UNSIGNED NOT NULL,
+                period_month TINYINT UNSIGNED NOT NULL,
+                period_label VARCHAR(40) NOT NULL DEFAULT '',
+                pay_date DATE NOT NULL,
+                days_worked TINYINT UNSIGNED NOT NULL DEFAULT 30,
+                gross_total DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+                deductions_total DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+                net_total DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+                employer_total DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+                payment_method VARCHAR(50) NOT NULL DEFAULT 'transfer',
+                status ENUM('draft','posted','paid','cancelled') NOT NULL DEFAULT 'draft',
+                notes TEXT NULL,
+                expense_id INT UNSIGNED NULL,
+                user_id INT UNSIGNED NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                UNIQUE KEY uq_payroll_number (run_number),
+                UNIQUE KEY uq_payroll_period (period_year, period_month),
+                KEY idx_payroll_status (status),
+                KEY idx_payroll_pay_date (pay_date)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
+        );
+
+        $db->exec(
+            "CREATE TABLE IF NOT EXISTS payroll_items (
+                id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+                payroll_run_id INT UNSIGNED NOT NULL,
+                employee_id INT UNSIGNED NOT NULL,
+                employee_name VARCHAR(255) NOT NULL,
+                salary_base DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+                days_worked TINYINT UNSIGNED NOT NULL DEFAULT 30,
+                transport_aid DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+                other_earnings DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+                health_employee DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+                pension_employee DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+                other_deductions DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+                health_employer DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+                pension_employer DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+                gross_pay DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+                net_pay DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                KEY idx_payroll_item_run (payroll_run_id),
+                KEY idx_payroll_item_employee (employee_id),
+                CONSTRAINT fk_payroll_items_run FOREIGN KEY (payroll_run_id)
+                    REFERENCES payroll_runs(id) ON DELETE CASCADE
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
+        );
     }
 
     private static function addColumnIfMissing(\PDO $db, string $table, string $column, string $definition): void

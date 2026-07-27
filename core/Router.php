@@ -179,7 +179,8 @@ class Router
         $this->post('/app/gastos', 'TenantGastosController', 'index');
         $this->get('/app/contabilidad', 'TenantContabilidadController', 'index');
         $this->post('/app/contabilidad', 'TenantContabilidadController', 'index');
-        $this->get('/app/nomina', 'TenantPlaceholderController', 'show');
+        $this->get('/app/nomina', 'TenantNominaController', 'index');
+        $this->post('/app/nomina', 'TenantNominaController', 'index');
         
         // Anuncios Super Admin
         $this->get('/superadmin/announcements', 'SuperAdminController', 'announcements');

@@ -577,6 +577,77 @@ CREATE TABLE IF NOT EXISTS `purchase_items` (
   CONSTRAINT `fk_purchase_items_purchase` FOREIGN KEY (`purchase_id`) REFERENCES `purchases` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- Nómina
+CREATE TABLE IF NOT EXISTS `employees` (
+  `id` int(10) unsigned NOT NULL AUTO_INCREMENT,
+  `document_type` varchar(20) NOT NULL DEFAULT 'CC',
+  `document_number` varchar(40) NOT NULL,
+  `first_name` varchar(120) NOT NULL,
+  `last_name` varchar(120) NOT NULL DEFAULT '',
+  `email` varchar(180) DEFAULT NULL,
+  `phone` varchar(40) DEFAULT NULL,
+  `position_title` varchar(120) DEFAULT NULL,
+  `hire_date` date DEFAULT NULL,
+  `salary` decimal(12,2) NOT NULL DEFAULT 0.00,
+  `contract_type` varchar(40) NOT NULL DEFAULT 'indefinido',
+  `payment_method` varchar(50) NOT NULL DEFAULT 'transfer',
+  `bank_account` varchar(80) DEFAULT NULL,
+  `has_transport_aid` tinyint(1) NOT NULL DEFAULT 1,
+  `status` enum('active','inactive') NOT NULL DEFAULT 'active',
+  `notes` text DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_employee_doc` (`document_type`,`document_number`),
+  KEY `idx_employee_status` (`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `payroll_runs` (
+  `id` int(10) unsigned NOT NULL AUTO_INCREMENT,
+  `run_number` varchar(50) NOT NULL,
+  `period_year` smallint(5) unsigned NOT NULL,
+  `period_month` tinyint(3) unsigned NOT NULL,
+  `period_label` varchar(40) NOT NULL DEFAULT '',
+  `pay_date` date NOT NULL,
+  `days_worked` tinyint(3) unsigned NOT NULL DEFAULT 30,
+  `gross_total` decimal(12,2) NOT NULL DEFAULT 0.00,
+  `deductions_total` decimal(12,2) NOT NULL DEFAULT 0.00,
+  `net_total` decimal(12,2) NOT NULL DEFAULT 0.00,
+  `employer_total` decimal(12,2) NOT NULL DEFAULT 0.00,
+  `payment_method` varchar(50) NOT NULL DEFAULT 'transfer',
+  `status` enum('draft','posted','paid','cancelled') NOT NULL DEFAULT 'draft',
+  `notes` text DEFAULT NULL,
+  `expense_id` int(10) unsigned DEFAULT NULL,
+  `user_id` int(10) unsigned DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_payroll_number` (`run_number`),
+  UNIQUE KEY `uq_payroll_period` (`period_year`,`period_month`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `payroll_items` (
+  `id` int(10) unsigned NOT NULL AUTO_INCREMENT,
+  `payroll_run_id` int(10) unsigned NOT NULL,
+  `employee_id` int(10) unsigned NOT NULL,
+  `employee_name` varchar(255) NOT NULL,
+  `salary_base` decimal(12,2) NOT NULL DEFAULT 0.00,
+  `days_worked` tinyint(3) unsigned NOT NULL DEFAULT 30,
+  `transport_aid` decimal(12,2) NOT NULL DEFAULT 0.00,
+  `other_earnings` decimal(12,2) NOT NULL DEFAULT 0.00,
+  `health_employee` decimal(12,2) NOT NULL DEFAULT 0.00,
+  `pension_employee` decimal(12,2) NOT NULL DEFAULT 0.00,
+  `other_deductions` decimal(12,2) NOT NULL DEFAULT 0.00,
+  `health_employer` decimal(12,2) NOT NULL DEFAULT 0.00,
+  `pension_employer` decimal(12,2) NOT NULL DEFAULT 0.00,
+  `gross_pay` decimal(12,2) NOT NULL DEFAULT 0.00,
+  `net_pay` decimal(12,2) NOT NULL DEFAULT 0.00,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_payroll_item_run` (`payroll_run_id`),
+  CONSTRAINT `fk_payroll_items_run` FOREIGN KEY (`payroll_run_id`) REFERENCES `payroll_runs` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 /*!40103 SET TIME_ZONE=@OLD_TIME_ZONE */;
 
 /*!40101 SET SQL_MODE=@OLD_SQL_MODE */;

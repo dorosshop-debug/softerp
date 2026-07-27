@@ -118,24 +118,34 @@ foreach ($tenants as $tenant) {
     }
 }
 
-// Añadir módulo compras a planes Pro/Enterprise (o con inventario+proveedores)
+// Añadir módulos compras + nómina a planes Pro/Enterprise
 try {
     $plans = $masterDb->query("SELECT id, name, modules FROM subscription_plans")->fetchAll();
     foreach ($plans as $plan) {
         $mods = json_decode((string)$plan['modules'], true) ?: [];
-        if (!is_array($mods) || in_array('compras', $mods, true)) {
+        if (!is_array($mods)) {
             continue;
         }
         $name = strtolower((string)($plan['name'] ?? ''));
-        $byTier = str_contains($name, 'pro') || str_contains($name, 'enterprise') || str_contains($name, 'empresarial');
+        $byTier = str_contains($name, 'pro') || str_contains($name, 'enterprise')
+            || str_contains($name, 'empresarial') || str_contains($name, 'premium');
         $byModules = in_array('inventario', $mods, true) && in_array('proveedores', $mods, true);
-        if ($byTier || $byModules) {
-            $mods[] = 'compras';
+        if (!$byTier && !$byModules) {
+            continue;
+        }
+        $changed = false;
+        foreach (['compras', 'nomina'] as $mod) {
+            if (!in_array($mod, $mods, true)) {
+                $mods[] = $mod;
+                $changed = true;
+                echo "✓ Plan #{$plan['id']} ({$plan['name']}): módulo {$mod} agregado\n";
+            }
+        }
+        if ($changed) {
             $masterDb->query(
                 "UPDATE subscription_plans SET modules = ? WHERE id = ?",
                 [json_encode(array_values($mods), JSON_UNESCAPED_UNICODE), $plan['id']]
             );
-            echo "✓ Plan #{$plan['id']} ({$plan['name']}): módulo compras agregado\n";
         }
     }
 } catch (\Throwable $e) {

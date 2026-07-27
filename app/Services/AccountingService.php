@@ -760,7 +760,9 @@ class AccountingService
 
         $expenseAccount = match ($group) {
             'financial' => $this->setting('financial_expense_account', '530505'),
-            'fixed' => $this->setting('fixed_expense_account', '510505'),
+            'fixed' => $category === 'payroll'
+                ? $this->setting('payroll_expense_account', $this->setting('fixed_expense_account', '510505'))
+                : $this->setting('fixed_expense_account', '510505'),
             default => $this->setting('general_expense_account', '510505'),
         };
 

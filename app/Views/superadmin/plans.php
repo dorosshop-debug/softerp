@@ -4,16 +4,16 @@ $title = 'Super Administrador - Planes';
 $pageTitle = 'Gestión de Planes';
 $userName = $_SESSION['super_admin_name'] ?? 'Super Admin';
 $plans = $plans ?? [];
-$availableModules = ['dashboard', 'caja', 'ventas', 'inventario', 'clientes', 'proveedores', 'cotizaciones', 'gastos', 'contabilidad', 'nomina', 'reportes'];
+$availableModules = ['dashboard', 'caja', 'ventas', 'inventario', 'clientes', 'proveedores', 'compras', 'cotizaciones', 'gastos', 'contabilidad', 'nomina', 'reportes'];
 $moduleNames = [
     'dashboard' => 'Dashboard', 'caja' => 'Caja', 'ventas' => 'Ventas',
     'inventario' => 'Inventario', 'clientes' => 'Clientes', 'proveedores' => 'Proveedores',
-    'cotizaciones' => 'Cotizaciones', 'gastos' => 'Gastos', 'contabilidad' => 'Contabilidad',
+    'compras' => 'Compras', 'cotizaciones' => 'Cotizaciones', 'gastos' => 'Gastos', 'contabilidad' => 'Contabilidad',
     'nomina' => 'Nómina', 'reportes' => 'Reportes'
 ];
 $moduleIcons = [
     'dashboard' => '📊', 'caja' => '💰', 'ventas' => '🛒', 'inventario' => '📦',
-    'clientes' => '👥', 'proveedores' => '🚚', 'cotizaciones' => '📝', 'gastos' => '🧾',
+    'clientes' => '👥', 'proveedores' => '🚚', 'compras' => '🚛', 'cotizaciones' => '📝', 'gastos' => '🧾',
     'contabilidad' => '🧮', 'nomina' => '💵', 'reportes' => '📋'
 ];
 ?>
