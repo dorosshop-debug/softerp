@@ -98,7 +98,8 @@ function fmtN(float $a, array $c): string
                 <td><?php echo fmtN((float)$r['deductions_total'], $currency); ?></td>
                 <td><strong><?php echo fmtN((float)$r['net_total'], $currency); ?></strong></td>
                 <td><span class="badge"><?php echo htmlspecialchars($r['status']); ?></span></td>
-                <td><a class="btn btn-sm btn-secondary" href="<?php echo $base; ?>?tab=runs&amp;action=run_detail&amp;id=<?php echo (int)$r['id']; ?>">Ver</a></td>
+                <td><a class="btn btn-sm btn-secondary" href="<?php echo $base; ?>?tab=runs&amp;action=run_detail&amp;id=<?php echo (int)$r['id']; ?>">Ver</a>
+                    <a class="btn btn-sm btn-secondary" target="_blank" href="<?php echo $base; ?>?action=pdf&amp;id=<?php echo (int)$r['id']; ?>">PDF</a></td>
             </tr>
         <?php endforeach; ?>
         </tbody>
@@ -118,43 +119,60 @@ function fmtN(float $a, array $c): string
             <div><span style="color:var(--color-text-secondary);">Deducciones</span><div><?php echo fmtN((float)$run['deductions_total'], $currency); ?></div></div>
             <div><span style="color:var(--color-text-secondary);">Neto</span><div><strong><?php echo fmtN((float)$run['net_total'], $currency); ?></strong></div></div>
             <div><span style="color:var(--color-text-secondary);">Aportes empleador</span><div><?php echo fmtN((float)$run['employer_total'], $currency); ?></div></div>
+            <div><span style="color:var(--color-text-secondary);">Parafiscales</span><div><?php echo fmtN((float)($run['parafiscal_total'] ?? 0), $currency); ?></div></div>
+            <div><span style="color:var(--color-text-secondary);">Primas</span><div><?php echo fmtN((float)($run['prima_total'] ?? 0), $currency); ?></div></div>
+            <div><span style="color:var(--color-text-secondary);">Cesantías</span><div><?php echo fmtN((float)($run['cesantias_total'] ?? 0), $currency); ?></div></div>
+            <div><span style="color:var(--color-text-secondary);">Incapacidades</span><div><?php echo fmtN((float)($run['incapacity_total'] ?? 0), $currency); ?></div></div>
         </div>
+        <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap;">
+            <a class="btn btn-secondary" target="_blank" href="<?php echo $base; ?>?action=pdf&amp;id=<?php echo (int)$run['id']; ?>">PDF liquidación</a>
         <?php if (($run['status'] ?? '') === 'draft' && $canEdit): ?>
-            <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap;">
-                <form method="POST" action="<?php echo $base; ?>?action=pay_run" data-ajax="true">
+                <form method="POST" action="<?php echo $base; ?>?action=pay_run" data-ajax="true" style="display:inline;">
                     <?php echo \SoftNova\Core\csrf_field(); ?>
                     <input type="hidden" name="id" value="<?php echo (int)$run['id']; ?>">
                     <?php if (($run['payment_method'] ?? '') === 'cash'): ?>
                         <label style="margin-right:10px;"><input type="checkbox" name="affect_cash" value="1"> Afectar caja</label>
                     <?php endif; ?>
-                    <button class="btn btn-primary" type="submit" onclick="return confirm('¿Contabilizar y marcar como pagada? Se creará un gasto de nómina.')">Contabilizar y pagar</button>
+                    <button class="btn btn-primary" type="submit" onclick="return confirm('¿Contabilizar asiento detallado (SS/parafiscales) y marcar como pagada?')">Contabilizar y pagar</button>
                 </form>
-                <form method="POST" action="<?php echo $base; ?>?action=cancel_run" data-ajax="true">
+                <form method="POST" action="<?php echo $base; ?>?action=cancel_run" data-ajax="true" style="display:inline;">
                     <?php echo \SoftNova\Core\csrf_field(); ?>
                     <input type="hidden" name="id" value="<?php echo (int)$run['id']; ?>">
                     <button class="btn btn-danger" type="submit" onclick="return confirm('¿Cancelar liquidación?')">Cancelar</button>
                 </form>
-            </div>
         <?php endif; ?>
+        </div>
     </div>
 </div>
 <div class="card neumorphic">
     <div class="card-body"><div class="table-container"><table>
-        <thead><tr><th>Empleado</th><th>Días</th><th>Devengado</th><th>Transporte</th><th>Salud</th><th>Pensión</th><th>Neto</th></tr></thead>
+        <thead><tr><th>Empleado</th><th>Días</th><th>Inc.</th><th>Devengado</th><th>Prima</th><th>Cesantías</th><th>Salud</th><th>Pensión</th><th>Neto</th><th></th></tr></thead>
         <tbody>
         <?php foreach ($items as $it): ?>
             <tr>
                 <td><?php echo htmlspecialchars($it['employee_name']); ?></td>
                 <td><?php echo (int)$it['days_worked']; ?></td>
-                <td><?php echo fmtN((float)$it['salary_base'], $currency); ?></td>
-                <td><?php echo fmtN((float)$it['transport_aid'], $currency); ?></td>
+                <td><?php echo (int)($it['incapacity_days'] ?? 0); ?></td>
+                <td><?php echo fmtN((float)$it['salary_base'] + (float)($it['transport_aid'] ?? 0) + (float)($it['incapacity_pay'] ?? 0), $currency); ?></td>
+                <td><?php echo fmtN((float)($it['prima'] ?? 0), $currency); ?></td>
+                <td><?php echo fmtN((float)($it['cesantias'] ?? 0) + (float)($it['cesantias_interest'] ?? 0), $currency); ?></td>
                 <td><?php echo fmtN((float)$it['health_employee'], $currency); ?></td>
                 <td><?php echo fmtN((float)$it['pension_employee'], $currency); ?></td>
                 <td><strong><?php echo fmtN((float)$it['net_pay'], $currency); ?></strong></td>
+                <td style="white-space:nowrap;">
+                    <a class="btn btn-sm btn-secondary" target="_blank" href="<?php echo $base; ?>?action=payslip&amp;run_id=<?php echo (int)$run['id']; ?>&amp;item_id=<?php echo (int)$it['id']; ?>">PDF</a>
+                    <?php if (($run['status'] ?? '') === 'draft' && $canEdit): ?>
+                        <button type="button" class="btn btn-sm btn-secondary" onclick="editIncapacity(<?php echo (int)$it['id']; ?>,<?php echo (int)$run['id']; ?>,<?php echo (int)($it['incapacity_days'] ?? 0); ?>,'<?php echo htmlspecialchars($it['incapacity_type'] ?? 'enfermedad', ENT_QUOTES); ?>')">Inc.</button>
+                    <?php endif; ?>
+                </td>
             </tr>
         <?php endforeach; ?>
         </tbody>
-    </table></div></div>
+    </table></div>
+    <p style="font-size:12px;color:var(--color-text-secondary);margin-top:10px;">
+        Al pagar se genera asiento: Débito nómina + aportes patronales · Crédito salud/pensión/ARL/caja/SENA/ICBF por pagar · Crédito banco/caja por el neto.
+    </p>
+    </div>
 </div>
 
 <?php elseif ($tab === 'params'): ?>
@@ -171,10 +189,18 @@ function fmtN(float $a, array $c): string
             <div class="form-group"><label>% Pensión empleado</label><input class="form-control" type="number" step="0.01" name="pension_employee_rate" value="<?php echo htmlspecialchars((string)$params['pension_employee_rate']); ?>"></div>
             <div class="form-group"><label>% Salud empleador</label><input class="form-control" type="number" step="0.01" name="health_employer_rate" value="<?php echo htmlspecialchars((string)$params['health_employer_rate']); ?>"></div>
             <div class="form-group"><label>% Pensión empleador</label><input class="form-control" type="number" step="0.01" name="pension_employer_rate" value="<?php echo htmlspecialchars((string)$params['pension_employer_rate']); ?>"></div>
+            <div class="form-group"><label>% ARL empleador</label><input class="form-control" type="number" step="0.001" name="arl_employer_rate" value="<?php echo htmlspecialchars((string)$params['arl_employer_rate']); ?>"></div>
+            <div class="form-group"><label>% Caja compensación</label><input class="form-control" type="number" step="0.01" name="caja_employer_rate" value="<?php echo htmlspecialchars((string)$params['caja_employer_rate']); ?>"></div>
+            <div class="form-group"><label>% SENA</label><input class="form-control" type="number" step="0.01" name="sena_employer_rate" value="<?php echo htmlspecialchars((string)$params['sena_employer_rate']); ?>"></div>
+            <div class="form-group"><label>% ICBF</label><input class="form-control" type="number" step="0.01" name="icbf_employer_rate" value="<?php echo htmlspecialchars((string)$params['icbf_employer_rate']); ?>"></div>
+            <div class="form-group"><label>% Incapacidad (días 3+)</label><input class="form-control" type="number" step="0.01" name="incapacity_rate" value="<?php echo htmlspecialchars((string)$params['incapacity_rate']); ?>"></div>
             <div class="form-group" style="grid-column:1/-1;"><button class="btn btn-primary" type="submit">Guardar parámetros</button></div>
         </form>
         <?php endif; ?>
-        <p style="font-size:12px;margin-top:12px;color:var(--color-text-secondary);">Al pagar una liquidación se crea un gasto categoría «Nómina» (grupo fijo) y asiento contable. El auxilio aplica si el salario ≤ 2 SMMLV.</p>
+        <p style="font-size:12px;margin-top:12px;color:var(--color-text-secondary);">
+            Prima ≈ medio salario (semestre). Cesantías = provisión mensual salario/12 + interés. Incapacidad: días 1-2 al 100%, resto al %.
+            Contabilidad: CxP salud (237005), pensión (238030), ARL, caja, SENA, ICBF.
+        </p>
     </div>
 </div>
 <?php endif; ?>
@@ -219,7 +245,11 @@ function fmtN(float $a, array $c): string
                 <div class="form-group"><label>Fecha de pago</label><input class="form-control" type="date" name="pay_date" value="<?php echo date('Y-m-d'); ?>" required></div>
                 <div class="form-group"><label>Días trabajados</label><input class="form-control" type="number" min="1" max="31" name="days_worked" value="30"></div>
                 <div class="form-group" style="grid-column:1/-1;"><label>Medio de pago</label><select class="form-control" name="payment_method"><?php echo \SoftNova\Core\payment_method_options('transfer'); ?></select></div>
+                <div class="form-group"><label><input type="checkbox" name="include_prima" value="1" <?php echo in_array((int)date('n'), [6, 12], true) ? 'checked' : ''; ?>> Incluir prima de servicios</label></div>
+                <div class="form-group"><label><input type="checkbox" name="include_cesantias" value="1"> Incluir cesantías (provisión mes)</label></div>
+                <div class="form-group" style="grid-column:1/-1;"><label><input type="checkbox" name="include_parafiscales" value="1" checked> Parafiscales (caja, SENA, ICBF) + ARL</label></div>
                 <div class="form-group" style="grid-column:1/-1;"><label>Notas</label><input class="form-control" name="notes"></div>
+                <p style="grid-column:1/-1;font-size:12px;color:var(--color-text-secondary);margin:0;">La incapacidad se puede ajustar después en el detalle de cada empleado.</p>
             </div></div>
             <div class="modal-footer"><button type="button" class="btn btn-secondary" onclick="document.getElementById('runModal').style.display='none'">Cancelar</button><button type="submit" class="btn btn-primary">Calcular</button></div>
         </form>
@@ -255,5 +285,35 @@ function editEmployee(e) {
     document.getElementById('employeeModal').style.display = 'flex';
 }
 function closeEmployeeModal(){ document.getElementById('employeeModal').style.display='none'; }
+function editIncapacity(itemId, runId, days, type) {
+    document.getElementById('incItemId').value = itemId;
+    document.getElementById('incRunId').value = runId;
+    document.getElementById('incDays').value = days || 0;
+    document.getElementById('incType').value = type || 'enfermedad';
+    document.getElementById('incapacityModal').style.display = 'flex';
+}
 </script>
+<div id="incapacityModal" class="modal-overlay" style="display:none;">
+    <div class="modal-content neumorphic" style="max-width:420px;">
+        <div class="modal-header"><h3>Incapacidad</h3><button type="button" class="modal-close" onclick="document.getElementById('incapacityModal').style.display='none'">&times;</button></div>
+        <form method="POST" action="<?php echo $base; ?>?action=save_incapacity" data-ajax="true">
+            <?php echo \SoftNova\Core\csrf_field(); ?>
+            <input type="hidden" name="item_id" id="incItemId">
+            <input type="hidden" name="run_id" id="incRunId">
+            <div class="modal-body">
+                <div class="form-group"><label>Días de incapacidad</label><input class="form-control" type="number" min="0" max="31" name="incapacity_days" id="incDays"></div>
+                <div class="form-group"><label>Tipo</label>
+                    <select class="form-control" name="incapacity_type" id="incType">
+                        <option value="enfermedad">Enfermedad general</option>
+                        <option value="laboral">Accidente / enfermedad laboral</option>
+                    </select>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" onclick="document.getElementById('incapacityModal').style.display='none'">Cerrar</button>
+                <button type="submit" class="btn btn-primary">Recalcular</button>
+            </div>
+        </form>
+    </div>
+</div>
 <?php endif; ?>

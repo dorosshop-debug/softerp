@@ -807,6 +807,111 @@ class AccountingService
     }
 
     /**
+     * Asiento detallado de nómina: sueldos + aportes patronales/parafiscales
+     * contra CxP de seguridad social y banco/caja (neto).
+     */
+    public function postPayrollRun(int $runId, bool $payNow = true): int
+    {
+        (new PayrollService($this->db))->params();
+
+        $run = $this->query('SELECT * FROM payroll_runs WHERE id = ?', [$runId])->fetch();
+        if (!$run || ($run['status'] ?? '') === 'cancelled') {
+            throw new \RuntimeException('Liquidación inválida');
+        }
+        $sum = $this->query(
+            "SELECT
+                COALESCE(SUM(salary_base + transport_aid + COALESCE(prima,0) + COALESCE(cesantias,0)
+                    + COALESCE(cesantias_interest,0) + COALESCE(incapacity_pay,0) + other_earnings),0) labor,
+                COALESCE(SUM(health_employee),0) health_emp,
+                COALESCE(SUM(pension_employee),0) pension_emp,
+                COALESCE(SUM(health_employer),0) health_er,
+                COALESCE(SUM(pension_employer),0) pension_er,
+                COALESCE(SUM(COALESCE(arl_employer,0)),0) arl,
+                COALESCE(SUM(COALESCE(caja_employer,0)),0) caja,
+                COALESCE(SUM(COALESCE(sena_employer,0)),0) sena,
+                COALESCE(SUM(COALESCE(icbf_employer,0)),0) icbf,
+                COALESCE(SUM(net_pay),0) net
+             FROM payroll_items WHERE payroll_run_id = ?",
+            [$runId]
+        )->fetch() ?: [];
+
+        $labor = round((float)$sum['labor'], 2);
+        $healthEmp = round((float)$sum['health_emp'], 2);
+        $pensionEmp = round((float)$sum['pension_emp'], 2);
+        $healthEr = round((float)$sum['health_er'], 2);
+        $pensionEr = round((float)$sum['pension_er'], 2);
+        $arl = round((float)$sum['arl'], 2);
+        $caja = round((float)$sum['caja'], 2);
+        $sena = round((float)$sum['sena'], 2);
+        $icbf = round((float)$sum['icbf'], 2);
+        $net = round((float)$sum['net'], 2);
+        $employerCost = round($healthEr + $pensionEr + $arl + $caja + $sena + $icbf, 2);
+
+        if ($labor <= 0 && $employerCost <= 0) {
+            throw new \RuntimeException('Liquidación sin montos contables');
+        }
+
+        $lines = [];
+        if ($labor > 0) {
+            $lines[] = $this->line(
+                $this->setting('payroll_expense_account', '510503'),
+                $labor,
+                0,
+                'Devengados nómina ' . $run['run_number']
+            );
+        }
+        if ($employerCost > 0) {
+            $lines[] = $this->line(
+                $this->setting('payroll_employer_expense_account', '510506'),
+                $employerCost,
+                0,
+                'Aportes patronales y parafiscales'
+            );
+        }
+
+        $healthPay = round($healthEmp + $healthEr, 2);
+        $pensionPay = round($pensionEmp + $pensionEr, 2);
+        if ($healthPay > 0) {
+            $lines[] = $this->line($this->setting('health_payable_account', '237005'), 0, $healthPay, 'Salud por pagar');
+        }
+        if ($pensionPay > 0) {
+            $lines[] = $this->line($this->setting('pension_payable_account', '238030'), 0, $pensionPay, 'Pensión por pagar');
+        }
+        if ($arl > 0) {
+            $lines[] = $this->line($this->setting('arl_payable_account', '237010'), 0, $arl, 'ARL por pagar');
+        }
+        if ($caja > 0) {
+            $lines[] = $this->line($this->setting('caja_payable_account', '237006'), 0, $caja, 'Caja compensación');
+        }
+        if ($sena > 0) {
+            $lines[] = $this->line($this->setting('sena_payable_account', '237008'), 0, $sena, 'SENA por pagar');
+        }
+        if ($icbf > 0) {
+            $lines[] = $this->line($this->setting('icbf_payable_account', '237007'), 0, $icbf, 'ICBF por pagar');
+        }
+        if ($net > 0) {
+            $creditNet = $payNow
+                ? $this->paymentAccount((string)($run['payment_method'] ?? 'transfer'))
+                : $this->setting('payroll_payable_account', '250505');
+            $lines[] = $this->line(
+                $creditNet,
+                0,
+                $net,
+                $payNow ? 'Pago neto a empleados' : 'Salarios por pagar'
+            );
+        }
+
+        return $this->postEntry(
+            $run['pay_date'],
+            'Nómina ' . $run['run_number'] . ' · ' . $run['period_label'],
+            $lines,
+            'payroll',
+            $runId,
+            'created'
+        );
+    }
+
+    /**
      * Totales de gastos del periodo por grupo contable (fijos / financieros / operativos).
      *
      * @return array{fixed:float,financial:float,operating:float,total:float,by_category:list<array>}

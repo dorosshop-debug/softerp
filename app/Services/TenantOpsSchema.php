@@ -161,6 +161,29 @@ class TenantOpsSchema
                     REFERENCES payroll_runs(id) ON DELETE CASCADE
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
         );
+
+        // Extensiones: primas, cesantías, incapacidad, parafiscales / ARL
+        foreach ([
+            ['payroll_runs', 'include_prima', 'TINYINT(1) NOT NULL DEFAULT 0 AFTER notes'],
+            ['payroll_runs', 'include_cesantias', 'TINYINT(1) NOT NULL DEFAULT 0 AFTER include_prima'],
+            ['payroll_runs', 'include_parafiscales', 'TINYINT(1) NOT NULL DEFAULT 1 AFTER include_cesantias'],
+            ['payroll_runs', 'prima_total', 'DECIMAL(12,2) NOT NULL DEFAULT 0.00 AFTER employer_total'],
+            ['payroll_runs', 'cesantias_total', 'DECIMAL(12,2) NOT NULL DEFAULT 0.00 AFTER prima_total'],
+            ['payroll_runs', 'incapacity_total', 'DECIMAL(12,2) NOT NULL DEFAULT 0.00 AFTER cesantias_total'],
+            ['payroll_runs', 'parafiscal_total', 'DECIMAL(12,2) NOT NULL DEFAULT 0.00 AFTER incapacity_total'],
+            ['payroll_items', 'prima', 'DECIMAL(12,2) NOT NULL DEFAULT 0.00 AFTER transport_aid'],
+            ['payroll_items', 'cesantias', 'DECIMAL(12,2) NOT NULL DEFAULT 0.00 AFTER prima'],
+            ['payroll_items', 'cesantias_interest', 'DECIMAL(12,2) NOT NULL DEFAULT 0.00 AFTER cesantias'],
+            ['payroll_items', 'incapacity_days', 'TINYINT UNSIGNED NOT NULL DEFAULT 0 AFTER days_worked'],
+            ['payroll_items', 'incapacity_pay', 'DECIMAL(12,2) NOT NULL DEFAULT 0.00 AFTER incapacity_days'],
+            ['payroll_items', 'incapacity_type', "VARCHAR(30) NOT NULL DEFAULT '' AFTER incapacity_pay"],
+            ['payroll_items', 'arl_employer', 'DECIMAL(12,2) NOT NULL DEFAULT 0.00 AFTER pension_employer'],
+            ['payroll_items', 'caja_employer', 'DECIMAL(12,2) NOT NULL DEFAULT 0.00 AFTER arl_employer'],
+            ['payroll_items', 'sena_employer', 'DECIMAL(12,2) NOT NULL DEFAULT 0.00 AFTER caja_employer'],
+            ['payroll_items', 'icbf_employer', 'DECIMAL(12,2) NOT NULL DEFAULT 0.00 AFTER sena_employer'],
+        ] as [$table, $col, $def]) {
+            self::addColumnIfMissing($db, $table, $col, $def);
+        }
     }
 
     private static function addColumnIfMissing(\PDO $db, string $table, string $column, string $definition): void

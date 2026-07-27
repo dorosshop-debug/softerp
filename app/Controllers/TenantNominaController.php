@@ -5,10 +5,11 @@ namespace SoftNova\Controllers;
 use SoftNova\Core\TenantController;
 use SoftNova\Core\TenantMiddleware;
 use SoftNova\Services\PayrollService;
+use SoftNova\Services\PdfService;
 use SoftNova\Services\TenantOpsSchema;
 
 /**
- * Módulo Nómina: empleados + liquidaciones mensuales.
+ * Módulo Nómina: empleados, liquidaciones, prestaciones y PDF.
  */
 class TenantNominaController extends TenantController
 {
@@ -36,6 +37,7 @@ class TenantNominaController extends TenantController
                 'pay_run' => $this->payRun(),
                 'cancel_run' => $this->cancelRun(),
                 'save_params' => $this->saveParams(),
+                'save_incapacity' => $this->saveIncapacity(),
                 default => $this->respond(false, 'Acción inválida', '/app/nomina'),
             };
             return;
@@ -43,6 +45,14 @@ class TenantNominaController extends TenantController
 
         if ($action === 'run_detail') {
             $this->runDetail();
+            return;
+        }
+        if ($action === 'pdf') {
+            $this->payrollPdf();
+            return;
+        }
+        if ($action === 'payslip') {
+            $this->payslipPdf();
             return;
         }
 
@@ -84,7 +94,7 @@ class TenantNominaController extends TenantController
     {
         TenantMiddleware::authorize('nomina', 'create');
         try {
-            $id = $this->payroll->saveEmployee([
+            $this->payroll->saveEmployee([
                 'id' => (int)$this->request->post('id', 0),
                 'document_type' => $this->request->post('document_type', 'CC'),
                 'document_number' => $this->request->post('document_number', ''),
@@ -102,7 +112,7 @@ class TenantNominaController extends TenantController
                 'status' => $this->request->post('status', 'active'),
                 'notes' => $this->request->post('notes', ''),
             ]);
-            $this->respond(true, $id ? 'Empleado guardado' : 'Empleado creado', '/app/nomina?tab=employees');
+            $this->respond(true, 'Empleado guardado', '/app/nomina?tab=employees');
         } catch (\Throwable $e) {
             $this->respond(false, $e->getMessage(), '/app/nomina?tab=employees');
         }
@@ -114,20 +124,53 @@ class TenantNominaController extends TenantController
         try {
             $year = (int)$this->request->post('period_year', date('Y'));
             $month = (int)$this->request->post('period_month', date('n'));
-            $payDate = (string)$this->request->post('pay_date', date('Y-m-d'));
-            $days = (int)$this->request->post('days_worked', 30);
-            $method = (string)$this->request->post('payment_method', 'transfer');
-            $notes = trim((string)$this->request->post('notes', ''));
+            $incapacity = [];
+            $rawDays = $this->request->post('incapacity_days', []);
+            $rawTypes = $this->request->post('incapacity_type', []);
+            if (is_array($rawDays)) {
+                foreach ($rawDays as $empId => $days) {
+                    $d = (int)$days;
+                    if ($d > 0) {
+                        $incapacity[(int)$empId] = [
+                            'days' => $d,
+                            'type' => is_array($rawTypes) ? (string)($rawTypes[$empId] ?? 'enfermedad') : 'enfermedad',
+                        ];
+                    }
+                }
+            }
             $runId = $this->payroll->createRun(
                 $year,
                 $month,
-                $payDate,
-                $days,
-                $method,
+                (string)$this->request->post('pay_date', date('Y-m-d')),
+                (int)$this->request->post('days_worked', 30),
+                (string)$this->request->post('payment_method', 'transfer'),
                 (int)($_SESSION['tenant_user_id'] ?? 0) ?: null,
-                $notes
+                trim((string)$this->request->post('notes', '')),
+                [
+                    'include_prima' => $this->request->post('include_prima') === '1',
+                    'include_cesantias' => $this->request->post('include_cesantias') === '1',
+                    'include_parafiscales' => $this->request->post('include_parafiscales', '1') === '1',
+                    'incapacity' => $incapacity,
+                ]
             );
             $this->respond(true, 'Liquidación creada', '/app/nomina?tab=runs&action=run_detail&id=' . $runId);
+        } catch (\Throwable $e) {
+            $this->respond(false, $e->getMessage(), '/app/nomina?tab=runs');
+        }
+    }
+
+    private function saveIncapacity(): void
+    {
+        TenantMiddleware::authorize('nomina', 'edit');
+        try {
+            $itemId = (int)$this->request->post('item_id', 0);
+            $runId = (int)$this->request->post('run_id', 0);
+            $this->payroll->updateItemIncapacity(
+                $itemId,
+                (int)$this->request->post('incapacity_days', 0),
+                (string)$this->request->post('incapacity_type', 'enfermedad')
+            );
+            $this->respond(true, 'Incapacidad actualizada', '/app/nomina?tab=runs&action=run_detail&id=' . $runId);
         } catch (\Throwable $e) {
             $this->respond(false, $e->getMessage(), '/app/nomina?tab=runs');
         }
@@ -140,7 +183,7 @@ class TenantNominaController extends TenantController
             $id = (int)$this->request->post('id', 0);
             $affectCash = $this->request->post('affect_cash') === '1';
             $this->payroll->postAndPay($id, $affectCash);
-            $this->respond(true, 'Nómina contabilizada y marcada como pagada', '/app/nomina?tab=runs&action=run_detail&id=' . $id);
+            $this->respond(true, 'Nómina contabilizada (asiento SS + gasto) y marcada como pagada', '/app/nomina?tab=runs&action=run_detail&id=' . $id);
         } catch (\Throwable $e) {
             $this->respond(false, $e->getMessage(), '/app/nomina?tab=runs');
         }
@@ -160,20 +203,17 @@ class TenantNominaController extends TenantController
     private function saveParams(): void
     {
         TenantMiddleware::authorize('nomina', 'edit');
-        $map = [
-            'smmlv' => (string)$this->request->post('smmlv', '1423500'),
-            'transport_aid' => (string)$this->request->post('transport_aid', '200000'),
-            'health_employee_rate' => (string)$this->request->post('health_employee_rate', '4'),
-            'pension_employee_rate' => (string)$this->request->post('pension_employee_rate', '4'),
-            'health_employer_rate' => (string)$this->request->post('health_employer_rate', '8.5'),
-            'pension_employer_rate' => (string)$this->request->post('pension_employer_rate', '12'),
+        $keys = [
+            'smmlv', 'transport_aid', 'health_employee_rate', 'pension_employee_rate',
+            'health_employer_rate', 'pension_employer_rate', 'arl_employer_rate',
+            'caja_employer_rate', 'sena_employer_rate', 'icbf_employer_rate', 'incapacity_rate',
         ];
         $stmt = $this->db->prepare(
             "INSERT INTO accounting_settings (setting_key, setting_value) VALUES (?, ?)
              ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)"
         );
-        foreach ($map as $k => $v) {
-            $stmt->execute([$k, $v]);
+        foreach ($keys as $k) {
+            $stmt->execute([$k, (string)$this->request->post($k, '')]);
         }
         $this->respond(true, 'Parámetros de nómina guardados', '/app/nomina?tab=params');
     }
@@ -197,5 +237,45 @@ class TenantNominaController extends TenantController
             'activeCount' => 0,
             'monthPayroll' => 0,
         ]));
+    }
+
+    private function payrollPdf(): void
+    {
+        $id = (int)$this->request->get('id', 0);
+        $detail = $this->payroll->runDetail($id);
+        if (!$detail) {
+            $this->respond(false, 'Liquidación no encontrada', '/app/nomina?tab=runs');
+            return;
+        }
+        $pdf = new PdfService($this->companySettings(), $this->getCurrency());
+        $content = $pdf->generatePayrollRun($detail['run'], $detail['items']);
+        $pdf->download($content, 'Nomina_' . ($detail['run']['run_number'] ?? $id) . '.pdf');
+    }
+
+    private function payslipPdf(): void
+    {
+        $runId = (int)$this->request->get('run_id', 0);
+        $itemId = (int)$this->request->get('item_id', 0);
+        $detail = $this->payroll->runDetail($runId);
+        if (!$detail) {
+            $this->respond(false, 'Liquidación no encontrada', '/app/nomina?tab=runs');
+            return;
+        }
+        $item = null;
+        foreach ($detail['items'] as $row) {
+            if ((int)$row['id'] === $itemId) {
+                $item = $row;
+                break;
+            }
+        }
+        if (!$item) {
+            $this->respond(false, 'Comprobante no encontrado', '/app/nomina?tab=runs&action=run_detail&id=' . $runId);
+            return;
+        }
+        $emp = $this->query('SELECT * FROM employees WHERE id=?', [(int)$item['employee_id']])->fetch() ?: [];
+        $pdf = new PdfService($this->companySettings(), $this->getCurrency());
+        $content = $pdf->generatePayslip($detail['run'], $item, $emp);
+        $safe = preg_replace('/\W+/', '_', (string)$item['employee_name']);
+        $pdf->download($content, 'Comprobante_' . $safe . '.pdf');
     }
 }

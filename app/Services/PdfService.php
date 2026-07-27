@@ -294,7 +294,111 @@ class PdfService
         
         return $this->generate($html);
     }
-    
+
+    /**
+     * Comprobante de pago de nómina (un empleado).
+     */
+    public function generatePayslip(array $run, array $item, array $employee = []): string
+    {
+        $currency = $this->currency['symbol'] ?? '$';
+        $decimals = (int)($this->currency['decimals'] ?? 0);
+        $thousands = $this->currency['thousands'] ?? '.';
+        $decimal = $this->currency['decimal'] ?? ',';
+        $fmt = fn ($n) => $currency . ' ' . number_format((float)$n, $decimals, $decimal, $thousands);
+        $companyName = htmlspecialchars($this->company['company_name'] ?? 'Mi Empresa');
+        $name = htmlspecialchars($item['employee_name'] ?? '');
+        $doc = htmlspecialchars(trim(($employee['document_type'] ?? '') . ' ' . ($employee['document_number'] ?? '')));
+
+        $rows = [
+            ['Salario / días trabajados (' . (int)($item['days_worked'] ?? 0) . ')', $item['salary_base'] ?? 0],
+            ['Auxilio de transporte', $item['transport_aid'] ?? 0],
+            ['Prima de servicios', $item['prima'] ?? 0],
+            ['Cesantías', $item['cesantias'] ?? 0],
+            ['Intereses cesantías', $item['cesantias_interest'] ?? 0],
+            ['Incapacidad (' . (int)($item['incapacity_days'] ?? 0) . ' días)', $item['incapacity_pay'] ?? 0],
+            ['(+) Total devengado', $item['gross_pay'] ?? 0],
+            ['(-) Salud empleado', -1 * (float)($item['health_employee'] ?? 0)],
+            ['(-) Pensión empleado', -1 * (float)($item['pension_employee'] ?? 0)],
+            ['(=) Neto a pagar', $item['net_pay'] ?? 0],
+        ];
+        $rowsHtml = '';
+        foreach ($rows as [$label, $amt]) {
+            $bold = str_starts_with($label, '(') || str_starts_with($label, '(=)') || str_starts_with($label, '(+)');
+            $rowsHtml .= '<tr' . ($bold ? ' style="font-weight:bold;"' : '') . '>
+                <td>' . htmlspecialchars($label) . '</td>
+                <td style="text-align:right;">' . $fmt(abs((float)$amt)) . ($amt < 0 ? '' : '') . '</td>
+            </tr>';
+        }
+
+        $employer = (float)($item['health_employer'] ?? 0) + (float)($item['pension_employer'] ?? 0)
+            + (float)($item['arl_employer'] ?? 0) + (float)($item['caja_employer'] ?? 0)
+            + (float)($item['sena_employer'] ?? 0) + (float)($item['icbf_employer'] ?? 0);
+
+        $html = $this->wrapHtml('COMPROBANTE DE PAGO DE NÓMINA', $companyName, '
+            <p><strong>Liquidación:</strong> ' . htmlspecialchars($run['run_number'] ?? '') . '
+               · Periodo ' . htmlspecialchars($run['period_label'] ?? '') . '
+               · Pago ' . date('d/m/Y', strtotime($run['pay_date'] ?? 'now')) . '</p>
+            <p><strong>Empleado:</strong> ' . $name . ($doc !== '' ? ' · ' . $doc : '') . '</p>
+            <table width="100%" cellpadding="8" cellspacing="0" style="border-collapse:collapse;margin-top:12px;">
+                <tr style="background:#f5f5f5;"><th style="text-align:left;border-bottom:2px solid #ddd;">Concepto</th>
+                <th style="text-align:right;border-bottom:2px solid #ddd;">Valor</th></tr>
+                ' . $rowsHtml . '
+            </table>
+            <p style="margin-top:16px;font-size:11px;color:#666;">Aportes a cargo del empleador (informativo): ' . $fmt($employer) . '
+            (salud, pensión, ARL, caja, SENA, ICBF).</p>
+            <p style="margin-top:30px;">_______________________________<br>Firma / acuse de recibo</p>
+        ');
+        return $this->generate($html);
+    }
+
+    /**
+     * Resumen PDF de toda la liquidación.
+     */
+    public function generatePayrollRun(array $run, array $items): string
+    {
+        $currency = $this->currency['symbol'] ?? '$';
+        $decimals = (int)($this->currency['decimals'] ?? 0);
+        $thousands = $this->currency['thousands'] ?? '.';
+        $decimal = $this->currency['decimal'] ?? ',';
+        $fmt = fn ($n) => $currency . ' ' . number_format((float)$n, $decimals, $decimal, $thousands);
+        $companyName = htmlspecialchars($this->company['company_name'] ?? 'Mi Empresa');
+
+        $bodyRows = '';
+        foreach ($items as $it) {
+            $bodyRows .= '<tr>
+                <td>' . htmlspecialchars($it['employee_name']) . '</td>
+                <td style="text-align:center;">' . (int)$it['days_worked'] . '</td>
+                <td style="text-align:right;">' . $fmt($it['gross_pay'] ?? 0) . '</td>
+                <td style="text-align:right;">' . $fmt(($it['health_employee'] ?? 0) + ($it['pension_employee'] ?? 0)) . '</td>
+                <td style="text-align:right;">' . $fmt($it['net_pay'] ?? 0) . '</td>
+            </tr>';
+        }
+
+        $html = $this->wrapHtml('LIQUIDACIÓN DE NÓMINA', $companyName, '
+            <p><strong>' . htmlspecialchars($run['run_number'] ?? '') . '</strong>
+            · Periodo ' . htmlspecialchars($run['period_label'] ?? '') . '
+            · Estado ' . htmlspecialchars($run['status'] ?? '') . '</p>
+            <table width="100%" cellpadding="6" cellspacing="0" style="border-collapse:collapse;font-size:11px;">
+                <tr style="background:#f5f5f5;">
+                    <th style="text-align:left;">Empleado</th><th>Días</th><th style="text-align:right;">Devengado</th>
+                    <th style="text-align:right;">Deducciones</th><th style="text-align:right;">Neto</th>
+                </tr>
+                ' . $bodyRows . '
+            </table>
+            <table width="100%" cellpadding="6" style="margin-top:16px;">
+                <tr><td>Bruto</td><td style="text-align:right;">' . $fmt($run['gross_total'] ?? 0) . '</td></tr>
+                <tr><td>Primas</td><td style="text-align:right;">' . $fmt($run['prima_total'] ?? 0) . '</td></tr>
+                <tr><td>Cesantías</td><td style="text-align:right;">' . $fmt($run['cesantias_total'] ?? 0) . '</td></tr>
+                <tr><td>Incapacidades</td><td style="text-align:right;">' . $fmt($run['incapacity_total'] ?? 0) . '</td></tr>
+                <tr><td>Deducciones empleados</td><td style="text-align:right;">' . $fmt($run['deductions_total'] ?? 0) . '</td></tr>
+                <tr><td>Aportes empleador</td><td style="text-align:right;">' . $fmt($run['employer_total'] ?? 0) . '</td></tr>
+                <tr><td>Parafiscales</td><td style="text-align:right;">' . $fmt($run['parafiscal_total'] ?? 0) . '</td></tr>
+                <tr style="font-weight:bold;"><td>Neto a pagar</td><td style="text-align:right;">' . $fmt($run['net_total'] ?? 0) . '</td></tr>
+            </table>
+        ');
+        return $this->generate($html);
+    }
+
     /**
      * Envolver contenido en HTML completo con estilos
      */
