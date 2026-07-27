@@ -55,11 +55,11 @@ class TenantMiddleware
     private static function rolePermissions(): array
     {
         $admin = [
-            'modules' => ['dashboard', 'caja', 'ventas', 'inventario', 'clientes', 'proveedores', 'cotizaciones', 'gastos', 'contabilidad', 'reportes', 'configuracion'],
+            'modules' => ['dashboard', 'caja', 'ventas', 'inventario', 'clientes', 'proveedores', 'compras', 'cotizaciones', 'gastos', 'contabilidad', 'reportes', 'configuracion'],
             'actions' => ['create', 'edit', 'delete', 'view', 'export'],
         ];
         $manager = [
-            'modules' => ['dashboard', 'caja', 'ventas', 'inventario', 'clientes', 'proveedores', 'cotizaciones', 'gastos', 'contabilidad', 'reportes'],
+            'modules' => ['dashboard', 'caja', 'ventas', 'inventario', 'clientes', 'proveedores', 'compras', 'cotizaciones', 'gastos', 'contabilidad', 'reportes'],
             'actions' => ['create', 'edit', 'delete', 'view', 'export'],
         ];
         

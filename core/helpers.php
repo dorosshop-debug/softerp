@@ -25,6 +25,7 @@ function config(string $key, $default = null)
             CONFIG_PATH . '/ai_personality.php',
             CONFIG_PATH . '/alegra.php',
             CONFIG_PATH . '/integrations.php',
+            CONFIG_PATH . '/catalog.php',
         ];
         
         foreach ($configFiles as $file) {
@@ -206,6 +207,8 @@ function csrf_field(): string
 {
     return '<input type="hidden" name="csrf_token" value="' . Security::generateCsrfToken() . '">';
 }
+
+require_once __DIR__ . '/catalog_helpers.php';
 
 /**
  * Leer un setting de la BD maestra (system_settings).

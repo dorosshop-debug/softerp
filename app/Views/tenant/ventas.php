@@ -91,8 +91,8 @@ function fmtV(float $a, array $c): string
                         <td style="font-weight:600;"><?php echo fmtV($sale['total'], $currency); ?></td>
                         <td><?php echo $sale['payment_status'] === 'paid' ? fmtV($sale['total'], $currency) : fmtV($sale['paid_amount'] ?? 0, $currency); ?></td>
                         <td>
-                            <span class="badge <?php echo $sale['payment_method'] === 'cash' ? 'badge-success' : ($sale['payment_method'] === 'card' ? 'badge-info' : 'badge-warning'); ?>">
-                                <?php echo $sale['payment_method'] === 'cash' ? 'Efectivo' : ($sale['payment_method'] === 'card' ? 'Tarjeta' : ucfirst($sale['payment_method'])); ?>
+                            <span class="badge <?php echo $sale['payment_method'] === 'cash' ? 'badge-success' : (in_array($sale['payment_method'], ['card','debit_card','credit_card','dataphone','payment_link'], true) ? 'badge-info' : 'badge-warning'); ?>">
+                                <?php echo htmlspecialchars(\SoftNova\Core\payment_method_label((string)$sale['payment_method'])); ?>
                             </span>
                         </td>
                         <td>
@@ -200,10 +200,8 @@ function fmtV(float $a, array $c): string
                 <div class="form-group">
                     <label>Método de Pago <span class="field-tip" data-tip="Medio con el que se recibe el dinero (efectivo, tarjeta, transferencia u otro).">?</span></label>
                     <select name="payment_method" class="form-control">
-                        <option value="cash">Efectivo</option>
-                        <option value="card">Tarjeta</option>
-                        <option value="transfer">Transferencia</option>
-                        <option value="other">Otro</option>
+                        <?php echo \SoftNova\Core\payment_method_options('cash'); ?>
+                    </select>
                     </select>
                 </div>
                 <div class="form-group" id="initialPaymentGroup" style="display:none;grid-column:1/-1;">
@@ -256,7 +254,7 @@ function fmtV(float $a, array $c): string
             <input type="hidden" name="sale_id" id="paySaleId">
             <p id="payInfo" style="margin-bottom:10px;"></p>
             <div class="form-group"><label>Monto * <span class="field-tip" data-tip="Cantidad que el cliente abona ahora. No puede superar el saldo pendiente.">?</span></label><input type="number" name="amount" id="payAmount" class="form-control" step="0.01" min="0.01" required></div>
-            <div class="form-group"><label>Método <span class="field-tip" data-tip="Medio de pago de este abono.">?</span></label><select name="payment_method" class="form-control"><option value="cash">Efectivo</option><option value="card">Tarjeta</option><option value="transfer">Transferencia</option></select></div>
+            <div class="form-group"><label>Método <span class="field-tip" data-tip="Medio de pago de este abono.">?</span></label><select name="payment_method" class="form-control"><?php echo \SoftNova\Core\payment_method_options('cash'); ?></select></div>
             <div class="form-group"><label>Notas <span class="field-tip" data-tip="Referencia del abono (número de transferencia, recibo, etc.).">?</span></label><input type="text" name="notes" class="form-control" placeholder="Abono"></div>
             <div class="modal-footer"><button type="button" class="btn btn-secondary" onclick="document.getElementById('paymentModal').style.display='none'">Cancelar</button><button type="submit" class="btn btn-success">Registrar Abono</button></div>
         </form>

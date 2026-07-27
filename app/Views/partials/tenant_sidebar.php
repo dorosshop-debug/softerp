@@ -31,6 +31,7 @@ $allModules = [
     'caja'      => ['route' => 'app/caja', 'label' => 'Caja', 'icon' => 'cash'],
     'ventas'    => ['route' => 'app/ventas', 'label' => 'Ventas', 'icon' => 'cart'],
     'inventario'=> ['route' => 'app/inventario', 'label' => 'Inventario', 'icon' => 'box'],
+    'compras'   => ['route' => 'app/compras', 'label' => 'Compras', 'icon' => 'truck'],
     'clientes'  => ['route' => 'app/clientes', 'label' => 'Clientes', 'icon' => 'users'],
     'proveedores'=>['route' => 'app/proveedores', 'label' => 'Proveedores', 'icon' => 'truck'],
     'cotizaciones'=>['route' => 'app/cotizaciones', 'label' => 'Cotizaciones', 'icon' => 'file'],

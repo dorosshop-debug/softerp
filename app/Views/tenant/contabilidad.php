@@ -14,14 +14,22 @@ $ledger = $ledger ?? [];
 $periods = $periods ?? [];
 $selectedAccountId = $selectedAccountId ?? 0;
 $integrationStatuses = $integrationStatuses ?? [];
+$catalogStatuses = $catalogStatuses ?? [];
 $activeProvider = $activeProvider ?? null;
 $selectedProvider = (string)($_GET['provider'] ?? ($activeProvider ?: 'alegra'));
-if (!isset($integrationStatuses[$selectedProvider])) {
+if (!isset($integrationStatuses[$selectedProvider]) && !isset($catalogStatuses[$selectedProvider])) {
     $selectedProvider = 'alegra';
 }
+$isCatalogProvider = isset($catalogStatuses[$selectedProvider]);
 $canCreate = \SoftNova\Core\TenantMiddleware::canDo('create', 'contabilidad');
 $canEdit = \SoftNova\Core\TenantMiddleware::canDo('edit', 'contabilidad');
 $canExport = \SoftNova\Core\TenantMiddleware::canDo('export', 'contabilidad');
+
+$purchaseSummary = $purchaseSummary ?? ['cnt' => 0, 'total' => 0];
+$expenseByType = $expenseByType ?? [];
+$traceMovements = $traceMovements ?? [];
+$accountAudit = $accountAudit ?? ['settings' => [], 'notes' => [], 'fixed' => [], 'missing' => []];
+$mlOAuthRedirect = $mlOAuthRedirect ?? '';
 
 function acctFmt(float $amount, array $currency): string
 {
@@ -42,6 +50,9 @@ $types = [
 ];
 $tabs = [
     'dashboard' => 'Resumen',
+    'compras' => 'Compras',
+    'gastos' => 'Gastos',
+    'trace' => 'Trazabilidad',
     'entries' => 'Libro diario',
     'ledger' => 'Libro mayor',
     'trial' => 'Balance de prueba',
@@ -50,6 +61,10 @@ $tabs = [
     'periods' => 'Periodos',
     'integrations' => 'Integraciones',
 ];
+$catalogProviders = ['woocommerce', 'mercadolibre'];
+if (in_array($selectedProvider, $catalogProviders, true)) {
+    // ok
+}
 $accountOptions = '';
 foreach ($accounts as $account) {
     if ($account['status'] !== 'active' || empty($account['accepts_entries'])) {
@@ -248,6 +263,39 @@ foreach ($accounts as $account) {
         <h3 style="margin:0;">Plan de cuentas</h3>
         <?php if ($canEdit): ?><button type="button" class="btn btn-primary" onclick="newAccountingAccount()">Nueva cuenta</button><?php endif; ?>
     </div>
+    <div class="card neumorphic" style="margin-bottom:14px;">
+        <div class="card-header"><h3>Auditoría contable (CxP y comisiones)</h3></div>
+        <div class="card-body">
+            <p style="font-size:13px;color:var(--color-text-secondary);margin-bottom:10px;">
+                Cuentas críticas: <code>530505</code> gastos financieros/comisiones,
+                <code>220505</code> proveedores (CxP en compras a crédito),
+                <code>143501</code> inventario.
+            </p>
+            <ul style="font-size:13px;margin:0 0 12px 18px;">
+                <?php foreach (($accountAudit['notes'] ?? []) as $note): ?>
+                    <li><?php echo htmlspecialchars($note); ?></li>
+                <?php endforeach; ?>
+            </ul>
+            <?php if ($canEdit): ?>
+            <form method="POST" action="<?php echo $viewInstance->route('app/contabilidad'); ?>?action=save-commission-rates" data-ajax="true" class="form-grid">
+                <?php echo \SoftNova\Core\csrf_field(); ?>
+                <div class="form-group">
+                    <label>% comisión datáfono</label>
+                    <input class="form-control" type="number" step="0.01" min="0" max="30" name="dataphone_commission_rate"
+                           value="<?php echo htmlspecialchars((string)($accountAudit['settings']['dataphone_commission_rate'] ?? '2.5')); ?>">
+                </div>
+                <div class="form-group">
+                    <label>% comisión tarjetas / link</label>
+                    <input class="form-control" type="number" step="0.01" min="0" max="30" name="card_commission_rate"
+                           value="<?php echo htmlspecialchars((string)($accountAudit['settings']['card_commission_rate'] ?? '2.8')); ?>">
+                </div>
+                <div class="form-group" style="align-self:end;">
+                    <button type="submit" class="btn btn-secondary">Guardar tasas</button>
+                </div>
+            </form>
+            <?php endif; ?>
+        </div>
+    </div>
     <div class="card neumorphic"><div class="card-body"><div class="table-container"><table>
         <thead><tr><th>Código</th><th>Cuenta</th><th>Tipo</th><th>Naturaleza</th><th>Estado</th><th>Origen</th><th>Acción</th></tr></thead>
         <tbody><?php foreach ($accounts as $account): ?><tr>
@@ -285,6 +333,67 @@ foreach ($accounts as $account) {
         </tbody></table></div>
     </div></div>
 
+<?php elseif ($tab === 'compras'): ?>
+    <div class="card neumorphic" style="margin-bottom:16px;">
+        <div class="card-header"><h3>Compras del periodo</h3></div>
+        <div class="card-body">
+            <p><strong><?php echo (int)$purchaseSummary['cnt']; ?></strong> compras · Total
+                <strong><?php echo acctFmt((float)$purchaseSummary['total'], $currency); ?></strong></p>
+            <p style="color:var(--color-text-secondary);">Las compras cargan inventario y generan asiento (Inventario / Proveedores o caja-banco).</p>
+            <a class="btn btn-primary" href="<?php echo $viewInstance->route('app/compras'); ?>">Ir al módulo Compras</a>
+        </div>
+    </div>
+
+<?php elseif ($tab === 'gastos'): ?>
+    <div class="card neumorphic">
+        <div class="card-header"><h3>Gastos tipificados del periodo</h3></div>
+        <div class="card-body">
+            <?php if (empty($expenseByType)): ?>
+                <p style="color:var(--color-text-secondary);">Sin gastos en el periodo.</p>
+            <?php else: ?>
+                <div class="table-container"><table>
+                    <thead><tr><th>Tipo</th><th>Cantidad</th><th>Total</th></tr></thead>
+                    <tbody>
+                    <?php foreach ($expenseByType as $row): ?>
+                        <tr>
+                            <td><?php echo htmlspecialchars(\SoftNova\Core\expense_category_label((string)$row['category'])); ?></td>
+                            <td><?php echo (int)$row['cnt']; ?></td>
+                            <td><?php echo acctFmt((float)$row['total'], $currency); ?></td>
+                        </tr>
+                    <?php endforeach; ?>
+                    </tbody>
+                </table></div>
+            <?php endif; ?>
+            <a class="btn btn-secondary" style="margin-top:12px;" href="<?php echo $viewInstance->route('app/gastos'); ?>">Gestionar gastos</a>
+        </div>
+    </div>
+
+<?php elseif ($tab === 'trace'): ?>
+    <div class="card neumorphic">
+        <div class="card-header"><h3>Trazabilidad de inventario (periodo)</h3></div>
+        <div class="card-body">
+            <?php if (empty($traceMovements)): ?>
+                <p style="color:var(--color-text-secondary);">Sin movimientos en el periodo.</p>
+            <?php else: ?>
+                <div class="table-container"><table>
+                    <thead><tr><th>Fecha</th><th>Producto</th><th>Tipo</th><th>Cant.</th><th>Origen</th></tr></thead>
+                    <tbody>
+                    <?php foreach ($traceMovements as $m): ?>
+                        <tr>
+                            <td><?php echo date('d/m/Y H:i', strtotime($m['movement_date'] ?? $m['created_at'])); ?></td>
+                            <td><?php echo htmlspecialchars($m['product_name'] ?? '—'); ?></td>
+                            <td><?php echo htmlspecialchars($m['type']); ?></td>
+                            <td><?php echo (int)$m['quantity']; ?></td>
+                            <td><?php echo htmlspecialchars(($m['reference_type'] ?? '') . (!empty($m['reference_id']) ? ' #'.$m['reference_id'] : '')); ?></td>
+                        </tr>
+                    <?php endforeach; ?>
+                    </tbody>
+                </table></div>
+            <?php endif; ?>
+            <a class="btn btn-secondary" style="margin-top:12px;" href="<?php echo $viewInstance->route('app/inventario'); ?>?action=traceability">Trazabilidad completa</a>
+        </div>
+    </div>
+
 <?php elseif ($tab === 'integrations'): ?>
     <?php
     $providerMeta = [
@@ -292,12 +401,13 @@ foreach ($accounts as $account) {
         'siigo' => 'Emite documentos electrónicos vía Siigo Nube API.',
         'factus' => 'API especializada en facturación electrónica Colombia.',
         'dian' => 'Datos fiscales para emisión directa. Requiere ser Proveedor Tecnológico o factura gratuita DIAN.',
+        'woocommerce' => 'Importa productos de su tienda WooCommerce al inventario (canal: WooCommerce).',
+        'mercadolibre' => 'Importa publicaciones activas de Mercado Libre al inventario (canal: Mercado Libre).',
     ];
     ?>
     <div class="alert alert-info" style="margin-bottom:16px;">
-        Configure las APIs desde esta pantalla. Las credenciales se guardan <strong>por empresa</strong> (cifradas),
-        no en un <code>.env</code> compartido — así cada tenant usa su propia cuenta de facturación.
-        Elija un solo proveedor activo.
+        Configure las APIs desde esta pantalla. Las credenciales se guardan <strong>por empresa</strong> (cifradas).
+        Facturación electrónica: elija un proveedor activo. Catálogo: WooCommerce y Mercado Libre importan productos diferenciados por canal.
     </div>
 
     <div class="card neumorphic" style="margin-bottom:18px;">
@@ -333,12 +443,21 @@ foreach ($accounts as $account) {
                 <?php if (!empty($st['active'])): ?><span class="badge badge-success" style="margin-left:6px;">Activo</span><?php endif; ?>
             </a>
         <?php endforeach; ?>
+        <?php foreach ($catalogStatuses as $code => $st): ?>
+            <a class="btn <?php echo $selectedProvider === $code ? 'btn-primary' : 'btn-secondary'; ?>"
+               href="<?php echo $viewInstance->route('app/contabilidad'); ?>?tab=integrations&provider=<?php echo urlencode($code); ?>">
+                <?php echo htmlspecialchars($st['label'] ?? $code); ?>
+                <span class="badge badge-info" style="margin-left:6px;">Catálogo</span>
+            </a>
+        <?php endforeach; ?>
     </div>
 
     <?php
-    $st = $integrationStatuses[$selectedProvider] ?? [];
+    $st = $isCatalogProvider ? ($catalogStatuses[$selectedProvider] ?? []) : ($integrationStatuses[$selectedProvider] ?? []);
     $form = $st['form'] ?? [];
     $routeBase = $viewInstance->route('app/contabilidad');
+    $saveAction = $isCatalogProvider ? 'save-catalog-integration' : 'save-integration';
+    $testAction = $isCatalogProvider ? 'catalog-test' : 'integration-test';
     ?>
     <div class="card neumorphic">
         <div class="card-header">
@@ -360,7 +479,7 @@ foreach ($accounts as $account) {
             </p>
 
             <?php if ($canEdit): ?>
-            <form method="POST" action="<?php echo $routeBase; ?>?action=save-integration" data-ajax="true">
+            <form method="POST" action="<?php echo $routeBase; ?>?action=<?php echo $saveAction; ?>" data-ajax="true">
                 <?php echo \SoftNova\Core\csrf_field(); ?>
                 <input type="hidden" name="provider" value="<?php echo htmlspecialchars($selectedProvider); ?>">
 
@@ -368,15 +487,63 @@ foreach ($accounts as $account) {
                     <div class="form-group">
                         <label><input type="checkbox" name="enabled" value="1" <?php echo !empty($form['enabled']) && $form['enabled'] !== '0' ? 'checked' : ''; ?>> Habilitar conector</label>
                     </div>
+                    <?php if (!$isCatalogProvider): ?>
                     <div class="form-group">
                         <label><input type="checkbox" name="make_active" value="1" <?php echo $activeProvider === $selectedProvider ? 'checked' : ''; ?>> Marcar como proveedor activo</label>
                     </div>
                     <div class="form-group">
-                        <label><input type="checkbox" name="sync_sales" value="1" <?php echo !empty($form['sync_sales']) && $form['sync_sales'] !== '0' ? 'checked' : ''; ?>> Sincronizar ventas (cuando esté implementado)</label>
+                        <label><input type="checkbox" name="sync_sales" value="1" <?php echo !empty($form['sync_sales']) && $form['sync_sales'] !== '0' ? 'checked' : ''; ?>> Sincronizar ventas</label>
                     </div>
+                    <?php endif; ?>
                 </div>
 
-                <?php if ($selectedProvider === 'alegra'): ?>
+                <?php if ($selectedProvider === 'woocommerce'): ?>
+                    <div class="form-grid">
+                        <div class="form-group" style="grid-column:1/-1;"><label>URL de la tienda</label><input class="form-control" name="store_url" value="<?php echo htmlspecialchars($form['store_url'] ?? ''); ?>" placeholder="https://mitienda.com"></div>
+                        <div class="form-group"><label>Consumer Key</label><input class="form-control" name="consumer_key" value="<?php echo htmlspecialchars($form['consumer_key'] ?? ''); ?>" autocomplete="off"></div>
+                        <div class="form-group"><label>Consumer Secret <?php if (!empty($form['consumer_secret_set'])): ?><small>(guardado)</small><?php endif; ?></label><input class="form-control" type="password" name="consumer_secret" placeholder="<?php echo !empty($form['consumer_secret_set']) ? 'Dejar vacío para conservar' : 'Secret'; ?>" autocomplete="new-password"></div>
+                        <div class="form-group" style="grid-column:1/-1;"><label>Política de stock (quién manda)</label>
+                            <?php $auth = $form['stock_authority'] ?? ($st['stock_authority'] ?? 'create_only'); ?>
+                            <select class="form-control" name="stock_authority">
+                                <option value="create_only" <?php echo $auth === 'create_only' ? 'selected' : ''; ?>>Solo al crear (recomendado) — updates no tocan stock ERP</option>
+                                <option value="erp" <?php echo $auth === 'erp' ? 'selected' : ''; ?>>ERP manda — nunca sincroniza cantidades</option>
+                                <option value="store" <?php echo $auth === 'store' ? 'selected' : ''; ?>>Tienda manda — ajusta stock local al remoto</option>
+                            </select>
+                        </div>
+                    </div>
+                    <p style="font-size:12px;color:var(--color-text-secondary);">WooCommerce → Ajustes → Avanzado → REST API. Luego Inventario → Importar WooCommerce.</p>
+
+                <?php elseif ($selectedProvider === 'mercadolibre'): ?>
+                    <div class="form-grid">
+                        <div class="form-group"><label>Client ID (App ML)</label><input class="form-control" name="client_id" value="<?php echo htmlspecialchars($form['client_id'] ?? ''); ?>" autocomplete="off"></div>
+                        <div class="form-group"><label>Client Secret <?php if (!empty($form['client_secret_set'])): ?><small>(guardado)</small><?php endif; ?></label><input class="form-control" type="password" name="client_secret" placeholder="<?php echo !empty($form['client_secret_set']) ? 'Dejar vacío para conservar' : 'Secret'; ?>" autocomplete="new-password"></div>
+                        <div class="form-group" style="grid-column:1/-1;"><label>Redirect URI (registre esta URL en su app ML)</label>
+                            <input class="form-control" readonly value="<?php echo htmlspecialchars($mlOAuthRedirect); ?>">
+                        </div>
+                        <div class="form-group"><label>Site ID</label><input class="form-control" name="site_id" value="<?php echo htmlspecialchars($form['site_id'] ?? 'MCO'); ?>"></div>
+                        <div class="form-group"><label>User ID</label><input class="form-control" name="user_id" value="<?php echo htmlspecialchars($form['user_id'] ?? ''); ?>" placeholder="Se completa con OAuth"></div>
+                        <div class="form-group" style="grid-column:1/-1;"><label>Access Token (manual / legado) <?php if (!empty($form['access_token_set'])): ?><small>(guardado)</small><?php endif; ?></label><input class="form-control" type="password" name="access_token" placeholder="<?php echo !empty($form['access_token_set']) ? 'Dejar vacío para conservar' : 'Opcional si usa OAuth'; ?>" autocomplete="new-password"></div>
+                        <div class="form-group" style="grid-column:1/-1;"><label>Refresh Token <?php if (!empty($form['refresh_token_set'])): ?><small>(guardado)</small><?php endif; ?></label><input class="form-control" type="password" name="refresh_token" placeholder="<?php echo !empty($form['refresh_token_set']) ? 'Dejar vacío para conservar' : 'Se guarda con OAuth'; ?>" autocomplete="new-password"></div>
+                        <div class="form-group" style="grid-column:1/-1;"><label>Política de stock</label>
+                            <?php $auth = $form['stock_authority'] ?? ($st['stock_authority'] ?? 'create_only'); ?>
+                            <select class="form-control" name="stock_authority">
+                                <option value="create_only" <?php echo $auth === 'create_only' ? 'selected' : ''; ?>>Solo al crear (recomendado)</option>
+                                <option value="erp" <?php echo $auth === 'erp' ? 'selected' : ''; ?>>ERP manda</option>
+                                <option value="store" <?php echo $auth === 'store' ? 'selected' : ''; ?>>ML manda (ajusta stock local)</option>
+                            </select>
+                        </div>
+                    </div>
+                    <?php if ($canEdit): ?>
+                        <p style="margin:10px 0;">
+                            <a class="btn btn-secondary" href="<?php echo $viewInstance->route('app/contabilidad'); ?>?action=ml-oauth-start">Conectar con Mercado Libre (OAuth)</a>
+                            <?php if (!empty($st['meta']['token_expires_at'])): ?>
+                                <small style="margin-left:8px;color:var(--color-text-secondary);">Expira: <?php echo htmlspecialchars($st['meta']['token_expires_at']); ?><?php echo !empty($st['meta']['has_refresh']) ? ' · refresh activo' : ''; ?></small>
+                            <?php endif; ?>
+                        </p>
+                    <?php endif; ?>
+                    <p style="font-size:12px;color:var(--color-text-secondary);">El sistema renueva el access_token automáticamente con refresh_token cuando vence o responde 401.</p>
+
+                <?php elseif ($selectedProvider === 'alegra'): ?>
                     <div class="form-grid">
                         <div class="form-group"><label>Email Alegra</label><input class="form-control" name="email" value="<?php echo htmlspecialchars($form['email'] ?? ''); ?>" autocomplete="off"></div>
                         <div class="form-group"><label>Token API <?php if (!empty($form['token_set'])): ?><small>(guardado)</small><?php endif; ?></label><input class="form-control" type="password" name="token" placeholder="<?php echo !empty($form['token_set']) ? 'Dejar vacío para conservar' : 'Token'; ?>" autocomplete="new-password"></div>
@@ -616,7 +783,8 @@ function testIntegrationProvider(btn, provider) {
     result.textContent = 'Probando...';
     result.style.color = 'var(--color-text-secondary)';
     var url = <?php echo json_encode($viewInstance->route('app/contabilidad')); ?>
-        + '?action=integration-test&provider=' + encodeURIComponent(provider);
+        + '?action=' + encodeURIComponent(<?php echo json_encode($testAction ?? 'integration-test'); ?>)
+        + '&provider=' + encodeURIComponent(provider);
     fetch(url, {headers:{'X-Requested-With':'XMLHttpRequest'}})
         .then(function(response){ return response.json(); })
         .then(function(data){

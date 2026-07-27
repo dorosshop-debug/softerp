@@ -5,6 +5,8 @@ namespace SoftNova\Controllers;
 use SoftNova\Core\TenantController;
 use SoftNova\Core\TenantMiddleware;
 use SoftNova\Services\StockService;
+use SoftNova\Services\TenantOpsSchema;
+use SoftNova\Services\Integrations\CatalogSyncService;
 
 class TenantInventarioController extends TenantController
 {
@@ -22,6 +24,7 @@ class TenantInventarioController extends TenantController
         parent::__construct();
         TenantMiddleware::authorize('inventario');
         $this->ensureQuotesSchema();
+        TenantOpsSchema::ensure($this->db);
         $this->stock = new StockService($this->db);
     }
     
@@ -53,6 +56,20 @@ class TenantInventarioController extends TenantController
             $this->detail();
             return;
         }
+        if ($action === 'edit_movement_date' && $this->request->method() === 'POST') {
+            TenantMiddleware::authorize('inventario', 'edit');
+            $this->editMovementDate();
+            return;
+        }
+        if ($action === 'traceability') {
+            $this->traceability();
+            return;
+        }
+        if ($action === 'import_catalog' && $this->request->method() === 'POST') {
+            TenantMiddleware::authorize('inventario', 'create');
+            $this->importCatalog();
+            return;
+        }
         if ($action === 'export' && $this->request->method() === 'GET') {
             TenantMiddleware::authorize('inventario', 'export');
             $this->exportProducts();
@@ -72,6 +89,7 @@ class TenantInventarioController extends TenantController
         $typeFilter = $this->request->get('type', '');
         $categoryFilter = (int)$this->request->get('category_id', 0);
         $stockFilter = (string)$this->request->get('stock_state', '');
+        $channelFilter = (string)$this->request->get('channel', '');
 
         $where = ["p.status = 'active'"];
         $params = [];
@@ -88,10 +106,14 @@ class TenantInventarioController extends TenantController
         } elseif ($stockFilter === 'out') {
             $where[] = "p.product_type = 'product' AND p.stock <= 0";
         }
+        if ($channelFilter !== '') {
+            $where[] = "COALESCE(p.source_channel, 'manual') = ?";
+            $params[] = $channelFilter;
+        }
         if ($filters['q'] !== '') {
-            $where[] = "(p.name LIKE ? OR p.code LIKE ? OR p.description LIKE ?)";
+            $where[] = "(p.name LIKE ? OR p.code LIKE ? OR p.description LIKE ? OR COALESCE(p.external_id,'') LIKE ?)";
             $like = '%' . $filters['q'] . '%';
-            array_push($params, $like, $like, $like);
+            array_push($params, $like, $like, $like, $like);
         }
         $whereSql = 'WHERE ' . implode(' AND ', $where);
 
@@ -134,8 +156,16 @@ class TenantInventarioController extends TenantController
             'type' => ($typeFilter === 'product' || $typeFilter === 'service') ? $typeFilter : null,
             'category_id' => $categoryFilter > 0 ? $categoryFilter : null,
             'stock_state' => in_array($stockFilter, ['low', 'out'], true) ? $stockFilter : null,
+            'channel' => $channelFilter !== '' ? $channelFilter : null,
         ], static fn($v) => $v !== null && $v !== '');
         $filters['query'] = array_merge($filters['query'], $extraQuery);
+
+        $catalogStatuses = [];
+        try {
+            $catalogStatuses = (new CatalogSyncService($this->db))->statuses();
+        } catch (\Throwable $e) {
+            $catalogStatuses = [];
+        }
 
         $this->view('tenant.inventario', $this->tenantViewData([
             'products' => $products,
@@ -146,8 +176,10 @@ class TenantInventarioController extends TenantController
             'typeFilter' => $typeFilter,
             'categoryFilter' => $categoryFilter,
             'stockFilter' => $stockFilter,
+            'channelFilter' => $channelFilter,
             'filters' => $filters,
             'pagination' => $pagination,
+            'catalogStatuses' => $catalogStatuses,
         ]));
     }
     
@@ -169,7 +201,7 @@ class TenantInventarioController extends TenantController
              FROM stock_movements sm
              LEFT JOIN users u ON sm.user_id = u.id
              WHERE sm.product_id = ?
-             ORDER BY sm.created_at DESC LIMIT 30",
+             ORDER BY COALESCE(sm.movement_date, sm.created_at) DESC, sm.id DESC LIMIT 50",
             [$id]
         )->fetchAll();
         
@@ -181,8 +213,83 @@ class TenantInventarioController extends TenantController
              ORDER BY s.sale_date DESC LIMIT 5",
             [$id]
         )->fetchAll();
+
+        $purchases = $this->query(
+            "SELECT pi.*, pu.purchase_number, pu.purchase_date, su.name supplier_name
+             FROM purchase_items pi
+             JOIN purchases pu ON pu.id = pi.purchase_id
+             LEFT JOIN suppliers su ON su.id = pu.supplier_id
+             WHERE pi.product_id = ? AND pu.status = 'completed'
+             ORDER BY pu.purchase_date DESC LIMIT 10",
+            [$id]
+        )->fetchAll();
         
-        $this->json(['product' => $product, 'movements' => $movements, 'lastSales' => $lastSales]);
+        $this->json([
+            'product' => $product,
+            'movements' => $movements,
+            'lastSales' => $lastSales,
+            'purchases' => $purchases,
+            'channel_label' => \SoftNova\Core\product_channel_label((string)($product['source_channel'] ?? 'manual')),
+        ]);
+    }
+
+    private function editMovementDate(): void
+    {
+        if (!$this->validateCsrfOrFail('/app/inventario')) {
+            return;
+        }
+        $movementId = (int)$this->request->post('movement_id');
+        $date = trim((string)$this->request->post('movement_date', ''));
+        try {
+            $this->stock->updateMovementDate($movementId, $date);
+            $this->respond(true, 'Fecha de movimiento actualizada', '/app/inventario?action=traceability');
+        } catch (\Throwable $e) {
+            $this->respond(false, $e->getMessage(), '/app/inventario?action=traceability');
+        }
+    }
+
+    private function traceability(): void
+    {
+        $page = max(1, (int)$this->request->get('page', 1));
+        $perPage = 40;
+        $filters = [
+            'q' => trim((string)$this->request->get('q', '')),
+            'type' => trim((string)$this->request->get('type', '')),
+            'reference_type' => trim((string)$this->request->get('reference_type', '')),
+            'from' => trim((string)$this->request->get('from', '')),
+            'to' => trim((string)$this->request->get('to', '')),
+            'product_id' => (int)$this->request->get('product_id', 0) ?: null,
+        ];
+        $result = $this->stock->listMovements($filters, $perPage, ($page - 1) * $perPage);
+        $pagination = $this->paginate($result['total'], $perPage);
+
+        $this->view('tenant.trazabilidad', $this->tenantViewData([
+            'movements' => $result['rows'],
+            'filters' => $filters,
+            'pagination' => $pagination,
+        ]));
+    }
+
+    private function importCatalog(): void
+    {
+        if (!$this->validateCsrfOrFail('/app/inventario')) {
+            return;
+        }
+        $provider = (string)$this->request->post('provider', '');
+        try {
+            $result = (new CatalogSyncService($this->db))->import($provider);
+            $msg = sprintf(
+                'Importación %s: %d nuevos, %d actualizados, %d sin tocar stock, %d errores',
+                $provider,
+                $result['created'] ?? 0,
+                $result['updated'] ?? 0,
+                $result['skipped_stock'] ?? 0,
+                $result['errors'] ?? 0
+            );
+            $this->respond(($result['errors'] ?? 0) === 0, $msg, '/app/inventario');
+        } catch (\Throwable $e) {
+            $this->respond(false, $e->getMessage(), '/app/inventario');
+        }
     }
     
     private function create(): void
@@ -235,7 +342,7 @@ class TenantInventarioController extends TenantController
         $newId = (int)$this->db->lastInsertId();
         
         if ($stock > 0 && $productType === 'product') {
-            $this->stock->addMovement($newId, 'in', $stock, 'purchase', null, 'Stock inicial');
+            $this->stock->addMovement($newId, 'in', $stock, 'adjustment', null, 'Stock inicial (ajuste; use Compras para proveedor)');
         }
         
         $this->respond(true, ($productType === 'service' ? 'Servicio' : 'Producto') . ' creado: ' . $name, '/app/inventario');
@@ -318,13 +425,17 @@ class TenantInventarioController extends TenantController
         $id = (int)$this->request->post('id');
         $qty = (int)$this->request->post('quantity');
         $notes = $this->request->post('notes', 'Entrada de stock');
+        $movementDate = trim((string)$this->request->post('movement_date', ''));
+        if ($movementDate === '') {
+            $movementDate = date('Y-m-d H:i:s');
+        }
         
         if ($qty <= 0) {
             $this->respond(false, 'La cantidad debe ser mayor a 0', '/app/inventario');
             return;
         }
         
-        $this->stock->increase($id, $qty, 'purchase', null, $notes);
+        $this->stock->increase($id, $qty, 'adjustment', null, $notes, 'in', $movementDate);
         $this->respond(true, "Stock aumentado en {$qty} unidades", '/app/inventario');
     }
     

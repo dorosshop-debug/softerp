@@ -13,6 +13,8 @@ $currency = $currency ?? ['symbol' => '$', 'decimals' => 0];
 $typeFilter = $typeFilter ?? '';
 $categoryFilter = $categoryFilter ?? 0;
 $stockFilter = $stockFilter ?? '';
+$channelFilter = $channelFilter ?? '';
+$catalogStatuses = $catalogStatuses ?? [];
 $filters = $filters ?? ['q' => '', 'sort' => 'name', 'dir' => 'asc', 'query' => []];
 $canCreateProduct = \SoftNova\Core\TenantMiddleware::canDo('create', 'inventario');
 $canEditProduct = \SoftNova\Core\TenantMiddleware::canDo('edit', 'inventario');
@@ -87,6 +89,15 @@ $exportQuery = http_build_query(array_merge(['action' => 'export'], $filters['qu
             </select>
         </div>
         <div class="form-group" style="margin:0;">
+            <label style="font-size:12px;">Canal</label>
+            <select name="channel" class="form-control" style="width:auto;">
+                <option value="">Todos</option>
+                <?php foreach (\SoftNova\Core\product_channels() as $ck => $cl): ?>
+                    <option value="<?php echo htmlspecialchars($ck); ?>" <?php echo $channelFilter === $ck ? 'selected' : ''; ?>><?php echo htmlspecialchars($cl); ?></option>
+                <?php endforeach; ?>
+            </select>
+        </div>
+        <div class="form-group" style="margin:0;">
             <label style="font-size:12px;">Ordenar por</label>
             <select name="_sortkey" class="form-control" style="width:auto;" onchange="var p=this.value.split('-');this.form.sort.value=p[0];this.form.dir.value=p[1];">
                 <?php foreach ($sortOptions as $key => $label): ?>
@@ -107,8 +118,23 @@ $exportQuery = http_build_query(array_merge(['action' => 'export'], $filters['qu
     <?php if ($canCreateProduct): ?>
         <button onclick="openInventarioModal()" class="btn btn-primary neumorphic-btn" title="Nuevo producto">+ Nuevo Producto</button>
     <?php endif; ?>
+    <a href="<?php echo $invBase; ?>?action=traceability" class="btn btn-secondary" title="Trazabilidad">Trazabilidad</a>
+    <a href="<?php echo $viewInstance->route('app/compras'); ?>" class="btn btn-secondary" title="Compras">Compras</a>
     <?php if ($canExportInv): ?>
         <a href="<?php echo $invBase . '?' . $exportQuery; ?>" class="btn btn-secondary" title="Exportar CSV">Exportar CSV</a>
+    <?php endif; ?>
+    <?php if ($canCreateProduct && !empty($catalogStatuses)): ?>
+        <?php foreach ($catalogStatuses as $code => $st): ?>
+            <?php if (!empty($st['enabled']) && !empty($st['configured'])): ?>
+                <form method="POST" action="<?php echo $invBase; ?>?action=import_catalog" data-ajax="true" style="display:inline;">
+                    <?php echo \SoftNova\Core\csrf_field(); ?>
+                    <input type="hidden" name="provider" value="<?php echo htmlspecialchars($code); ?>">
+                    <button type="submit" class="btn btn-secondary" onclick="return confirm('¿Importar productos desde <?php echo htmlspecialchars($st['label']); ?>?')">
+                        Importar <?php echo htmlspecialchars($st['label']); ?>
+                    </button>
+                </form>
+            <?php endif; ?>
+        <?php endforeach; ?>
     <?php endif; ?>
 </div>
 
@@ -313,20 +339,29 @@ $exportQuery = http_build_query(array_merge(['action' => 'export'], $filters['qu
 <div id="stockModal" class="modal-overlay" style="display:none;">
     <div class="modal-content neumorphic" style="max-width:400px;">
         <div class="modal-header">
-            <h3>Agregar Stock</h3>
+            <h3>Ajuste de stock</h3>
             <button onclick="document.getElementById('stockModal').style.display='none'" class="modal-close">&times;</button>
         </div>
         <form method="POST" action="<?php echo $viewInstance->route('app/inventario'); ?>?action=add_stock" data-ajax="true">
             <?php echo \SoftNova\Core\csrf_field(); ?>
             <input type="hidden" name="id" id="stockProdId">
             <p id="stockProdName" style="margin-bottom:10px;font-weight:600;"></p>
+            <p style="font-size:12px;color:var(--color-text-secondary);margin-bottom:12px;">
+                Esto es un <strong>ajuste manual</strong> (no crea compra ni CxP).
+                Para mercancía de proveedor use
+                <a href="<?php echo $viewInstance->route('app/compras'); ?>">Compras</a>.
+            </p>
             <div class="form-group">
                 <label>Cantidad a agregar *</label>
                 <input type="number" name="quantity" class="form-control" min="1" required placeholder="1">
             </div>
             <div class="form-group">
+                <label>Fecha de ingreso *</label>
+                <input type="date" name="movement_date" class="form-control" value="<?php echo date('Y-m-d'); ?>" required>
+            </div>
+            <div class="form-group">
                 <label>Notas</label>
-                <input type="text" name="notes" class="form-control" placeholder="Ej: Compra a proveedor">
+                <input type="text" name="notes" class="form-control" placeholder="Ej: Conteo físico / corrección">
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" onclick="document.getElementById('stockModal').style.display='none'">Cancelar</button>

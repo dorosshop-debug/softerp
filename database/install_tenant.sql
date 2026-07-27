@@ -105,7 +105,7 @@ CREATE TABLE `expenses` (
   `category` varchar(100) DEFAULT NULL,
   `expense_date` date NOT NULL,
   `supplier_id` int(10) unsigned DEFAULT NULL,
-  `payment_method` enum('cash','card','transfer','other') DEFAULT 'cash',
+  `payment_method` varchar(50) DEFAULT 'cash',
   `receipt_number` varchar(50) DEFAULT NULL,
   `notes` text DEFAULT NULL,
   `user_id` int(10) unsigned DEFAULT NULL,
@@ -278,7 +278,7 @@ CREATE TABLE `sales` (
   `tax` decimal(12,2) NOT NULL DEFAULT 0.00,
   `discount` decimal(12,2) NOT NULL DEFAULT 0.00,
   `total` decimal(12,2) NOT NULL DEFAULT 0.00,
-  `payment_method` enum('cash','card','transfer','credit','other') DEFAULT 'cash',
+  `payment_method` varchar(50) DEFAULT 'cash',
   `payment_status` enum('paid','pending','partial','cancelled') DEFAULT 'paid',
   `notes` text DEFAULT NULL,
   `external_provider` varchar(30) DEFAULT NULL,
@@ -535,7 +535,47 @@ INSERT INTO `accounting_settings` (`setting_key`,`setting_value`) VALUES
 ('sales_account','413501'),
 ('sales_returns_account','417501'),
 ('general_expense_account','510505'),
+('fixed_expense_account','510505'),
+('financial_expense_account','530505'),
 ('cost_of_sales_account','613501');
+
+-- Compras a proveedores
+CREATE TABLE IF NOT EXISTS `purchases` (
+  `id` int(10) unsigned NOT NULL AUTO_INCREMENT,
+  `purchase_number` varchar(50) NOT NULL,
+  `supplier_id` int(10) unsigned DEFAULT NULL,
+  `user_id` int(10) unsigned DEFAULT NULL,
+  `purchase_date` datetime NOT NULL DEFAULT current_timestamp(),
+  `subtotal` decimal(12,2) NOT NULL DEFAULT 0.00,
+  `tax` decimal(12,2) NOT NULL DEFAULT 0.00,
+  `total` decimal(12,2) NOT NULL DEFAULT 0.00,
+  `payment_method` varchar(50) DEFAULT 'cash',
+  `payment_status` enum('paid','pending','partial') DEFAULT 'paid',
+  `notes` text DEFAULT NULL,
+  `status` enum('completed','cancelled') DEFAULT 'completed',
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_purchase_number` (`purchase_number`),
+  KEY `idx_supplier` (`supplier_id`),
+  KEY `idx_date` (`purchase_date`),
+  KEY `idx_status` (`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `purchase_items` (
+  `id` int(10) unsigned NOT NULL AUTO_INCREMENT,
+  `purchase_id` int(10) unsigned NOT NULL,
+  `product_id` int(10) unsigned DEFAULT NULL,
+  `product_name` varchar(255) NOT NULL,
+  `quantity` int(11) NOT NULL DEFAULT 1,
+  `unit_cost` decimal(12,2) NOT NULL DEFAULT 0.00,
+  `subtotal` decimal(12,2) NOT NULL DEFAULT 0.00,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_purchase` (`purchase_id`),
+  KEY `idx_product` (`product_id`),
+  CONSTRAINT `fk_purchase_items_purchase` FOREIGN KEY (`purchase_id`) REFERENCES `purchases` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 /*!40103 SET TIME_ZONE=@OLD_TIME_ZONE */;
 

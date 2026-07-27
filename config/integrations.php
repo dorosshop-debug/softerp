@@ -30,6 +30,18 @@ return [
                 'base_url' => 'https://vpfe.dian.gov.co',
                 'timeout' => 45,
             ],
+            'woocommerce' => [
+                'label' => 'WooCommerce',
+                'timeout' => 30,
+                'stock_authority' => 'create_only',
+            ],
+            'mercadolibre' => [
+                'label' => 'Mercado Libre',
+                'base_url' => 'https://api.mercadolibre.com',
+                'site_id' => 'MCO',
+                'timeout' => 30,
+                'stock_authority' => 'create_only',
+            ],
         ],
     ],
 ];

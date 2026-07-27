@@ -157,6 +157,7 @@ class AccountingService
             ['510505', 'Gastos generales', 'expense', 'debit', 1],
             ['513505', 'Servicios', 'expense', 'debit', 1],
             ['519595', 'Otros gastos operacionales', 'expense', 'debit', 1],
+            ['530505', 'Gastos financieros y comisiones', 'expense', 'debit', 1],
             ['613501', 'Costo de ventas', 'expense', 'debit', 1],
         ];
 
@@ -181,6 +182,8 @@ class AccountingService
             'sales_account' => '413501',
             'sales_returns_account' => '417501',
             'general_expense_account' => '510505',
+            'fixed_expense_account' => '510505',
+            'financial_expense_account' => '530505',
             'cost_of_sales_account' => '613501',
         ];
         $stmt = $this->db->prepare(
@@ -191,6 +194,209 @@ class AccountingService
         }
 
         $seeded[$connKey] = true;
+    }
+
+    /**
+     * Valida cuentas críticas (530505, CxP, inventario) y settings asociados.
+     * Repara faltantes con INSERT IGNORE / settings por defecto.
+     *
+     * @return array{ok:bool,missing:list<string>,fixed:list<string>,notes:list<string>}
+     */
+    public function auditCriticalAccounts(): array
+    {
+        $this->seedChartOfAccounts();
+        $required = [
+            '110505' => 'Caja general',
+            '111005' => 'Bancos y medios electrónicos',
+            '143501' => 'Inventarios de mercancías',
+            '220505' => 'Proveedores nacionales',
+            '530505' => 'Gastos financieros y comisiones',
+            '613501' => 'Costo de ventas',
+        ];
+        $missing = [];
+        $fixed = [];
+        foreach ($required as $code => $name) {
+            $row = $this->query(
+                'SELECT id FROM accounting_accounts WHERE code = ? LIMIT 1',
+                [$code]
+            )->fetch();
+            if (!$row) {
+                $missing[] = $code;
+                $type = match (true) {
+                    str_starts_with($code, '1') => 'asset',
+                    str_starts_with($code, '2') => 'liability',
+                    str_starts_with($code, '5'), str_starts_with($code, '6') => 'expense',
+                    default => 'expense',
+                };
+                $nature = in_array($type, ['liability', 'equity', 'revenue'], true) ? 'credit' : 'debit';
+                $this->query(
+                    "INSERT INTO accounting_accounts (code, name, account_type, nature, is_system)
+                     VALUES (?, ?, ?, ?, 1)",
+                    [$code, $name, $type, $nature]
+                );
+                $fixed[] = $code;
+            }
+        }
+
+        $settingsMap = [
+            'financial_expense_account' => '530505',
+            'payable_account' => '220505',
+            'inventory_account' => '143501',
+            'dataphone_commission_rate' => '2.5',
+            'card_commission_rate' => '2.8',
+            'purchase_credit_policy' => 'cxp', // cxp = pendiente/parcial → Proveedores 220505
+        ];
+        foreach ($settingsMap as $key => $value) {
+            $this->query(
+                "INSERT IGNORE INTO accounting_settings (setting_key, setting_value) VALUES (?, ?)",
+                [$key, $value]
+            );
+        }
+
+        $notes = [
+            'Compras pagadas: crédito a caja/banco según medio de pago.',
+            'Compras pendientes o parciales: crédito a CxP proveedores (220505). El saldo parcial se liquida fuera del asiento inicial.',
+            'Comisiones datáfono/tarjeta: gasto a 530505 (financial_expense_account).',
+        ];
+
+        return [
+            'ok' => empty($missing) || !empty($fixed),
+            'missing' => $missing,
+            'fixed' => $fixed,
+            'notes' => $notes,
+            'settings' => [
+                'financial_expense_account' => $this->setting('financial_expense_account', '530505'),
+                'payable_account' => $this->setting('payable_account', '220505'),
+                'purchase_credit_policy' => $this->setting('purchase_credit_policy', 'cxp'),
+                'dataphone_commission_rate' => $this->setting('dataphone_commission_rate', '2.5'),
+                'card_commission_rate' => $this->setting('card_commission_rate', '2.8'),
+            ],
+        ];
+    }
+
+    /**
+     * Conciliación ventas electrónicas vs gastos de comisión registrados.
+     *
+     * @return array<string,mixed>
+     */
+    public function dataphoneReconciliation(string $from, string $to): array
+    {
+        $electronic = ['dataphone', 'debit_card', 'credit_card', 'card', 'payment_link'];
+        $placeholders = implode(',', array_fill(0, count($electronic), '?'));
+        $params = array_merge($electronic, [$from, $to]);
+
+        $sales = $this->query(
+            "SELECT payment_method,
+                    COUNT(*) cnt,
+                    COALESCE(SUM(total), 0) total
+             FROM sales
+             WHERE status = 'completed'
+               AND payment_method IN ({$placeholders})
+               AND DATE(sale_date) BETWEEN ? AND ?
+             GROUP BY payment_method",
+            $params
+        )->fetchAll();
+
+        $salesTotal = 0.0;
+        $dataphoneSales = 0.0;
+        $cardSales = 0.0;
+        foreach ($sales as $row) {
+            $amt = (float)$row['total'];
+            $salesTotal += $amt;
+            $m = (string)$row['payment_method'];
+            if ($m === 'dataphone') {
+                $dataphoneSales += $amt;
+            } elseif (in_array($m, ['debit_card', 'credit_card', 'card', 'payment_link'], true)) {
+                $cardSales += $amt;
+            }
+        }
+
+        $rateDataphone = (float)$this->setting('dataphone_commission_rate', '2.5');
+        $rateCard = (float)$this->setting('card_commission_rate', '2.8');
+        $expectedDataphone = round($dataphoneSales * $rateDataphone / 100, 2);
+        $expectedCard = round($cardSales * $rateCard / 100, 2);
+        $expected = round($expectedDataphone + $expectedCard, 2);
+
+        $expenses = $this->query(
+            "SELECT COALESCE(category,'general') category,
+                    COUNT(*) cnt,
+                    COALESCE(SUM(amount), 0) total
+             FROM expenses
+             WHERE expense_date BETWEEN ? AND ?
+               AND category IN ('dataphone_commission','card_commission','financial')
+             GROUP BY COALESCE(category,'general')",
+            [$from, $to]
+        )->fetchAll();
+
+        $recorded = 0.0;
+        $recordedDataphone = 0.0;
+        foreach ($expenses as $row) {
+            $recorded += (float)$row['total'];
+            if (($row['category'] ?? '') === 'dataphone_commission') {
+                $recordedDataphone += (float)$row['total'];
+            }
+        }
+
+        $gap = round($expected - $recorded, 2);
+
+        return [
+            'from' => $from,
+            'to' => $to,
+            'sales_by_method' => $sales,
+            'sales_total' => $salesTotal,
+            'dataphone_sales' => $dataphoneSales,
+            'card_sales' => $cardSales,
+            'rate_dataphone' => $rateDataphone,
+            'rate_card' => $rateCard,
+            'expected_dataphone' => $expectedDataphone,
+            'expected_card' => $expectedCard,
+            'expected_total' => $expected,
+            'recorded_expenses' => $expenses,
+            'recorded_total' => $recorded,
+            'recorded_dataphone' => $recordedDataphone,
+            'gap' => $gap,
+            'suggest_amount' => max(0, $gap),
+            'suggest_category' => 'dataphone_commission',
+            'suggest_description' => 'Comisión datáfono/tarjetas ' . $from . ' a ' . $to,
+        ];
+    }
+
+    /**
+     * Margen de ventas agrupado por canal de producto (manual / compra / woo / ml).
+     *
+     * @return list<array{channel:string,revenue:float,cost:float,profit:float,margin:float,qty:int}>
+     */
+    public function marginByChannel(string $from, string $to): array
+    {
+        $rows = $this->query(
+            "SELECT COALESCE(NULLIF(p.source_channel,''), 'manual') channel,
+                    SUM(si.quantity) qty,
+                    COALESCE(SUM(si.subtotal), 0) revenue,
+                    COALESCE(SUM(si.quantity * COALESCE(NULLIF(si.unit_cost, 0), p.purchase_price, 0)), 0) cost
+             FROM sale_items si
+             JOIN sales s ON s.id = si.sale_id
+             LEFT JOIN products p ON p.id = si.product_id
+             WHERE s.status = 'completed' AND DATE(s.sale_date) BETWEEN ? AND ?
+             GROUP BY COALESCE(NULLIF(p.source_channel,''), 'manual')
+             ORDER BY revenue DESC",
+            [$from, $to]
+        )->fetchAll();
+
+        $out = [];
+        foreach ($rows as $row) {
+            $revenue = (float)$row['revenue'];
+            $cost = (float)$row['cost'];
+            $profit = $revenue - $cost;
+            $out[] = [
+                'channel' => (string)$row['channel'],
+                'qty' => (int)$row['qty'],
+                'revenue' => $revenue,
+                'cost' => $cost,
+                'profit' => $profit,
+                'margin' => $revenue > 0 ? round(($profit / $revenue) * 100, 1) : 0.0,
+            ];
+        }
+        return $out;
     }
 
     public function accounts(bool $onlyActive = false): array
@@ -547,19 +753,30 @@ class AccountingService
             throw new \RuntimeException('Gasto no encontrado');
         }
 
+        $category = (string)($expense['category'] ?? 'general');
+        $expenseAccount = match ($category) {
+            'financial', 'card_commission', 'dataphone_commission' => $this->setting('financial_expense_account', '530505'),
+            'fixed', 'rent', 'utilities' => $this->setting('fixed_expense_account', '510505'),
+            default => $this->setting('general_expense_account', '510505'),
+        };
+
         $creditCode = $affectCash
             ? $this->paymentAccount((string)$expense['payment_method'])
             : $this->setting('expense_payable_account', '233595');
+
+        $categoryLabel = function_exists('\\SoftNova\\Core\\expense_category_label')
+            ? \SoftNova\Core\expense_category_label($category)
+            : $category;
 
         return $this->postEntry(
             $expense['expense_date'],
             'Gasto: ' . $expense['description'],
             [
                 $this->line(
-                    $this->setting('general_expense_account', '510505'),
+                    $expenseAccount,
                     (float)$expense['amount'],
                     0,
-                    $expense['category'] ?: 'Gasto general',
+                    $categoryLabel,
                     'supplier',
                     $expense['supplier_id'],
                     $expense['supplier_name']
@@ -578,6 +795,75 @@ class AccountingService
             $expenseId,
             'created'
         );
+    }
+
+    /**
+     * Compra a proveedor: Debito Inventario / Credito Proveedores (o caja/banco si pagada).
+     */
+    public function postPurchase(int $purchaseId): int
+    {
+        $purchase = $this->query(
+            "SELECT p.*, COALESCE(s.name, 'Proveedor') supplier_name
+             FROM purchases p
+             LEFT JOIN suppliers s ON s.id = p.supplier_id
+             WHERE p.id = ?",
+            [$purchaseId]
+        )->fetch();
+        if (!$purchase || ($purchase['status'] ?? '') === 'cancelled') {
+            throw new \RuntimeException('Compra inválida para contabilizar');
+        }
+
+        $total = round((float)$purchase['total'], 2);
+        if ($total <= 0) {
+            throw new \RuntimeException('La compra no tiene total contable');
+        }
+
+        // Política CxP: paid → caja/banco; pending|partial → Proveedores (220505).
+        // En parcial el asiento inicial es 100% a CxP; abonos posteriores se registran aparte.
+        $status = (string)($purchase['payment_status'] ?? 'paid');
+        $paid = $status === 'paid';
+        $creditCode = $paid
+            ? $this->paymentAccount((string)($purchase['payment_method'] ?? 'cash'))
+            : $this->setting('payable_account', '220505');
+
+        $creditLabel = match ($status) {
+            'paid' => 'Pago compra proveedor',
+            'partial' => 'CxP proveedor (compra parcial — saldo por liquidar)',
+            default => 'Cuenta por pagar proveedor',
+        };
+
+        return $this->postEntry(
+            date('Y-m-d', strtotime($purchase['purchase_date'])),
+            'Compra ' . $purchase['purchase_number'],
+            [
+                $this->line(
+                    $this->setting('inventory_account', '143501'),
+                    $total,
+                    0,
+                    'Entrada de mercancía',
+                    'supplier',
+                    $purchase['supplier_id'],
+                    $purchase['supplier_name']
+                ),
+                $this->line(
+                    $creditCode,
+                    0,
+                    $total,
+                    $creditLabel,
+                    'supplier',
+                    $purchase['supplier_id'],
+                    $purchase['supplier_name']
+                ),
+            ],
+            'purchase',
+            $purchaseId,
+            'created'
+        );
+    }
+
+    public function reversePurchase(int $purchaseId, string $reason = 'Compra cancelada'): ?int
+    {
+        return $this->reverseSource('purchase', $purchaseId, $reason);
     }
 
     /**
@@ -945,7 +1231,16 @@ class AccountingService
 
     private function paymentAccount(string $method): string
     {
-        return in_array($method, ['card', 'transfer'], true)
+        // Efectivo → caja; resto de medios electrónicos → banco
+        if ($method === 'cash' || $method === '') {
+            return $this->setting('cash_account', '110505');
+        }
+        if (function_exists('\\SoftNova\\Core\\is_electronic_payment')) {
+            return \SoftNova\Core\is_electronic_payment($method)
+                ? $this->setting('bank_account', '111005')
+                : $this->setting('cash_account', '110505');
+        }
+        return in_array($method, ['card', 'debit_card', 'credit_card', 'dataphone', 'payment_link', 'transfer'], true)
             ? $this->setting('bank_account', '111005')
             : $this->setting('cash_account', '110505');
     }

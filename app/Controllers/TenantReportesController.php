@@ -32,6 +32,7 @@ class TenantReportesController extends TenantController
         }
         
         $this->ensureSaleItemCostColumn();
+        \SoftNova\Services\TenantOpsSchema::ensure($this->db);
 
         $currency = $this->getCurrency();
         $dateFrom = $_GET['from'] ?? date('Y-m-d', strtotime('-30 days'));
@@ -102,6 +103,11 @@ class TenantReportesController extends TenantController
             'net' => $netProfit,
             'margin' => $margin,
         ];
+
+        $accounting = new \SoftNova\Services\AccountingService($this->db);
+        $accounting->auditCriticalAccounts();
+        $marginByChannel = $accounting->marginByChannel($dateFrom, $dateTo);
+        $dataphoneRecon = $accounting->dataphoneReconciliation($dateFrom, $dateTo);
 
         // 2) Cuentas por cobrar (aging) sobre saldo pendiente
         $receivablesAging = $this->query(
@@ -310,6 +316,8 @@ class TenantReportesController extends TenantController
             'lowStockProducts' => $lowStockProducts,
             'productTrend' => $productTrend,
             'paymentMethods' => $paymentMethods,
+            'marginByChannel' => $marginByChannel,
+            'dataphoneRecon' => $dataphoneRecon,
         ]));
     }
     

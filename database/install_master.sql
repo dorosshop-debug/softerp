@@ -562,10 +562,10 @@ VALUES
  '["dashboard","ventas","inventario","clientes","caja","reportes"]',
  '{"tier":"basic","reports":"basic","export":false}', 'active'),
 ('Plan Profesional', 'Plan para empresas en crecimiento', 59.99, 599.99, 319.99, 15, 2000,
- '["dashboard","ventas","inventario","clientes","caja","proveedores","cotizaciones","gastos","contabilidad","reportes"]',
+ '["dashboard","ventas","inventario","clientes","caja","proveedores","compras","cotizaciones","gastos","contabilidad","reportes"]',
  '{"tier":"pro","reports":"full","export":true}', 'active'),
 ('Plan Enterprise', 'Plan completo para grandes empresas', 99.99, 999.99, 529.99, 50, 10000,
- '["dashboard","ventas","inventario","clientes","caja","proveedores","cotizaciones","gastos","contabilidad","reportes"]',
+ '["dashboard","ventas","inventario","clientes","caja","proveedores","compras","cotizaciones","gastos","contabilidad","reportes"]',
  '{"tier":"premium","reports":"full","export":true}', 'active');
 
 INSERT INTO system_settings (setting_key, setting_value, description) VALUES

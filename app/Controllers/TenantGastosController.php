@@ -84,10 +84,19 @@ class TenantGastosController extends TenantController
         
         $description = trim($this->request->post('description', ''));
         $amount = (float)$this->request->post('amount', 0);
-        $category = trim($this->request->post('category', 'General'));
+        $category = trim($this->request->post('category', 'general'));
+        $cats = array_keys(\SoftNova\Core\expense_categories());
+        if (!in_array($category, $cats, true)) {
+            // Compatibilidad con texto libre antiguo
+            $category = $category !== '' ? $category : 'general';
+        }
         $expenseDate = $this->request->post('expense_date') ?: date('Y-m-d');
         $supplierId = $this->request->post('supplier_id') ? (int)$this->request->post('supplier_id') : null;
         $paymentMethod = $this->request->post('payment_method', 'cash');
+        $allowedPay = array_keys(\SoftNova\Core\payment_methods(true));
+        if (!in_array($paymentMethod, $allowedPay, true)) {
+            $paymentMethod = 'cash';
+        }
         $receiptNumber = trim($this->request->post('receipt_number', ''));
         $notes = trim($this->request->post('notes', ''));
         $affectCash = $this->request->post('affect_cash') === '1';

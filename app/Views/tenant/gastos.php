@@ -9,6 +9,10 @@ $suppliers = $suppliers ?? [];
 $monthTotal = $monthTotal ?? 0;
 $currency = $currency ?? ['symbol' => '$', 'decimals' => 2, 'decimal' => ',', 'thousands' => '.'];
 $pagination = $pagination ?? null;
+$suggestAmount = isset($_GET['amount']) ? (float)$_GET['amount'] : 0;
+$suggestCategory = (string)($_GET['category'] ?? 'general');
+$suggestDescription = (string)($_GET['description'] ?? '');
+$openSuggest = !empty($_GET['suggest']) && $suggestAmount > 0;
 
 function fmtG(float $a, array $c): string
 {
@@ -40,10 +44,10 @@ function fmtG(float $a, array $c): string
                     <tr>
                         <td><?php echo date('d/m/Y', strtotime($exp['expense_date'])); ?></td>
                         <td><?php echo htmlspecialchars($exp['description']); ?></td>
-                        <td><?php echo htmlspecialchars($exp['category'] ?? ''); ?></td>
+                        <td><?php echo htmlspecialchars(\SoftNova\Core\expense_category_label((string)($exp['category'] ?? 'general'))); ?></td>
                         <td><?php echo htmlspecialchars($exp['supplier_name'] ?? '-'); ?></td>
                         <td style="font-weight:600;color:#DC2626;"><?php echo fmtG((float)$exp['amount'], $currency); ?></td>
-                        <td><?php echo htmlspecialchars($exp['payment_method'] ?? ''); ?></td>
+                        <td><?php echo htmlspecialchars(\SoftNova\Core\payment_method_label((string)($exp['payment_method'] ?? 'cash'))); ?></td>
                         <td class="table-actions">
                             <form method="POST" action="<?php echo $viewInstance->route('app/gastos'); ?>?action=delete" style="display:inline;" data-ajax="true">
                                 <?php echo \SoftNova\Core\csrf_field(); ?>
@@ -77,12 +81,12 @@ function fmtG(float $a, array $c): string
             <div class="modal-body">
                 <div class="form-group">
                     <label>Descripcion * <span class="field-tip" data-tip="Detalle claro del gasto (ej. compra de insumos, arriendo, servicios).">?</span></label>
-                    <input type="text" name="description" class="form-control" required>
+                    <input type="text" name="description" class="form-control" required value="<?php echo htmlspecialchars($suggestDescription); ?>">
                 </div>
                 <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
                     <div class="form-group">
                         <label>Monto * <span class="field-tip" data-tip="Valor total del gasto en la moneda del sistema.">?</span></label>
-                        <input type="number" step="0.01" min="0.01" name="amount" class="form-control" required>
+                        <input type="number" step="0.01" min="0.01" name="amount" class="form-control" required value="<?php echo $suggestAmount > 0 ? htmlspecialchars((string)$suggestAmount) : ''; ?>">
                     </div>
                     <div class="form-group">
                         <label>Fecha <span class="field-tip" data-tip="Fecha en que se realizó o se registra el gasto.">?</span></label>
@@ -91,16 +95,15 @@ function fmtG(float $a, array $c): string
                 </div>
                 <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
                     <div class="form-group">
-                        <label>Categoria <span class="field-tip" data-tip="Clasificación del gasto para reportes (General, Servicios, Nómina, etc.).">?</span></label>
-                        <input type="text" name="category" class="form-control" value="General">
+                        <label>Tipo de gasto * <span class="field-tip" data-tip="Fijos, financieros, comisiones de tarjetas/datáfono, etc.">?</span></label>
+                        <select name="category" class="form-control" required>
+                            <?php echo \SoftNova\Core\expense_category_options($suggestCategory !== '' ? $suggestCategory : 'general'); ?>
+                        </select>
                     </div>
                     <div class="form-group">
                         <label>Metodo de pago <span class="field-tip" data-tip="Cómo se pagó este gasto.">?</span></label>
                         <select name="payment_method" class="form-control">
-                            <option value="cash">Efectivo</option>
-                            <option value="card">Tarjeta</option>
-                            <option value="transfer">Transferencia</option>
-                            <option value="other">Otro</option>
+                            <?php echo \SoftNova\Core\payment_method_options('transfer'); ?>
                         </select>
                     </div>
                 </div>
@@ -135,3 +138,13 @@ function fmtG(float $a, array $c): string
         </form>
     </div>
 </div>
+<?php if ($openSuggest): ?>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    var modal = document.getElementById('expenseModal');
+    if (modal) modal.style.display = 'flex';
+    var cash = modal && modal.querySelector('input[name="affect_cash"]');
+    if (cash) cash.checked = false;
+});
+</script>
+<?php endif; ?>

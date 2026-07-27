@@ -121,6 +121,9 @@ function handleAjaxSubmit(form) {
     if (form.dataset.prepare === 'quoteItems' && typeof prepareQuoteItems === 'function') {
         if (prepareQuoteItems() === false) return;
     }
+    if (form.dataset.prepare === 'purchaseItems' && typeof preparePurchaseItems === 'function') {
+        if (preparePurchaseItems() === false) return;
+    }
     
     const submitBtn = form.querySelector('button[type="submit"]');
     const overlay = showLoadingOverlay();

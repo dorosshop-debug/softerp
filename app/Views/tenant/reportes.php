@@ -28,6 +28,13 @@ $ticketTrend = $ticketTrend ?? 0;
 $dateFrom = $dateFrom ?? date('Y-m-d', strtotime('-30 days'));
 $dateTo = $dateTo ?? date('Y-m-d');
 $profitSummary = $profitSummary ?? ['revenue'=>0,'cost'=>0,'gross'=>0,'expenses'=>0,'net'=>0,'margin'=>0];
+$marginByChannel = $marginByChannel ?? [];
+$dataphoneRecon = $dataphoneRecon ?? [
+    'sales_total' => 0, 'expected_total' => 0, 'recorded_total' => 0, 'gap' => 0,
+    'dataphone_sales' => 0, 'card_sales' => 0, 'rate_dataphone' => 2.5, 'rate_card' => 2.8,
+    'suggest_amount' => 0, 'suggest_description' => '', 'suggest_category' => 'dataphone_commission',
+];
+$channelLabels = \SoftNova\Core\product_channels();
 $receivablesAging = $receivablesAging ?? ['total'=>0,'d0'=>0,'d30'=>0,'d60'=>0,'d90'=>0,'cnt'=>0];
 $topDebtors = $topDebtors ?? [];
 $cashSummary = $cashSummary ?? ['income'=>0,'expense'=>0,'net'=>0,'opening'=>0,'expected'=>0,'session'=>null];
@@ -173,6 +180,63 @@ $planName = htmlspecialchars($plan['plan_name'] ?? 'Plan Basico');
             <div style="text-align:right;font-size:12px;color:var(--color-text-secondary);margin-top:4px;">
                 Margen: <?php echo (float)$profitSummary['margin']; ?>%
             </div>
+        </div>
+    </div>
+
+    <!-- Conciliación datáfono / tarjetas -->
+    <div class="card neumorphic">
+        <div class="card-header"><h3>Conciliación datáfono</h3></div>
+        <div class="card-body">
+            <div style="display:flex;justify-content:space-between;padding:4px 0;font-size:13px;">
+                <span style="color:var(--color-text-secondary);">Ventas datáfono</span>
+                <strong><?php echo fmtR((float)$dataphoneRecon['dataphone_sales'], $currency); ?></strong>
+            </div>
+            <div style="display:flex;justify-content:space-between;padding:4px 0;font-size:13px;">
+                <span style="color:var(--color-text-secondary);">Ventas tarjeta / link</span>
+                <strong><?php echo fmtR((float)$dataphoneRecon['card_sales'], $currency); ?></strong>
+            </div>
+            <div style="display:flex;justify-content:space-between;padding:4px 0;font-size:13px;">
+                <span style="color:var(--color-text-secondary);">Comisión esperada (<?php echo (float)$dataphoneRecon['rate_dataphone']; ?>% / <?php echo (float)$dataphoneRecon['rate_card']; ?>%)</span>
+                <strong><?php echo fmtR((float)$dataphoneRecon['expected_total'], $currency); ?></strong>
+            </div>
+            <div style="display:flex;justify-content:space-between;padding:4px 0;font-size:13px;">
+                <span style="color:var(--color-text-secondary);">Gastos registrados</span>
+                <span><?php echo fmtR((float)$dataphoneRecon['recorded_total'], $currency); ?></span>
+            </div>
+            <div style="display:flex;justify-content:space-between;padding:8px 0 0;border-top:2px solid var(--color-border);margin-top:6px;">
+                <strong>Brecha</strong>
+                <strong style="color:<?php echo (float)$dataphoneRecon['gap'] > 0.01 ? '#DC2626' : '#10B981'; ?>;">
+                    <?php echo fmtR((float)$dataphoneRecon['gap'], $currency); ?>
+                </strong>
+            </div>
+            <?php if ((float)$dataphoneRecon['suggest_amount'] > 0.01): ?>
+                <a class="btn btn-sm btn-primary" style="margin-top:12px;display:inline-block;"
+                   href="<?php echo $viewInstance->route('app/gastos'); ?>?suggest=1&amp;amount=<?php echo urlencode((string)$dataphoneRecon['suggest_amount']); ?>&amp;category=<?php echo urlencode((string)$dataphoneRecon['suggest_category']); ?>&amp;description=<?php echo urlencode((string)$dataphoneRecon['suggest_description']); ?>">
+                    Registrar comisión sugerida
+                </a>
+            <?php else: ?>
+                <p style="font-size:12px;color:var(--color-text-secondary);margin-top:10px;">Comisiones alineadas con las tasas configuradas.</p>
+            <?php endif; ?>
+        </div>
+    </div>
+
+    <!-- Margen por canal -->
+    <div class="card neumorphic">
+        <div class="card-header"><h3>Margen por canal</h3></div>
+        <div class="card-body">
+            <?php if (empty($marginByChannel)): ?>
+                <p style="text-align:center;color:var(--color-text-secondary);font-size:13px;">Sin ventas en el periodo</p>
+            <?php else: ?>
+                <?php foreach ($marginByChannel as $ch): ?>
+                    <div style="display:flex;justify-content:space-between;gap:8px;padding:6px 0;border-bottom:1px dashed var(--color-border);font-size:13px;">
+                        <span><?php echo htmlspecialchars($channelLabels[$ch['channel']] ?? $ch['channel']); ?></span>
+                        <span>
+                            <?php echo fmtR((float)$ch['profit'], $currency); ?>
+                            <small style="color:var(--color-text-secondary);">(<?php echo (float)$ch['margin']; ?>%)</small>
+                        </span>
+                    </div>
+                <?php endforeach; ?>
+            <?php endif; ?>
         </div>
     </div>
 

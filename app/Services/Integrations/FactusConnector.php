@@ -215,10 +215,12 @@ class FactusConnector implements InvoiceProviderInterface
     private function mapPaymentMethod(string $method): string
     {
         return match (strtolower($method)) {
-            'transfer' => '42', // transferencia débito bancaria
-            'card' => '48',     // tarjeta crédito
+            'transfer' => '42',
+            'card', 'credit_card' => '48',
+            'debit_card', 'dataphone' => '49',
+            'payment_link' => '47',
             'check' => '20',
-            default => '10',    // efectivo
+            default => '10',
         };
     }
 

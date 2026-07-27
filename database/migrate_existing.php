@@ -98,6 +98,13 @@ foreach ($tenants as $tenant) {
         }
 
         try {
+            \SoftNova\Services\TenantOpsSchema::ensure($pdo);
+            echo "  ✓ esquema compras/trazabilidad/canales listo\n";
+        } catch (\Exception $e) {
+            echo '  ⚠ ops schema: ' . $e->getMessage() . "\n";
+        }
+
+        try {
             $mgr = new \SoftNova\Services\Integrations\IntegrationManager($pdo);
             $mgr->ensureSaleExternalColumns();
             echo "  ✓ columnas FE en sales listas\n";
@@ -109,6 +116,44 @@ foreach ($tenants as $tenant) {
     } catch (\Exception $e) {
         echo '  ❌ Error conectando: ' . $e->getMessage() . "\n\n";
     }
+}
+
+// Añadir módulo compras a planes Pro/Enterprise (o con inventario+proveedores)
+try {
+    $plans = $masterDb->query("SELECT id, name, modules FROM subscription_plans")->fetchAll();
+    foreach ($plans as $plan) {
+        $mods = json_decode((string)$plan['modules'], true) ?: [];
+        if (!is_array($mods) || in_array('compras', $mods, true)) {
+            continue;
+        }
+        $name = strtolower((string)($plan['name'] ?? ''));
+        $byTier = str_contains($name, 'pro') || str_contains($name, 'enterprise') || str_contains($name, 'empresarial');
+        $byModules = in_array('inventario', $mods, true) && in_array('proveedores', $mods, true);
+        if ($byTier || $byModules) {
+            $mods[] = 'compras';
+            $masterDb->query(
+                "UPDATE subscription_plans SET modules = ? WHERE id = ?",
+                [json_encode(array_values($mods), JSON_UNESCAPED_UNICODE), $plan['id']]
+            );
+            echo "✓ Plan #{$plan['id']} ({$plan['name']}): módulo compras agregado\n";
+        }
+    }
+} catch (\Throwable $e) {
+    echo '⚠ planes: ' . $e->getMessage() . "\n";
+}
+
+// Sembrar cuentas financieras críticas (530505 / CxP) en tenants ya migrados
+try {
+    foreach ($tenants as $tenant) {
+        $pdo = $tenantDb->getTenantConnection($tenant['database_name'], '', '');
+        $acc = new \SoftNova\Services\AccountingService($pdo);
+        $health = $acc->auditCriticalAccounts();
+        if (!empty($health['fixed'])) {
+            echo "✓ {$tenant['database_name']}: cuentas críticas verificadas/corregidas\n";
+        }
+    }
+} catch (\Throwable $e) {
+    echo '⚠ auditoría cuentas: ' . $e->getMessage() . "\n";
 }
 
 echo "=== Migración completada ===\n";

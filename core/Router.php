@@ -173,6 +173,8 @@ class Router
         $this->get('/app/reportes', 'TenantReportesController', 'index');
         $this->get('/app/cotizaciones', 'TenantCotizacionesController', 'index');
         $this->post('/app/cotizaciones', 'TenantCotizacionesController', 'index');
+        $this->get('/app/compras', 'TenantComprasController', 'index');
+        $this->post('/app/compras', 'TenantComprasController', 'index');
         $this->get('/app/gastos', 'TenantGastosController', 'index');
         $this->post('/app/gastos', 'TenantGastosController', 'index');
         $this->get('/app/contabilidad', 'TenantContabilidadController', 'index');
