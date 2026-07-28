@@ -47,6 +47,10 @@ desktop.ini
 /public/uploads/branding/*
 !/public/uploads/branding/.htaccess
 !/public/uploads/branding/.gitkeep
+!/public/uploads/purchases/
+/public/uploads/purchases/*
+!/public/uploads/purchases/.htaccess
+!/public/uploads/purchases/.gitkeep
 
 # Composer
 # composer.lock debe versionarse para consistencia (NO ignorar)
