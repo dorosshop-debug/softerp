@@ -39,6 +39,9 @@ $suppliers = $suppliers ?? [];
                         <?php if(!empty($s['phone'])): ?>
                             <div style="font-size:13px;color:var(--color-text-secondary);margin-bottom:3px;">📞 <?php echo htmlspecialchars($s['phone']); ?></div>
                         <?php endif; ?>
+                        <?php if(!empty($s['is_ally'])): ?>
+                            <div style="margin-top:6px;"><span class="badge badge-success">Aliado · <?php echo number_format((float)($s['discount_percent'] ?? 0), 1); ?>% desc.</span></div>
+                        <?php endif; ?>
                         <?php if(!empty($s['document_number'])): ?>
                             <div style="font-size:12px;color:var(--color-text-secondary);margin-top:4px;">
                                 <span class="badge badge-info"><?php echo htmlspecialchars(($s['document_type']??'NIT').': '.($s['document_number']??'')); ?></span>
@@ -76,6 +79,12 @@ $suppliers = $suppliers ?? [];
             </div>
             <div class="form-group"><label>Dirección <span class="field-tip" data-tip="Dirección física o comercial del proveedor.">?</span></label><textarea name="address" id="supAddress" rows="2" class="form-control"></textarea></div>
             <div class="form-group"><label>Notas <span class="field-tip" data-tip="Observaciones internas (condiciones, plazos, referencias).">?</span></label><textarea name="notes" id="supNotes" rows="2" class="form-control"></textarea></div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                <div class="form-group" style="margin:0;">
+                    <label style="display:flex;align-items:center;gap:8px;"><input type="checkbox" name="is_ally" id="supAlly" value="1"> Proveedor aliado</label>
+                </div>
+                <div class="form-group" style="margin:0;"><label>Descuento aliado %</label><input type="number" step="0.01" min="0" max="100" name="discount_percent" id="supDiscount" class="form-control" value="0"></div>
+            </div>
             <div class="form-group"><label>Foto de Perfil <span class="field-tip" data-tip="Imagen opcional del proveedor o logo.">?</span></label><input type="file" name="image" id="supImage" class="form-control" accept="image/*" style="padding:8px;"></div>
             <div class="modal-footer" style="margin-top:15px;"><button type="button" class="btn btn-secondary" onclick="closeModal()">Cancelar</button><button type="submit" class="btn btn-primary" id="submitBtn">Crear Proveedor</button></div>
         </form>
@@ -93,12 +102,15 @@ function openModal(data){
         document.getElementById('supDocNum').value=data.document_number||''; document.getElementById('supEmail').value=data.email||'';
         document.getElementById('supPhone').value=data.phone||''; document.getElementById('supAddress').value=data.address||'';
         document.getElementById('supNotes').value=data.notes||'';
+        document.getElementById('supAlly').checked = !!(data.is_ally && Number(data.is_ally) === 1);
+        document.getElementById('supDiscount').value = data.discount_percent || 0;
     }else{
         document.getElementById('modalTitle').textContent='Nuevo Proveedor';
         document.getElementById('supplierForm').action='<?php echo $viewInstance->route('app/proveedores'); ?>?action=create';
         document.getElementById('submitBtn').textContent='Crear Proveedor';
         ['supId','supName','supContact','supDocNum','supEmail','supPhone','supAddress','supNotes'].forEach(id=>document.getElementById(id).value='');
         document.getElementById('supDocType').value='NIT'; document.getElementById('supImage').value='';
+        document.getElementById('supAlly').checked=false; document.getElementById('supDiscount').value=0;
     }
     document.getElementById('supplierModal').style.display='flex';
 }

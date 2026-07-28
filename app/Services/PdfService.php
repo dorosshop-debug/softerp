@@ -27,27 +27,36 @@ class PdfService
     }
     
     /**
-     * Generar PDF de factura de venta
+     * Generar PDF de factura de venta (carta/A4) o ticket 58mm.
      */
-    public function generateInvoice(array $sale, array $items, array $payments = []): string
+    public function generateInvoice(array $sale, array $items, array $payments = [], string $format = 'a4'): string
     {
+        if ($format === 'ticket') {
+            return $this->generateTicket58($sale, $items, $payments);
+        }
+
         $currency = $this->currency['symbol'] ?? '$';
         $decimals = $this->currency['decimals'] ?? 0;
         $thousands = $this->currency['thousands'] ?? '.';
         $decimal = $this->currency['decimal'] ?? ',';
         
-        $fmt = fn($n) => $currency . ' ' . number_format($n, $decimals, $decimal, $thousands);
+        $fmt = fn($n) => $currency . ' ' . number_format((float)$n, $decimals, $decimal, $thousands);
         
         $companyName = htmlspecialchars($this->company['company_name'] ?? 'Mi Empresa');
         $taxName = htmlspecialchars($this->company['tax_name'] ?? 'IVA');
+        $docTitle = strtoupper($this->documentLabel((string)($sale['document_type'] ?? 'invoice')));
+        $saleTax = (float)($sale['tax'] ?? $sale['tax_amount'] ?? 0);
+        $saleSubtotal = (float)($sale['subtotal'] ?? 0);
+        $saleTotal = (float)($sale['total'] ?? 0);
         
         $itemsHtml = '';
         foreach ($items as $item) {
+            $lineTotal = $this->itemLineTotal($item);
             $itemsHtml .= '<tr>
-                <td>' . htmlspecialchars($item['product_name']) . '</td>
-                <td style="text-align:center;">' . (int)$item['quantity'] . '</td>
-                <td style="text-align:right;">' . $fmt($item['unit_price']) . '</td>
-                <td style="text-align:right;">' . $fmt($item['subtotal']) . '</td>
+                <td>' . htmlspecialchars($item['product_name'] ?? '') . '</td>
+                <td style="text-align:center;">' . (int)($item['quantity'] ?? 0) . '</td>
+                <td style="text-align:right;">' . $fmt($item['unit_price'] ?? 0) . '</td>
+                <td style="text-align:right;">' . $fmt($lineTotal) . '</td>
             </tr>';
         }
         
@@ -63,27 +72,30 @@ class PdfService
             foreach ($payments as $p) {
                 $paymentsHtml .= '<tr>
                     <td>' . date('d/m/Y H:i', strtotime($p['payment_date'])) . '</td>
-                    <td>' . ucfirst($p['payment_method'] ?? 'cash') . '</td>
+                    <td>' . htmlspecialchars(PaymentMethodCatalog::label((string)($p['payment_method'] ?? 'cash'))) . '</td>
                     <td style="text-align:right;">' . $fmt($p['amount']) . '</td>
                 </tr>';
             }
             $paymentsHtml .= '</table>';
         }
         
-        $paidAmount = array_sum(array_column($payments, 'amount'));
-        $remaining = max(0, $sale['total'] - $paidAmount);
+        $paidAmount = array_sum(array_map(fn($p) => (float)($p['amount'] ?? 0), $payments));
+        $remaining = max(0, $saleTotal - $paidAmount);
+        $dueLine = !empty($sale['due_date'])
+            ? '<br><strong>Vencimiento:</strong> ' . date('d/m/Y', strtotime((string)$sale['due_date']))
+            : '';
         
-        $html = $this->wrapHtml('FACTURA DE VENTA', $companyName, '
+        $html = $this->wrapHtml($docTitle, $companyName, '
             <div style="margin-bottom:20px;">
                 <table width="100%" cellpadding="4" cellspacing="0">
                     <tr>
                         <td width="50%">
-                            <strong>Factura:</strong> ' . htmlspecialchars($sale['invoice_number']) . '<br>
-                            <strong>Fecha:</strong> ' . date('d/m/Y H:i', strtotime($sale['sale_date'])) . '<br>
+                            <strong>No:</strong> ' . htmlspecialchars($sale['invoice_number']) . '<br>
+                            <strong>Fecha:</strong> ' . date('d/m/Y H:i', strtotime($sale['sale_date'])) . $dueLine . '<br>
                             <strong>Cliente:</strong> ' . htmlspecialchars($sale['customer_name'] ?? 'Cliente general') . '
                         </td>
                         <td width="50%" style="text-align:right;">
-                            <strong>Método de pago:</strong> ' . ucfirst($sale['payment_method'] ?? 'cash') . '<br>
+                            <strong>Método de pago:</strong> ' . htmlspecialchars(PaymentMethodCatalog::label((string)($sale['payment_method'] ?? 'cash'))) . '<br>
                             <strong>Estado:</strong> ' . ($sale['payment_status'] === 'paid' ? 'Pagado' : ($sale['payment_status'] === 'partial' ? 'Parcial' : 'Pendiente')) . '
                         </td>
                     </tr>
@@ -103,15 +115,15 @@ class PdfService
             <table width="100%" cellpadding="6" cellspacing="0" style="margin-top:15px;">
                 <tr>
                     <td width="70%" style="text-align:right;"><strong>Subtotal:</strong></td>
-                    <td width="30%" style="text-align:right;">' . $fmt($sale['subtotal']) . '</td>
+                    <td width="30%" style="text-align:right;">' . $fmt($saleSubtotal) . '</td>
                 </tr>
                 <tr>
-                    <td style="text-align:right;"><strong>' . $taxName . ' (' . number_format(($sale['tax'] / max($sale['subtotal'], 1)) * 100, 1) . '%):</strong></td>
-                    <td style="text-align:right;">' . $fmt($sale['tax']) . '</td>
+                    <td style="text-align:right;"><strong>' . $taxName . ':</strong></td>
+                    <td style="text-align:right;">' . $fmt($saleTax) . '</td>
                 </tr>
                 <tr style="font-size:16px;font-weight:bold;">
                     <td style="text-align:right;border-top:2px solid #0D7C4A;padding-top:8px;"><strong>TOTAL:</strong></td>
-                    <td style="text-align:right;border-top:2px solid #0D7C4A;padding-top:8px;color:#0D7C4A;">' . $fmt($sale['total']) . '</td>
+                    <td style="text-align:right;border-top:2px solid #0D7C4A;padding-top:8px;color:#0D7C4A;">' . $fmt($saleTotal) . '</td>
                 </tr>
                 ' . ($remaining > 0 ? '<tr><td style="text-align:right;color:#DC2626;"><strong>Saldo Pendiente:</strong></td><td style="text-align:right;color:#DC2626;">' . $fmt($remaining) . '</td></tr>' : '') . '
             </table>
@@ -121,7 +133,77 @@ class PdfService
             ' . (!empty($sale['notes']) ? '<p style="margin-top:20px;color:#666;"><strong>Notas:</strong> ' . htmlspecialchars($sale['notes']) . '</p>' : '') . '
         ');
         
-        return $this->generate($html);
+        return $this->generate($html, 'A4');
+    }
+
+    /** Ticket térmico 58mm (compatible Dompdf, sin CSS flex/@page auto). */
+    public function generateTicket58(array $sale, array $items, array $payments = []): string
+    {
+        $currency = $this->currency['symbol'] ?? '$';
+        $decimals = (int)($this->currency['decimals'] ?? 0);
+        $fmt = fn($n) => $currency . number_format((float)$n, $decimals, ',', '.');
+        $companyName = htmlspecialchars($this->company['company_name'] ?? 'Mi Empresa');
+        $docTitle = strtoupper($this->documentLabel((string)($sale['document_type'] ?? 'invoice')));
+        $saleDate = !empty($sale['sale_date']) ? date('d/m/Y H:i', strtotime((string)$sale['sale_date'])) : date('d/m/Y H:i');
+        $rows = '';
+        foreach ($items as $item) {
+            $qty = (int)($item['quantity'] ?? 0);
+            $price = (float)($item['unit_price'] ?? 0);
+            $lineTotal = $this->itemLineTotal($item);
+            $rows .= '<table width="100%" cellpadding="0" cellspacing="0" style="margin:4px 0;border-bottom:1px dashed #999;">'
+                . '<tr><td colspan="2" style="font-size:10px;">' . htmlspecialchars((string)($item['product_name'] ?? '')) . '</td></tr>'
+                . '<tr><td style="font-size:9px;">' . $qty . ' x ' . $fmt($price) . '</td>'
+                . '<td style="font-size:10px;text-align:right;"><strong>' . $fmt($lineTotal) . '</strong></td></tr>'
+                . '</table>';
+        }
+        $html = '<!DOCTYPE html><html><head><meta charset="UTF-8"><style>
+            @page { margin: 4mm; }
+            body { font-family: DejaVu Sans, Helvetica, sans-serif; font-size: 10px; color:#000; }
+            h1 { font-size: 12px; margin: 0 0 4px; text-align:center; }
+            .muted { color:#444; text-align:center; font-size:9px; margin: 1px 0; }
+            .total { font-size: 12px; font-weight:bold; margin-top:8px; border-top:1px solid #000; padding-top:6px; }
+        </style></head><body>
+            <h1>' . $companyName . '</h1>
+            <div class="muted">' . htmlspecialchars($docTitle) . '</div>
+            <div class="muted">' . htmlspecialchars((string)($sale['invoice_number'] ?? '')) . '</div>
+            <div class="muted">' . htmlspecialchars($saleDate) . '</div>
+            <div style="margin:6px 0;">Cliente: ' . htmlspecialchars((string)($sale['customer_name'] ?? 'General')) . '</div>
+            ' . $rows . '
+            <table width="100%" class="total" cellpadding="0" cellspacing="0"><tr>
+                <td>TOTAL</td><td style="text-align:right;">' . $fmt($sale['total'] ?? 0) . '</td>
+            </tr></table>
+            <div class="muted" style="margin-top:8px;">Gracias por su compra</div>
+        </body></html>';
+        // ~58mm de ancho en puntos (72pt/inch); alto holgado para Dompdf
+        return $this->generate($html, [0.0, 0.0, 164.41, 800.0]);
+    }
+
+    private function itemLineTotal(array $item): float
+    {
+        if (isset($item['subtotal'])) {
+            return (float)$item['subtotal'];
+        }
+        if (isset($item['total'])) {
+            return (float)$item['total'];
+        }
+        return (float)($item['quantity'] ?? 0) * (float)($item['unit_price'] ?? 0);
+    }
+
+    private function documentLabel(string $type): string
+    {
+        if (class_exists(SalesDocumentService::class)) {
+            try {
+                return SalesDocumentService::label($type);
+            } catch (\Throwable $e) {
+                // fallback abajo
+            }
+        }
+        return match ($type) {
+            'remission' => 'Remisión',
+            'collection' => 'Cuenta de cobro',
+            'electronic' => 'Factura electrónica',
+            default => 'Factura',
+        };
     }
     
     /**
@@ -294,7 +376,7 @@ class PdfService
         
         return $this->generate($html);
     }
-
+    
     /**
      * Comprobante de pago de nómina (un empleado).
      */
@@ -402,6 +484,9 @@ class PdfService
     /**
      * Envolver contenido en HTML completo con estilos
      */
+        /**
+     * Envolver contenido en HTML completo con estilos
+     */
     private function wrapHtml(string $title, string $companyName, string $body): string
     {
         return '<!DOCTYPE html>
@@ -433,14 +518,23 @@ class PdfService
     }
     
     /**
-     * Renderizar HTML a PDF y retornar como string
+     * Renderizar HTML a PDF y retornar como string.
+     * Crea Dompdf fresco en cada llamada (no reutilizar tras render).
      */
-    private function generate(string $html): string
+    private function generate(string $html, $paper = 'A4'): string
     {
-        $this->dompdf->loadHtml($html);
-        $this->dompdf->setPaper('A4', 'portrait');
-        $this->dompdf->render();
-        return $this->dompdf->output();
+        if (!class_exists(Dompdf::class) || !class_exists(Options::class)) {
+            throw new \RuntimeException('Dompdf no está instalado. Ejecute composer install en el servidor.');
+        }
+        $options = new Options();
+        $options->set('isRemoteEnabled', true);
+        $options->set('defaultFont', 'DejaVu Sans');
+        $options->set('isHtml5ParserEnabled', true);
+        $dompdf = new Dompdf($options);
+        $dompdf->loadHtml($html, 'UTF-8');
+        $dompdf->setPaper($paper, 'portrait');
+        $dompdf->render();
+        return $dompdf->output();
     }
     
     /**

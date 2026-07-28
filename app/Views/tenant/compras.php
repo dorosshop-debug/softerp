@@ -1,87 +1,106 @@
 <?php
 $layout = 'tenant';
 $title = 'Compras - ' . ($tenantName ?? 'Sistema');
-$pageTitle = 'Compras a proveedores';
+$pageTitle = 'Compras / Órdenes de compra';
 $tenantName = $tenantName ?? 'Mi Empresa';
 $userName = $userName ?? 'Usuario';
-$purchases = $purchases ?? [];
+$orders = $orders ?? [];
+$products = $products ?? [];
 $suppliers = $suppliers ?? [];
-$monthTotal = $monthTotal ?? 0;
-$currency = $currency ?? ['symbol' => '$', 'decimals' => 2, 'decimal' => ',', 'thousands' => '.'];
+$openTotal = $openTotal ?? 0;
+$monthReceived = $monthReceived ?? 0;
+$statusFilter = $statusFilter ?? '';
+$currency = $currency ?? ['symbol' => '$', 'decimals' => 0, 'decimal' => ',', 'thousands' => '.'];
 $pagination = $pagination ?? null;
-$filters = $filters ?? ['q' => '', 'from' => '', 'to' => '', 'status' => '', 'query' => []];
+$canCreate = \SoftNova\Core\TenantMiddleware::canDo('create', 'compras');
+$canEdit = \SoftNova\Core\TenantMiddleware::canDo('edit', 'compras');
+$canDelete = \SoftNova\Core\TenantMiddleware::canDo('delete', 'compras');
 
 function fmtC(float $a, array $c): string
 {
     return $c['symbol'] . ' ' . number_format($a, $c['decimals'], $c['decimal'] ?? ',', $c['thousands'] ?? '.');
 }
+
+$statusLabels = [
+    'draft' => 'Borrador',
+    'ordered' => 'Ordenada',
+    'received' => 'Recibida',
+    'cancelled' => 'Cancelada',
+];
 ?>
+<meta name="currency-symbol" content="<?php echo htmlspecialchars($currency['symbol']); ?>">
+<meta name="currency-decimals" content="<?php echo (int)$currency['decimals']; ?>">
 <?php echo flashMessage(); ?>
 
 <div class="stats-grid">
-    <div class="stat-card neumorphic"><h4>Compras del mes</h4><div class="stat-value" style="color:var(--color-primary);"><?php echo fmtC((float)$monthTotal, $currency); ?></div></div>
-    <div class="stat-card neumorphic"><h4>Registros</h4><div class="stat-value"><?php echo (int)($pagination['total'] ?? count($purchases)); ?></div></div>
+    <div class="stat-card neumorphic"><h4>OC abiertas</h4><div class="stat-value"><?php echo fmtC((float)$openTotal, $currency); ?></div></div>
+    <div class="stat-card neumorphic"><h4>Recibido este mes</h4><div class="stat-value" style="color:#10B981;"><?php echo fmtC((float)$monthReceived, $currency); ?></div></div>
+    <div class="stat-card neumorphic"><h4>Registros</h4><div class="stat-value"><?php echo (int)($pagination['total'] ?? count($orders)); ?></div></div>
 </div>
 
-<div class="card neumorphic" style="margin-bottom:18px;">
-    <div class="card-body" style="padding:14px 18px;">
-        <form method="GET" action="<?php echo $viewInstance->route('app/compras'); ?>" style="display:flex;gap:10px;flex-wrap:wrap;align-items:end;">
-            <div class="form-group" style="margin:0;"><label>Buscar</label><input type="search" name="q" class="form-control" value="<?php echo htmlspecialchars($filters['q']); ?>" placeholder="Nº, proveedor..."></div>
-            <div class="form-group" style="margin:0;"><label>Desde</label><input type="date" name="from" class="form-control" value="<?php echo htmlspecialchars($filters['from']); ?>"></div>
-            <div class="form-group" style="margin:0;"><label>Hasta</label><input type="date" name="to" class="form-control" value="<?php echo htmlspecialchars($filters['to']); ?>"></div>
-            <div class="form-group" style="margin:0;"><label>Estado</label>
-                <select name="status" class="form-control">
-                    <option value="">Todos</option>
-                    <option value="completed" <?php echo $filters['status'] === 'completed' ? 'selected' : ''; ?>>Completadas</option>
-                    <option value="cancelled" <?php echo $filters['status'] === 'cancelled' ? 'selected' : ''; ?>>Canceladas</option>
-                </select>
-            </div>
-            <button type="submit" class="btn btn-primary">Filtrar</button>
-            <button type="button" class="btn btn-primary" onclick="document.getElementById('purchaseModal').style.display='flex'">Nueva compra</button>
-        </form>
-    </div>
+<div style="display:flex;gap:12px;margin-bottom:18px;flex-wrap:wrap;align-items:center;">
+    <?php if ($canCreate): ?>
+        <button type="button" class="btn btn-primary" onclick="openPurchaseModal()">Nueva orden de compra</button>
+    <?php endif; ?>
+    <form method="GET" action="<?php echo $viewInstance->route('app/compras'); ?>" style="display:flex;gap:8px;align-items:center;margin:0;">
+        <select name="status" class="form-control" style="width:auto;" onchange="this.form.submit()">
+            <option value="">Todos los estados</option>
+            <?php foreach ($statusLabels as $k => $lab): ?>
+                <option value="<?php echo $k; ?>" <?php echo $statusFilter === $k ? 'selected' : ''; ?>><?php echo $lab; ?></option>
+            <?php endforeach; ?>
+        </select>
+    </form>
 </div>
+
+<p style="font-size:13px;color:var(--color-text-secondary);margin:0 0 14px;">
+    Flujo: <strong>OC → Recepción/Factura</strong> (ingresa a bodega) → asiento automático
+    <em>Inventarios + IVA descontable / Proveedores o Caja</em>.
+    El costo del producto se actualiza con <strong>promedio ponderado</strong>.
+</p>
 
 <div class="card neumorphic">
-    <div class="card-header"><h3>Listado de compras</h3></div>
+    <div class="card-header"><h3>Órdenes de compra</h3></div>
     <div class="card-body">
-        <?php if (empty($purchases)): ?>
-            <p style="text-align:center;color:var(--color-text-secondary);padding:20px;">No hay compras registradas</p>
+        <?php if (empty($orders)): ?>
+            <p style="text-align:center;color:var(--color-text-secondary);padding:20px;">Aún no hay órdenes de compra</p>
         <?php else: ?>
             <div class="table-container"><table>
                 <thead>
-                <tr>
-                    <?php $comprasBase = $viewInstance->route('app/compras'); ?>
-                    <th><?php $viewInstance->partial('sortable_th', ['label'=>'Número','column'=>'number','filters'=>$filters,'baseUrl'=>$comprasBase]); ?></th>
-                    <th><?php $viewInstance->partial('sortable_th', ['label'=>'Fecha','column'=>'date','filters'=>$filters,'baseUrl'=>$comprasBase]); ?></th>
-                    <th><?php $viewInstance->partial('sortable_th', ['label'=>'Proveedor','column'=>'supplier','filters'=>$filters,'baseUrl'=>$comprasBase]); ?></th>
-                    <th><?php $viewInstance->partial('sortable_th', ['label'=>'Total','column'=>'total','filters'=>$filters,'baseUrl'=>$comprasBase]); ?></th>
-                    <th>Pago</th><th>Estado</th><th>Acciones</th>
-                </tr>
+                    <tr>
+                        <th>OC</th><th>Fecha</th><th>Proveedor</th><th>Factura</th>
+                        <th>Total</th><th>Estado</th><th>Asiento</th><th>Acciones</th>
+                    </tr>
                 </thead>
                 <tbody>
-                <?php foreach ($purchases as $p): ?>
+                <?php foreach ($orders as $o): ?>
+                    <?php
+                    $st = $o['status'] ?? '';
+                    $badge = match ($st) {
+                        'received' => 'badge-success',
+                        'cancelled' => 'badge-danger',
+                        'ordered' => 'badge-warning',
+                        default => 'badge-secondary',
+                    };
+                    ?>
                     <tr>
-                        <td><strong><?php echo htmlspecialchars($p['purchase_number']); ?></strong></td>
-                        <td><?php echo date('d/m/Y', strtotime($p['purchase_date'])); ?></td>
-                        <td><?php echo htmlspecialchars($p['supplier_name'] ?? '—'); ?></td>
-                        <td style="font-weight:600;"><?php echo fmtC((float)$p['total'], $currency); ?></td>
-                        <td><?php echo htmlspecialchars(\SoftNova\Core\payment_method_label((string)$p['payment_method'])); ?></td>
-                        <td>
-                            <?php if ($p['status'] === 'cancelled'): ?>
-                                <span class="badge badge-danger">Cancelada</span>
-                            <?php else: ?>
-                                <span class="badge badge-success">Completada</span>
+                        <td><strong><?php echo htmlspecialchars($o['order_number']); ?></strong></td>
+                        <td><?php echo date('d/m/Y', strtotime($o['order_date'])); ?></td>
+                        <td><?php echo htmlspecialchars($o['supplier_name'] ?? '—'); ?></td>
+                        <td><?php echo htmlspecialchars($o['invoice_number'] ?? '—'); ?></td>
+                        <td style="font-weight:600;"><?php echo fmtC((float)$o['total'], $currency); ?></td>
+                        <td><span class="badge <?php echo $badge; ?>"><?php echo $statusLabels[$st] ?? $st; ?></span></td>
+                        <td style="font-size:12px;"><?php echo htmlspecialchars($o['accounting_entry_id'] ? ('#' . $o['accounting_entry_id']) : '—'); ?></td>
+                        <td class="table-actions" style="white-space:nowrap;">
+                            <button type="button" class="btn btn-sm btn-secondary" onclick="viewPurchase(<?php echo (int)$o['id']; ?>)" title="Ver">Ver</button>
+                            <?php if ($canEdit && in_array($st, ['draft', 'ordered'], true)): ?>
+                                <button type="button" class="btn btn-sm btn-success" onclick="openReceiveModal(<?php echo (int)$o['id']; ?>, '<?php echo htmlspecialchars($o['order_number'], ENT_QUOTES); ?>')" title="Recibir">Recibir</button>
                             <?php endif; ?>
-                        </td>
-                        <td class="table-actions">
-                            <button type="button" class="btn btn-sm btn-secondary" title="Detalle" onclick="showPurchase(<?php echo (int)$p['id']; ?>)">Ver</button>
-                            <?php if ($p['status'] === 'completed'): ?>
-                            <form method="POST" action="<?php echo $viewInstance->route('app/compras'); ?>?action=cancel" style="display:inline;" data-ajax="true">
-                                <?php echo \SoftNova\Core\csrf_field(); ?>
-                                <input type="hidden" name="id" value="<?php echo (int)$p['id']; ?>">
-                                <button type="submit" class="btn btn-sm btn-danger" onclick="return confirm('¿Cancelar compra y revertir stock?')" title="Cancelar">✕</button>
-                            </form>
+                            <?php if ($canDelete && in_array($st, ['draft', 'ordered'], true)): ?>
+                                <form method="POST" action="<?php echo $viewInstance->route('app/compras'); ?>?action=cancel" style="display:inline;" data-ajax="true">
+                                    <?php echo \SoftNova\Core\csrf_field(); ?>
+                                    <input type="hidden" name="id" value="<?php echo (int)$o['id']; ?>">
+                                    <button type="submit" class="btn btn-sm btn-danger" onclick="return confirm('¿Cancelar esta OC?')" title="Cancelar">✕</button>
+                                </form>
                             <?php endif; ?>
                         </td>
                     </tr>
@@ -90,187 +109,268 @@ function fmtC(float $a, array $c): string
             </table></div>
             <?php
             $paginationBaseUrl = $viewInstance->route('app/compras');
-            $paginationQuery = $filters['query'] ?? [];
+            $paginationQuery = array_filter(['status' => $statusFilter !== '' ? $statusFilter : null]);
             $viewInstance->partial('pagination', compact('pagination', 'paginationBaseUrl', 'paginationQuery'));
             ?>
         <?php endif; ?>
     </div>
 </div>
 
+<!-- Modal Nueva OC -->
 <div id="purchaseModal" class="modal-overlay" style="display:none;">
-    <div class="modal-content neumorphic" style="max-width:780px;">
+    <div class="modal-content neumorphic" style="max-width:820px;max-height:90vh;overflow-y:auto;">
         <div class="modal-header">
-            <h3>Nueva compra a proveedor</h3>
+            <h3>Nueva orden de compra</h3>
             <button type="button" class="modal-close" onclick="document.getElementById('purchaseModal').style.display='none'">&times;</button>
         </div>
-        <form method="POST" action="<?php echo $viewInstance->route('app/compras'); ?>?action=create" data-ajax="true" data-prepare="purchaseItems" id="purchaseForm">
+        <form method="POST" action="<?php echo $viewInstance->route('app/compras'); ?>?action=create" data-ajax="true" id="purchaseForm">
             <?php echo \SoftNova\Core\csrf_field(); ?>
             <div class="modal-body">
-                <div class="form-grid">
-                    <div class="form-group">
+                <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;">
+                    <div class="form-group" style="margin:0;">
                         <label>Proveedor</label>
                         <select name="supplier_id" class="form-control">
-                            <option value="">— Sin proveedor —</option>
+                            <option value="">Sin proveedor</option>
                             <?php foreach ($suppliers as $s): ?>
                                 <option value="<?php echo (int)$s['id']; ?>"><?php echo htmlspecialchars($s['name']); ?></option>
                             <?php endforeach; ?>
                         </select>
                     </div>
-                    <div class="form-group">
-                        <label>Fecha de ingreso *</label>
-                        <input type="date" name="purchase_date" class="form-control" value="<?php echo date('Y-m-d'); ?>" required>
+                    <div class="form-group" style="margin:0;">
+                        <label>Fecha OC *</label>
+                        <input type="date" name="order_date" id="poOrderDate" class="form-control" required>
                     </div>
-                    <div class="form-group">
-                        <label>Método de pago</label>
-                        <select name="payment_method" class="form-control"><?php echo \SoftNova\Core\payment_method_options('cash'); ?></select>
+                    <div class="form-group" style="margin:0;">
+                        <label>Fecha bodega (si recibe ya)</label>
+                        <input type="date" name="warehouse_date" id="poWarehouseDate" class="form-control">
                     </div>
-                    <div class="form-group">
-                        <label>Estado de pago</label>
-                        <select name="payment_status" class="form-control">
-                            <option value="paid">Pagada</option>
-                            <option value="pending">Por pagar</option>
-                        </select>
+                </div>
+                <div class="form-group">
+                    <label>Notas</label>
+                    <input type="text" name="notes" class="form-control" placeholder="Observaciones de la compra">
+                </div>
+                <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;">
+                    <div class="form-group" style="margin:0;">
+                        <label>Fecha factura</label>
+                        <input type="date" name="invoice_date" class="form-control">
                     </div>
-                    <div class="form-group"><label><input type="checkbox" name="affect_cash" value="1"> Descontar de caja (solo efectivo)</label></div>
-                    <div class="form-group" style="grid-column:1/-1;"><label>Notas</label><input type="text" name="notes" class="form-control"></div>
+                    <div class="form-group" style="margin:0;">
+                        <label>Fecha vencimiento</label>
+                        <input type="date" name="due_date" class="form-control">
+                    </div>
+                    <div class="form-group" style="margin:0;">
+                        <label>Desc. pronto pago %</label>
+                        <input type="number" step="0.01" min="0" max="100" name="early_payment_discount_pct" class="form-control" value="0" placeholder="Ej. 2">
+                    </div>
                 </div>
 
-                <hr style="margin:16px 0;border:none;border-top:1px solid var(--color-border);">
-                <div style="display:flex;gap:8px;margin-bottom:10px;">
-                    <input type="search" id="purchaseProductSearch" class="form-control" placeholder="Buscar producto..." style="flex:1;">
-                    <button type="button" class="btn btn-secondary" onclick="searchPurchaseProducts()">Buscar</button>
+                <h4 style="margin:12px 0 8px;">Ítems</h4>
+                <div id="poItems"></div>
+                <button type="button" class="btn btn-secondary" onclick="addPoItem()" style="margin-top:8px;">+ Agregar producto</button>
+
+                <div style="margin-top:16px;padding:12px;border:1px solid var(--color-border);border-radius:8px;background:var(--bg-input);">
+                    <label style="display:flex;gap:8px;align-items:center;margin-bottom:10px;">
+                        <input type="checkbox" name="receive_now" value="1" id="poReceiveNow" onchange="toggleReceiveNow()">
+                        Recibir y contabilizar ahora (factura proveedor)
+                    </label>
+                    <div id="poReceiveNowFields" style="display:none;grid-template-columns:1fr 1fr;gap:12px;">
+                        <div class="form-group" style="margin:0;">
+                            <label>N° factura proveedor</label>
+                            <input type="text" name="invoice_number" class="form-control" placeholder="FV-001">
+                        </div>
+                        <div class="form-group" style="margin:0;">
+                            <label>Pago / contrapartida</label>
+                            <select name="payment_mode" class="form-control">
+                                <option value="payable">Por pagar (Proveedores + IVA descontable)</option>
+                                <option value="cash">Efectivo</option>
+                                <option value="transfer">Transferencia/tarjeta</option>
+                            </select>
+                        </div>
+                    </div>
                 </div>
-                <div id="purchaseProductResults" style="max-height:140px;overflow:auto;margin-bottom:10px;"></div>
-                <table class="table" id="purchaseItemsTable">
-                    <thead><tr><th>Producto</th><th>Cant.</th><th>Costo unit.</th><th>Subtotal</th><th></th></tr></thead>
-                    <tbody></tbody>
-                </table>
-                <div style="text-align:right;font-weight:700;">Total: <span id="purchaseTotal">0</span></div>
-                <div id="purchaseItemsHidden"></div>
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" onclick="document.getElementById('purchaseModal').style.display='none'">Cancelar</button>
-                <button type="submit" class="btn btn-primary">Registrar compra</button>
+                <button type="submit" class="btn btn-primary">Guardar OC</button>
             </div>
         </form>
     </div>
 </div>
 
+<!-- Modal Recibir -->
+<div id="receiveModal" class="modal-overlay" style="display:none;">
+    <div class="modal-content neumorphic" style="max-width:480px;">
+        <div class="modal-header">
+            <h3>Recibir mercancía</h3>
+            <button type="button" class="modal-close" onclick="document.getElementById('receiveModal').style.display='none'">&times;</button>
+        </div>
+        <form method="POST" action="<?php echo $viewInstance->route('app/compras'); ?>?action=receive" data-ajax="true">
+            <?php echo \SoftNova\Core\csrf_field(); ?>
+            <input type="hidden" name="id" id="receiveOrderId">
+            <p id="receiveOrderLabel" style="font-weight:600;margin-bottom:10px;"></p>
+            <div class="form-group">
+                <label>Fecha ingreso a bodega *</label>
+                <input type="date" name="warehouse_date" id="receiveWarehouseDate" class="form-control" required>
+            </div>
+            <div class="form-group">
+                <label>N° factura proveedor</label>
+                <input type="text" name="invoice_number" class="form-control" placeholder="FV-001">
+            </div>
+            <div class="form-group">
+                <label>Pago / contrapartida *</label>
+                <select name="payment_mode" class="form-control" required>
+                    <option value="payable">Por pagar (220505) + IVA descontable (240802)</option>
+                    <option value="cash">Efectivo (110505)</option>
+                    <option value="transfer">Transferencia (111005)</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Notas</label>
+                <input type="text" name="notes" class="form-control">
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" onclick="document.getElementById('receiveModal').style.display='none'">Cancelar</button>
+                <button type="submit" class="btn btn-success">Recibir y contabilizar</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Modal detalle -->
 <div id="purchaseDetailModal" class="modal-overlay" style="display:none;">
-    <div class="modal-content neumorphic" style="max-width:640px;">
+    <div class="modal-content neumorphic" style="max-width:720px;max-height:85vh;overflow-y:auto;">
         <div class="modal-header">
             <h3>Detalle de compra</h3>
             <button type="button" class="modal-close" onclick="document.getElementById('purchaseDetailModal').style.display='none'">&times;</button>
         </div>
-        <div class="modal-body" id="purchaseDetailBody"></div>
+        <div class="modal-body" id="purchaseDetailContent"></div>
     </div>
 </div>
 
 <script>
-var purchaseCart = [];
-var purchaseSearchUrl = <?php echo json_encode($viewInstance->route('app/compras') . '?action=products'); ?>;
-var currencySym = <?php echo json_encode($currency['symbol'] ?? '$'); ?>;
+window.poProducts = <?php echo json_encode(array_map(static function ($p) {
+    return [
+        'id' => (int)$p['id'],
+        'code' => $p['code'],
+        'name' => $p['name'],
+        'purchase_price' => (float)$p['purchase_price'],
+    ];
+}, $products), JSON_UNESCAPED_UNICODE); ?>;
+window.poDetailUrl = '<?php echo $viewInstance->route('app/compras'); ?>?action=detail';
+window.poWarehouseKey = 'seri_last_warehouse_date';
 
-function searchPurchaseProducts() {
-    var q = document.getElementById('purchaseProductSearch').value.trim();
-    fetch(purchaseSearchUrl + '&q=' + encodeURIComponent(q), {headers:{'X-Requested-With':'XMLHttpRequest'}})
-        .then(r => r.json())
-        .then(data => {
-            var box = document.getElementById('purchaseProductResults');
-            box.innerHTML = '';
-            (data.products || []).forEach(function(p) {
-                var btn = document.createElement('button');
-                btn.type = 'button';
-                btn.className = 'btn btn-sm btn-secondary';
-                btn.style.margin = '2px';
-                btn.textContent = (p.code ? p.code + ' — ' : '') + p.name + ' (stock ' + p.stock + ')';
-                btn.onclick = function() { addPurchaseItem(p); };
-                box.appendChild(btn);
-            });
-        });
+function poToday() {
+    var d = new Date();
+    return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
 }
-
-function addPurchaseItem(p) {
-    var existing = purchaseCart.find(function(i){ return i.product_id == p.id; });
-    if (existing) { existing.quantity++; }
-    else {
-        purchaseCart.push({
-            product_id: p.id,
-            name: p.name,
-            quantity: 1,
-            unit_cost: parseFloat(p.purchase_price) || 0
-        });
+function poRememberedDate() {
+    try {
+        var v = localStorage.getItem(window.poWarehouseKey);
+        if (v && /^\d{4}-\d{2}-\d{2}$/.test(v)) return v;
+    } catch (e) {}
+    return poToday();
+}
+function poRemember(v) {
+    if (v && /^\d{4}-\d{2}-\d{2}$/.test(v)) {
+        try { localStorage.setItem(window.poWarehouseKey, v); } catch (e) {}
     }
-    renderPurchaseCart();
 }
 
-function removePurchaseItem(idx) {
-    purchaseCart.splice(idx, 1);
-    renderPurchaseCart();
-}
-
-function renderPurchaseCart() {
-    var tbody = document.querySelector('#purchaseItemsTable tbody');
-    tbody.innerHTML = '';
-    var total = 0;
-    purchaseCart.forEach(function(item, idx) {
-        var sub = item.quantity * item.unit_cost;
-        total += sub;
-        var tr = document.createElement('tr');
-        tr.innerHTML = '<td>' + item.name + '</td>'
-            + '<td><input type="number" min="1" value="' + item.quantity + '" style="width:70px" onchange="purchaseCart['+idx+'].quantity=parseInt(this.value)||1;renderPurchaseCart()"></td>'
-            + '<td><input type="number" min="0" step="0.01" value="' + item.unit_cost + '" style="width:100px" onchange="purchaseCart['+idx+'].unit_cost=parseFloat(this.value)||0;renderPurchaseCart()"></td>'
-            + '<td>' + currencySym + ' ' + sub.toFixed(2) + '</td>'
-            + '<td><button type="button" class="btn btn-sm btn-danger" onclick="removePurchaseItem('+idx+')">✕</button></td>';
-        tbody.appendChild(tr);
+function productOptionsHtml(selected) {
+    var h = '<option value="">Seleccionar producto</option>';
+    (window.poProducts || []).forEach(function(p) {
+        h += '<option value="' + p.id + '" data-cost="' + p.purchase_price + '"' +
+            (String(selected) === String(p.id) ? ' selected' : '') + '>' +
+            esc((p.code ? p.code + ' — ' : '') + p.name) + '</option>';
     });
-    document.getElementById('purchaseTotal').textContent = currencySym + ' ' + total.toFixed(2);
+    return h;
 }
 
-function preparePurchaseItems() {
-    if (!purchaseCart.length) {
-        showAlert('Agregue al menos un producto', 'warning');
-        return false;
+function addPoItem(prefill) {
+    prefill = prefill || {};
+    var wrap = document.createElement('div');
+    wrap.className = 'po-item-row';
+    wrap.style.cssText = 'display:grid;grid-template-columns:2fr 0.7fr 0.9fr 0.7fr auto;gap:8px;margin-bottom:8px;align-items:end;';
+    wrap.innerHTML =
+        '<div class="form-group" style="margin:0;"><label>Producto</label>' +
+        '<select name="product_id[]" class="form-control" onchange="onPoProductChange(this)" required>' + productOptionsHtml(prefill.product_id || '') + '</select></div>' +
+        '<div class="form-group" style="margin:0;"><label>Cant.</label>' +
+        '<input type="number" name="quantity[]" class="form-control" min="1" value="' + (prefill.quantity || 1) + '" required></div>' +
+        '<div class="form-group" style="margin:0;"><label>Costo u.</label>' +
+        '<input type="number" step="0.01" name="unit_cost[]" class="form-control" min="0" value="' + (prefill.unit_cost || 0) + '" required></div>' +
+        '<div class="form-group" style="margin:0;"><label>IVA %</label>' +
+        '<input type="number" step="0.01" name="tax_rate[]" class="form-control" min="0" value="' + (prefill.tax_rate != null ? prefill.tax_rate : 19) + '"></div>' +
+        '<button type="button" class="btn btn-sm btn-danger" onclick="this.parentElement.remove()">✕</button>';
+    document.getElementById('poItems').appendChild(wrap);
+}
+
+function onPoProductChange(sel) {
+    var opt = sel.options[sel.selectedIndex];
+    var cost = opt ? opt.getAttribute('data-cost') : '0';
+    var row = sel.closest('.po-item-row');
+    if (row) {
+        var costInput = row.querySelector('input[name="unit_cost[]"]');
+        if (costInput) costInput.value = cost || 0;
     }
-    var box = document.getElementById('purchaseItemsHidden');
-    box.innerHTML = '';
-    purchaseCart.forEach(function(item, i) {
-        ['product_id','quantity','unit_cost'].forEach(function(k) {
-            var input = document.createElement('input');
-            input.type = 'hidden';
-            input.name = 'items[' + i + '][' + k + ']';
-            input.value = item[k];
-            box.appendChild(input);
-        });
-    });
-    return true;
 }
 
-function showPurchase(id) {
-    fetch(<?php echo json_encode($viewInstance->route('app/compras')); ?> + '?action=detail&id=' + id, {headers:{'X-Requested-With':'XMLHttpRequest'}})
-        .then(r => r.json())
-        .then(data => {
-            if (!data.success) { showAlert(data.message || 'Error', 'error'); return; }
-            var p = data.purchase;
-            var html = '<p><strong>' + p.purchase_number + '</strong> · ' + (p.supplier_name || 'Sin proveedor') + '</p>';
-            html += '<p>Fecha ingreso: ' + p.purchase_date + ' · Total: ' + currencySym + ' ' + parseFloat(p.total).toFixed(2) + '</p>';
-            html += '<table class="table"><thead><tr><th>Producto</th><th>Cant.</th><th>Costo</th><th>Subtotal</th></tr></thead><tbody>';
-            (data.items || []).forEach(function(it) {
-                html += '<tr><td>' + it.product_name + '</td><td>' + it.quantity + '</td><td>' + it.unit_cost + '</td><td>' + it.subtotal + '</td></tr>';
+function toggleReceiveNow() {
+    var on = document.getElementById('poReceiveNow').checked;
+    document.getElementById('poReceiveNowFields').style.display = on ? 'grid' : 'none';
+}
+
+function openPurchaseModal() {
+    document.getElementById('poItems').innerHTML = '';
+    addPoItem();
+    document.getElementById('poOrderDate').value = poToday();
+    var wh = document.getElementById('poWarehouseDate');
+    wh.value = poRememberedDate();
+    wh.onchange = function() { poRemember(wh.value); };
+    document.getElementById('poReceiveNow').checked = false;
+    toggleReceiveNow();
+    document.getElementById('purchaseModal').style.display = 'flex';
+}
+
+function openReceiveModal(id, number) {
+    document.getElementById('receiveOrderId').value = id;
+    document.getElementById('receiveOrderLabel').textContent = 'OC ' + number;
+    var wh = document.getElementById('receiveWarehouseDate');
+    wh.value = poRememberedDate();
+    wh.onchange = function() { poRemember(wh.value); };
+    document.getElementById('receiveModal').style.display = 'flex';
+}
+
+function viewPurchase(id) {
+    fetch(window.poDetailUrl + '&id=' + id, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+        .then(function(r) { return r.json(); })
+        .then(function(d) {
+            if (!d.success) return showAlert(d.message || 'No encontrada', 'error');
+            var o = d.order, items = o.items || [];
+            var sym = document.querySelector('meta[name="currency-symbol"]')?.content || '$';
+            var dec = parseInt(document.querySelector('meta[name="currency-decimals"]')?.content || '0');
+            var h = '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px;">';
+            h += '<div><strong>OC:</strong> ' + esc(o.order_number) + '</div>';
+            h += '<div><strong>Estado:</strong> ' + esc(o.status) + '</div>';
+            h += '<div><strong>Proveedor:</strong> ' + esc(o.supplier_name || '—') + '</div>';
+            h += '<div><strong>Factura:</strong> ' + esc(o.invoice_number || '—') + '</div>';
+            h += '<div><strong>Fecha OC:</strong> ' + esc((o.order_date || '').substr(0,10)) + '</div>';
+            h += '<div><strong>Fecha bodega:</strong> ' + esc((o.warehouse_date || '—').toString().substr(0,10)) + '</div>';
+            h += '<div><strong>Subtotal:</strong> ' + sym + parseFloat(o.subtotal||0).toFixed(dec) + '</div>';
+            h += '<div><strong>IVA:</strong> ' + sym + parseFloat(o.tax||0).toFixed(dec) + '</div>';
+            h += '<div><strong>Total:</strong> ' + sym + parseFloat(o.total||0).toFixed(dec) + '</div>';
+            h += '<div><strong>Asiento:</strong> ' + esc(o.accounting_entry_number || (o.accounting_entry_id ? ('#'+o.accounting_entry_id) : 'pendiente')) + '</div>';
+            h += '</div>';
+            h += '<table><thead><tr><th>Producto</th><th>Cant</th><th>Costo</th><th>IVA%</th><th>Total</th></tr></thead><tbody>';
+            items.forEach(function(it) {
+                h += '<tr><td>' + esc(it.product_name) + '</td><td>' + it.quantity + '</td>';
+                h += '<td>' + sym + parseFloat(it.unit_cost||0).toFixed(dec) + '</td>';
+                h += '<td>' + parseFloat(it.tax_rate||0).toFixed(2) + '</td>';
+                h += '<td>' + sym + parseFloat(it.line_total||0).toFixed(dec) + '</td></tr>';
             });
-            html += '</tbody></table>';
-            if (data.movements && data.movements.length) {
-                html += '<h4 style="margin-top:12px;">Trazabilidad de inventario</h4><ul>';
-                data.movements.forEach(function(m) {
-                    html += '<li>' + (m.movement_date || m.created_at) + ' · ' + m.type + ' ' + m.quantity + ' · ' + (m.product_name || '') + '</li>';
-                });
-                html += '</ul>';
-            }
-            document.getElementById('purchaseDetailBody').innerHTML = html;
+            h += '</tbody></table>';
+            if (o.notes) h += '<p style="margin-top:10px;font-size:13px;"><strong>Notas:</strong> ' + esc(o.notes) + '</p>';
+            document.getElementById('purchaseDetailContent').innerHTML = h;
             document.getElementById('purchaseDetailModal').style.display = 'flex';
         });
 }
-
-// Hook prepare en app.js via data-prepare
-window.preparePurchaseItems = preparePurchaseItems;
 </script>

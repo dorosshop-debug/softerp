@@ -1,8 +1,9 @@
 # Seri ERP — Estado, avances y funcionalidades
 
-> Documento vivo del producto. Última actualización: **27 jul 2026**  
+> Documento vivo del producto. Última actualización: **28 jul 2026**  
 > Repo: https://github.com/dorosshop-debug/softerp · Rama: `main`  
-> Detalle técnico/arquitectura: ver también [`PROJECT_SUMMARY.md`](PROJECT_SUMMARY.md)
+> Detalle técnico/arquitectura: ver también [`PROJECT_SUMMARY.md`](PROJECT_SUMMARY.md)  
+> Despliegue / unificación servidor: ver [`DEPLOY_UNIFICACION.md`](DEPLOY_UNIFICACION.md)
 
 ---
 
@@ -68,6 +69,21 @@ Panel: **Contabilidad → pestaña Comisiones**
 - Cancelar venta → revierte comisión/gasto
 - Reportes muestra pendientes vs registradas
 
+### Ventas y documentos (unificado jul 2026)
+- Tipos de documento: factura, remisión, cuenta de cobro, FE
+- Plazos de pago / fecha de vencimiento
+- Ticket térmico PDF 58mm
+- Compartir recibo por WhatsApp o correo (`ReceiptShareService`)
+
+### Compras OC (unificado jul 2026)
+- Órdenes de compra → recepción a inventario
+- Descuento pronto pago / proveedor aliado (`is_ally`, `%`)
+- Asiento contable de OC / movimientos de stock
+
+### Inventario / costos
+- Costo promedio ponderado (WAC) al ingresar mercancía
+- Trazabilidad `listMovements` + pendientes de contabilizar
+
 ### Nómina
 - SMMLV y parámetros de aportes
 - Primas, cesantías, intereses, incapacidad, parafiscales/ARL
@@ -86,7 +102,8 @@ Panel: **Contabilidad → pestaña Comisiones**
 
 | Fecha / commit | Avance |
 |----------------|--------|
-| jul 2026 (este push) | Comisiones vendedor/pasarela 100% + fix layout chat IA + este documento |
+| 28 jul 2026 | Unificación servidor heraconsultores + GitHub (OC, ticket 58mm, docs venta, WAC, gastos con comprobante) |
+| 27 jul 2026 | Comisiones vendedor/pasarela 100% + fix layout chat IA + AVANCES.md |
 | `ed2add7` | Nómina: primas, cesantías, incapacidad, PDF, asiento SS |
 | `0f94ac0` | Nómina MVP + guía imagen IA |
 | `c061b84` | WooCommerce visible; gastos fijos vs financieros |
@@ -99,36 +116,40 @@ Panel: **Contabilidad → pestaña Comisiones**
 
 ### Comercial
 - Venta de contado / crédito + abonos
-- Medios de pago: efectivo, transferencia, datáfono, tarjetas, link
+- Medios de pago: efectivo, transferencia, datáfono, tarjetas (débito/crédito), link
+- Tipos de documento y plazos; ticket 58mm; compartir recibo
 - Cotización → venta (dispara contabilidad y comisiones)
 - Stock y costo en ítems (`unit_cost`) para utilidad/COGS
 
 ### Operativo
-- Compras con inventario y CxP
-- Trazabilidad de movimientos de stock
-- Gastos categorizados (catálogo `config/catalog.php`)
+- Compras por OC + recepción + CxP; legado `purchases` aún contabilizable
+- Trazabilidad de movimientos de stock (WAC)
+- Gastos tipificados + adjunto de comprobante
 
 ### Analítica
-- Utilidad del periodo, aging CxC, top deudores/vendedores
+- Utilidad del periodo, aging CxC (también por vencimiento), top deudores/vendedores
 - Margen por canal, conciliación datáfono
 - Resumen de comisiones en reportes
 
 ### Plataforma
 - Superadmin: tenants, planes, licencias, tickets, auditorías, settings OG
 - CSRF, sesiones, roles, gating por plan
-- PDF Dompdf (ventas, cotizaciones, caja, nómina)
+- PDF Dompdf (ventas, ticket 58mm, cotizaciones, caja, nómina)
+- **Regla:** GitHub primero, deploy después ([`DEPLOY_UNIFICACION.md`](DEPLOY_UNIFICACION.md))
 
 ---
 
 ## Cómo actualizar un entorno existente
 
 ```bash
-# 1) Desplegar código (git pull / FTP del build)
+# 1) Desplegar código (git pull / FTP del build) — NO pisar config/database.php de producción
 # 2) Migrar tenants existentes
 php database/migrate_existing.php
 ```
 
-Las tablas de comisiones también se crean al abrir **Contabilidad → Comisiones** (`CommissionService::ensureSchema`). Instalaciones nuevas las traen en `database/install_tenant.sql`.
+Las tablas de comisiones / OC / categorías de gasto se crean al abrir el módulo (`ensureSchema`). Instalaciones nuevas también cubren comisiones en `database/install_tenant.sql`.
+
+Para **seri.heraconsultores.com**, seguir el checklist completo en [`DEPLOY_UNIFICACION.md`](DEPLOY_UNIFICACION.md).
 
 ---
 
@@ -139,9 +160,10 @@ Las tablas de comisiones también se crean al abrir **Contabilidad → Comisione
 - [ ] Export Excel/CSV más amplio
 - [ ] Notificaciones proactivas (stock, caja +24h)
 - [ ] Imágenes de producto + código de barras/QR
+- [ ] UI completa para importación ecommerce (servicio base ya incluido)
 
 ### Media
-- [ ] SMTP / email de avisos
+- [ ] SMTP real (hoy `mail()` nativo para recibos)
 - [ ] Backup/restore desde UI
 - [ ] API REST pública documentada
 - [ ] Mejoras FE (estados DIAN más visibles en ventas)
@@ -156,10 +178,11 @@ Las tablas de comisiones también se crean al abrir **Contabilidad → Comisione
 ## Notas para desarrollo
 
 1. Contabilidad **fuera** de la transacción comercial: un periodo cerrado no debe revertir la venta.
-2. Caja física solo con `payment_method === 'cash'`.
+2. Caja física solo con medios que `PaymentMethodCatalog::affectsCash` marque como efectivo.
 3. Sidebar filtra por plan + `TenantMiddleware::canAccess`.
 4. Tras features de esquema: correr `migrate_existing.php` **y** desplegar el código (si solo migras, la UI no aparece).
 5. Commit style reciente: `feat:` / `fix:` / `docs:` en inglés corto.
+6. Nunca subir `config/database.php` real ni dumps SQL de producción a GitHub.
 
 ---
 

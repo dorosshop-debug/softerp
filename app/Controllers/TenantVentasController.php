@@ -55,11 +55,22 @@ class TenantVentasController extends TenantController
             $this->invoicePdf();
             return;
         }
+        if ($action === 'share' && $this->request->method() === 'GET') {
+            $this->shareReceipt();
+            return;
+        }
+        if ($action === 'email' && $this->request->method() === 'POST') {
+            TenantMiddleware::authorize('ventas', 'create');
+            $this->emailReceipt();
+            return;
+        }
         if ($action === 'export' && $this->request->method() === 'GET') {
             TenantMiddleware::authorize('ventas', 'export');
             $this->exportSales();
             return;
         }
+
+        (new \SoftNova\Services\SalesDocumentService($this->db));
 
         $filters = $this->listFilters([
             'invoice' => 's.invoice_number',
@@ -180,8 +191,28 @@ class TenantVentasController extends TenantController
         }
         
         $customerId = $this->request->post('customer_id') ? (int)$this->request->post('customer_id') : null;
-        $paymentMethod = $this->request->post('payment_method', 'cash');
+        $paymentMethod = \SoftNova\Services\PaymentMethodCatalog::normalize($this->request->post('payment_method', 'cash'));
         $paymentType = $this->request->post('payment_type', 'full');
+        $documentType = (string)$this->request->post('document_type', 'invoice');
+        if (!isset(\SoftNova\Services\SalesDocumentService::documentTypes()[$documentType])) {
+            $documentType = 'invoice';
+        }
+        $paymentTerms = (string)$this->request->post('payment_terms', $paymentType === 'credit' ? 'net_30' : 'cash');
+        if (!isset(\SoftNova\Services\SalesDocumentService::paymentTerms()[$paymentTerms])) {
+            $paymentTerms = $paymentType === 'credit' ? 'net_30' : 'cash';
+        }
+        $saleDate = trim((string)$this->request->post('sale_date', date('Y-m-d')));
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $saleDate)) {
+            $saleDate = date('Y-m-d');
+        }
+        $dueDateInput = trim((string)$this->request->post('due_date', ''));
+        $receivedDate = trim((string)$this->request->post('received_date', ''));
+        $dueDate = preg_match('/^\d{4}-\d{2}-\d{2}$/', $dueDateInput)
+            ? $dueDateInput
+            : \SoftNova\Services\SalesDocumentService::resolveDueDate($paymentTerms, $saleDate);
+        if ($receivedDate !== '' && !preg_match('/^\d{4}-\d{2}-\d{2}$/', $receivedDate)) {
+            $receivedDate = '';
+        }
         $initialPayment = (float)$this->request->post('initial_payment', 0);
         $items = $this->request->post('items', []);
         $notes = $this->request->post('notes', '');
@@ -190,9 +221,13 @@ class TenantVentasController extends TenantController
             $this->respond(false, 'Debe agregar al menos un producto', '/app/ventas');
             return;
         }
-        
-        $prefix = $this->getSetting('invoice_prefix', 'FAC-');
-        $invoiceNumber = $prefix . date('Ymd') . '-' . strtoupper(substr(bin2hex(random_bytes(2)), 0, 4));
+
+        (new \SoftNova\Services\SalesDocumentService($this->db));
+        $prefix = \SoftNova\Services\SalesDocumentService::prefixFor($documentType);
+        if ($documentType === 'invoice') {
+            $prefix = $this->getSetting('invoice_prefix', 'FAC-');
+        }
+        $invoiceNumber = $prefix . date('Ymd', strtotime($saleDate)) . '-' . strtoupper(substr(bin2hex(random_bytes(2)), 0, 4));
         
         $subtotal = 0;
         $validItems = [];
@@ -246,17 +281,22 @@ class TenantVentasController extends TenantController
             
             $this->query(
                 "INSERT INTO sales
-                    (invoice_number, customer_id, user_id, sale_date, subtotal, tax, discount, total,
-                     payment_method, payment_status, notes, status)
-                 VALUES (?, ?, ?, NOW(), ?, ?, 0, ?, ?, ?, ?, ?)",
+                    (invoice_number, document_type, customer_id, user_id, sale_date, due_date, received_date,
+                     subtotal, tax, discount, total, payment_method, payment_terms, payment_status, notes, status)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?)",
                 [
                     $invoiceNumber,
+                    $documentType,
                     $customerId,
                     $_SESSION['tenant_user_id'],
+                    $saleDate . ' ' . date('H:i:s'),
+                    $dueDate,
+                    $receivedDate !== '' ? $receivedDate : null,
                     $subtotal,
                     $tax,
                     $total,
                     $paymentMethod,
+                    $paymentTerms,
                     $paymentStatus,
                     $notes,
                     $paymentStatus === 'paid' ? 'completed' : 'pending',
@@ -275,7 +315,8 @@ class TenantVentasController extends TenantController
                     $vi['quantity'],
                     'sale',
                     $saleId,
-                    'Venta: ' . $invoiceNumber
+                    'Venta: ' . $invoiceNumber,
+                    (float)($vi['unit_cost'] ?? 0)
                 );
             }
             
@@ -317,7 +358,7 @@ class TenantVentasController extends TenantController
 
             // Solo el efectivo entra a la caja física; tarjeta/transferencia van al
             // banco en contabilidad, por lo que no deben inflar el arqueo de caja.
-            if ($cashAmount > 0 && $paymentMethod === 'cash') {
+            if ($cashAmount > 0 && \SoftNova\Services\PaymentMethodCatalog::affectsCash($paymentMethod)) {
                 $label = ($paymentType === 'credit' && $paymentStatus !== 'paid')
                     ? 'Abono inicial: ' . $invoiceNumber
                     : 'Venta: ' . $invoiceNumber;
@@ -335,23 +376,26 @@ class TenantVentasController extends TenantController
                         $invoiceNumber,
                         $total,
                         $paidForRx,
-                        $notes ?: null
+                        $notes ?: null,
+                        $dueDate
                     );
                 }
             }
 
-            // Factura electrónica (fuera de la transacción local): no bloquea la venta.
+            // Factura electrónica solo si el documento es electrónico
             $einvoiceNote = '';
-            try {
-                $emit = (new IntegrationManager($this->db))->emitSale($saleId);
-                if (!empty($emit['success'])) {
-                    $einvoiceNote = ' · FE: ' . ($emit['message'] ?? 'OK');
-                } elseif (($emit['message'] ?? '') !== 'No hay proveedor de facturación activo') {
-                    $einvoiceNote = ' · FE pendiente: ' . ($emit['message'] ?? 'error');
+            if ($documentType === 'electronic') {
+                try {
+                    $emit = (new IntegrationManager($this->db))->emitSale($saleId);
+                    if (!empty($emit['success'])) {
+                        $einvoiceNote = ' · FE: ' . ($emit['message'] ?? 'OK');
+                    } elseif (($emit['message'] ?? '') !== 'No hay proveedor de facturación activo') {
+                        $einvoiceNote = ' · FE pendiente: ' . ($emit['message'] ?? 'error');
+                    }
+                } catch (\Throwable $e) {
+                    $einvoiceNote = ' · FE no enviada';
+                    error_log('emitSale: ' . $e->getMessage());
                 }
-            } catch (\Throwable $e) {
-                $einvoiceNote = ' · FE no enviada';
-                error_log('emitSale: ' . $e->getMessage());
             }
             
             $msg = $paymentType === 'credit' && $paymentStatus !== 'paid'
@@ -374,7 +418,7 @@ class TenantVentasController extends TenantController
         
         $saleId = (int)$this->request->post('sale_id');
         $amount = (float)$this->request->post('amount');
-        $method = $this->request->post('payment_method', 'cash');
+        $method = \SoftNova\Services\PaymentMethodCatalog::normalize($this->request->post('payment_method', 'cash'));
         $notes = $this->request->post('notes', 'Abono');
         
         if ($amount <= 0) {
@@ -450,7 +494,7 @@ class TenantVentasController extends TenantController
             }
 
             // Solo el efectivo entra a la caja física (evita descuadre con contabilidad).
-            if ($method === 'cash') {
+            if (\SoftNova\Services\PaymentMethodCatalog::affectsCash($method)) {
                 $this->cash->registerIncome($amount, 'Abono: ' . $sale['invoice_number'], 'sale_payment', $saleId);
             }
             $this->receivables->applyPayment($saleId, $totalPaid, (float)$sale['total']);
@@ -498,26 +542,78 @@ class TenantVentasController extends TenantController
     
     private function invoicePdf(): void
     {
-        $id = (int)$this->request->get('id');
-        $sale = $this->query(
-            "SELECT s.*, c.name as customer_name FROM sales s LEFT JOIN customers c ON s.customer_id = c.id WHERE s.id = ?",
-            [$id]
-        )->fetch();
-        
-        if (!$sale) {
-            echo 'Venta no encontrada';
+        try {
+            $id = (int)$this->request->get('id');
+            $format = (string)$this->request->get('format', 'a4');
+            if ($format !== 'ticket') {
+                $format = 'a4';
+            }
+            $sale = $this->query(
+                "SELECT s.*, c.name as customer_name FROM sales s LEFT JOIN customers c ON s.customer_id = c.id WHERE s.id = ?",
+                [$id]
+            )->fetch();
+
+            if (!$sale) {
+                http_response_code(404);
+                echo 'Venta no encontrada';
+                exit;
+            }
+
+            $items = $this->query("SELECT * FROM sale_items WHERE sale_id = ?", [$id])->fetchAll();
+            $payments = $this->query(
+                "SELECT * FROM sale_payments WHERE sale_id = ? ORDER BY payment_date DESC",
+                [$id]
+            )->fetchAll();
+
+            $pdf = new \SoftNova\Services\PdfService($this->companySettings(), $this->getCurrency());
+            $content = $pdf->generateInvoice($sale, $items ?: [], $payments ?: [], $format);
+            $prefix = $format === 'ticket' ? 'Ticket_' : 'Doc_';
+            $pdf->download($content, $prefix . ($sale['invoice_number'] ?? $id) . '.pdf');
+        } catch (\Throwable $e) {
+            error_log('invoicePdf: ' . $e->getMessage() . ' @ ' . $e->getFile() . ':' . $e->getLine());
+            http_response_code(500);
+            header('Content-Type: text/plain; charset=utf-8');
+            echo "No se pudo generar el PDF.\n" . $e->getMessage();
             exit;
         }
-        
-        $items = $this->query("SELECT * FROM sale_items WHERE sale_id = ?", [$id])->fetchAll();
-        $payments = $this->query(
-            "SELECT * FROM sale_payments WHERE sale_id = ? ORDER BY payment_date DESC",
-            [$id]
-        )->fetchAll();
-        
-        $pdf = new \SoftNova\Services\PdfService($this->companySettings(), $this->getCurrency());
-        $content = $pdf->generateInvoice($sale, $items, $payments);
-        $pdf->download($content, 'Factura_' . ($sale['invoice_number'] ?? $id) . '.pdf');
+    }
+
+    private function shareReceipt(): void
+    {
+        $id = (int)$this->request->get('id', 0);
+        $share = new \SoftNova\Services\ReceiptShareService($this->db, $this->companySettings(), $this->getCurrency());
+        $sale = $share->saleSummary($id);
+        if (!$sale) {
+            $this->json(['success' => false, 'message' => 'Venta no encontrada']);
+            return;
+        }
+        $this->json([
+            'success' => true,
+            'whatsapp_url' => $share->whatsappUrl($sale),
+            'text' => $share->buildText($sale),
+            'customer_email' => $sale['customer_email'] ?? '',
+            'customer_phone' => $sale['customer_phone'] ?? '',
+        ]);
+    }
+
+    private function emailReceipt(): void
+    {
+        if (!$this->validateCsrfOrFail('/app/ventas')) {
+            return;
+        }
+        $id = (int)$this->request->post('id', 0);
+        $email = trim((string)$this->request->post('email', ''));
+        $share = new \SoftNova\Services\ReceiptShareService($this->db, $this->companySettings(), $this->getCurrency());
+        $sale = $share->saleSummary($id);
+        if (!$sale) {
+            $this->respond(false, 'Venta no encontrada', '/app/ventas');
+            return;
+        }
+        if ($email === '') {
+            $email = (string)($sale['customer_email'] ?? '');
+        }
+        $result = $share->sendEmail($sale, $email);
+        $this->respond($result['success'], $result['message'], '/app/ventas');
     }
     
     private function exportSales(): void

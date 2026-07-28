@@ -6,6 +6,38 @@ var curDec = parseInt(document.querySelector('meta[name="currency-decimals"]')?.
 function toggleCredit() {
     var s = document.getElementById('paymentType').value === 'credit';
     document.getElementById('initialPaymentGroup').style.display = s ? 'block' : 'none';
+    var terms = document.getElementById('paymentTerms');
+    if (terms && s && terms.value === 'cash') {
+        terms.value = 'net_30';
+        onPaymentTermsChange();
+    }
+}
+
+function onPaymentTermsChange() {
+    var terms = document.getElementById('paymentTerms');
+    var saleDate = document.getElementById('saleDate');
+    var due = document.getElementById('dueDate');
+    if (!terms || !saleDate || !due) return;
+    var base = saleDate.value || new Date().toISOString().slice(0,10);
+    var d = new Date(base + 'T12:00:00');
+    if (terms.value === 'cash') { /* same day */ }
+    else if (terms.value === 'net_15') d.setDate(d.getDate() + 15);
+    else if (terms.value === 'net_30') d.setDate(d.getDate() + 30);
+    else if (terms.value === 'overdue') d.setDate(d.getDate() - 1);
+    due.value = d.toISOString().slice(0,10);
+}
+
+function shareSale(id) {
+    fetch(window.invRouteVentasShare + '&id=' + id, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+        .then(function(r) { return r.json(); })
+        .then(function(d) {
+            if (!d.success) return showAlert(d.message || 'Error', 'error');
+            document.getElementById('shareSaleId').value = id;
+            document.getElementById('shareEmail').value = d.customer_email || '';
+            var btn = document.getElementById('shareWhatsappBtn');
+            btn.href = d.whatsapp_url;
+            document.getElementById('shareModal').style.display = 'flex';
+        });
 }
 
 function addProduct(ev) {
@@ -13,25 +45,45 @@ function addProduct(ev) {
     var qty = parseInt(document.getElementById('productQty').value) || 1;
     if (!sel.value) return;
     var o = sel.options[sel.selectedIndex];
-    var id = o.value, name = o.dataset.name, price = parseFloat(o.dataset.price), stock = parseInt(o.dataset.stock);
-    if (qty > stock) return showAlert('Stock insuficiente: ' + stock, 'error');
+    var id = o.value, name = o.dataset.name, price = parseFloat(o.dataset.price), stock = parseInt(o.dataset.stock, 10);
+    if (isNaN(stock)) stock = 0;
+    if (qty > stock) return showAlert('Stock insuficiente. Disponible: ' + stock, 'error');
     var ex = saleItems.find(function(i) { return i.product_id == id; });
     if (ex) {
-        if (ex.quantity + qty > stock) return showAlert('Stock insuficiente: ' + stock, 'error');
+        if (ex.quantity + qty > stock) return showAlert('Stock insuficiente. Disponible: ' + stock + ' (ya lleva ' + ex.quantity + ' en la venta)', 'error');
         ex.quantity += qty;
         ex.subtotal = ex.quantity * price;
+        ex.stock = stock;
     }
-    else { saleItems.push({ product_id: id, product_name: name, quantity: qty, unit_price: price, subtotal: qty * price }); }
+    else { saleItems.push({ product_id: id, product_name: name, quantity: qty, unit_price: price, subtotal: qty * price, stock: stock }); }
     document.getElementById('productQty').value = 1;
     renderItems();
-    showAlert(name + ' agregado', 'success');
+    updateStockHint();
+    var remaining = stock - (ex ? ex.quantity : qty);
+    showAlert(name + ' agregado. Restante en bodega: ' + remaining, 'success');
     if (typeof animateAddToCart === 'function') {
         var fromEl = (ev && ev.target) ? ev.target : document.getElementById('addProductBtn');
         animateAddToCart(fromEl && fromEl.closest ? (fromEl.closest('.btn') || fromEl) : fromEl);
     }
 }
 
-function removeItem(idx) { saleItems.splice(idx, 1); renderItems(); }
+function updateStockHint() {
+    var hint = document.getElementById('productStockHint');
+    var sel = document.getElementById('productSelect');
+    if (!hint || !sel) return;
+    if (!sel.value) { hint.textContent = ''; return; }
+    var o = sel.options[sel.selectedIndex];
+    var stock = parseInt(o.dataset.stock, 10) || 0;
+    var id = o.value;
+    var inSale = 0;
+    var ex = saleItems.find(function(i) { return String(i.product_id) === String(id); });
+    if (ex) inSale = ex.quantity;
+    var remaining = stock - inSale;
+    hint.innerHTML = 'Stock disponible: <strong>' + stock + '</strong>' +
+        (inSale > 0 ? ' · En esta venta: <strong>' + inSale + '</strong> · Restante: <strong style="color:' + (remaining <= 0 ? '#DC2626' : '#059669') + ';">' + remaining + '</strong>' : '');
+}
+
+function removeItem(idx) { saleItems.splice(idx, 1); renderItems(); updateStockHint(); }
 
 function renderItems() {
     var tb = document.querySelector('#itemsTable tbody');
@@ -42,10 +94,19 @@ function renderItems() {
     tbl.style.display = '';
     saleItems.forEach(function(it, i) {
         t += it.subtotal;
+        var stock = parseInt(it.stock, 10);
+        if (isNaN(stock)) {
+            var opt = document.querySelector('#productSelect option[value="' + it.product_id + '"]');
+            stock = opt ? (parseInt(opt.dataset.stock, 10) || 0) : 0;
+            it.stock = stock;
+        }
+        var remaining = stock - it.quantity;
+        var remColor = remaining <= 0 ? '#DC2626' : (remaining <= 5 ? '#B45309' : '#059669');
         tb.innerHTML += '<tr>' +
             '<td>' + esc(it.product_name) + '</td>' +
             '<td>' + it.quantity + '</td>' +
             '<td>' + curSym + ' ' + it.unit_price.toFixed(curDec) + '</td>' +
+            '<td style="font-weight:600;color:' + remColor + ';">' + remaining + ' <small style="font-weight:400;color:var(--color-text-secondary);">/ ' + stock + '</small></td>' +
             '<td>' + curSym + ' ' + it.subtotal.toFixed(curDec) + '</td>' +
             '<td><button type="button" class="btn btn-sm btn-danger" onclick="removeItem(' + i + ')">X</button></td>' +
             '</tr>';
@@ -77,14 +138,22 @@ function openSaleModal() {
     if (fromCart) {
         var cartData = JSON.parse(localStorage.getItem('eva_cart') || '[]');
         cartData.forEach(function(it) {
-            saleItems.push({ product_id: it.id, product_name: it.name, quantity: it.qty, unit_price: it.price, subtotal: it.price * it.qty });
+            var opt = document.querySelector('#productSelect option[value="' + it.id + '"]');
+            var stock = opt ? (parseInt(opt.dataset.stock, 10) || 0) : 0;
+            saleItems.push({ product_id: it.id, product_name: it.name, quantity: it.qty, unit_price: it.price, subtotal: it.price * it.qty, stock: stock });
         });
         localStorage.removeItem('eva_cart');
     }
     renderItems();
+    updateStockHint();
     toggleCredit();
     resetCustomerCombobox();
     initCustomerCombobox();
+    var sel = document.getElementById('productSelect');
+    if (sel && !sel._stockHintBound) {
+        sel.addEventListener('change', updateStockHint);
+        sel._stockHintBound = true;
+    }
     document.getElementById('saleModal').style.display = 'flex';
 }
 

@@ -88,11 +88,30 @@ class TenantContabilidadController extends TenantController
         $catalog = new \SoftNova\Services\Integrations\CatalogSyncService($this->db);
         \SoftNova\Services\TenantOpsSchema::ensure($this->db);
 
-        $purchaseSummary = $this->query(
-            "SELECT COUNT(*) cnt, COALESCE(SUM(total),0) total
-             FROM purchases WHERE status='completed' AND DATE(purchase_date) BETWEEN ? AND ?",
-            [$from, $to]
-        )->fetch() ?: ['cnt'=>0,'total'=>0];
+        $purchaseSummary = ['cnt' => 0, 'total' => 0.0];
+        try {
+            (new \SoftNova\Services\PurchasingService($this->db));
+            $purchaseSummary = $this->query(
+                "SELECT COUNT(*) cnt, COALESCE(SUM(total),0) total
+                 FROM purchase_orders
+                 WHERE status = 'received'
+                   AND DATE(COALESCE(warehouse_date, order_date)) BETWEEN ? AND ?",
+                [$from, $to]
+            )->fetch() ?: ['cnt'=>0,'total'=>0];
+        } catch (\Throwable $e) {
+            // schema aún no migrado
+        }
+        try {
+            $legacy = $this->query(
+                "SELECT COUNT(*) cnt, COALESCE(SUM(total),0) total
+                 FROM purchases WHERE status='completed' AND DATE(purchase_date) BETWEEN ? AND ?",
+                [$from, $to]
+            )->fetch() ?: ['cnt'=>0,'total'=>0];
+            $purchaseSummary['cnt'] = (int)$purchaseSummary['cnt'] + (int)$legacy['cnt'];
+            $purchaseSummary['total'] = (float)$purchaseSummary['total'] + (float)$legacy['total'];
+        } catch (\Throwable $e) {
+            // tabla purchases puede no existir en installs nuevos
+        }
         $expenseByType = $this->query(
             "SELECT COALESCE(category,'general') category, COUNT(*) cnt, COALESCE(SUM(amount),0) total
              FROM expenses WHERE expense_date BETWEEN ? AND ?

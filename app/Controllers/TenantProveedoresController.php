@@ -66,9 +66,23 @@ class TenantProveedoresController extends TenantController
         }
         
         $image = $this->uploadImage();
+        // Asegurar columnas aliado
+        try {
+            $cols = [];
+            foreach ($this->db->query('SHOW COLUMNS FROM suppliers')->fetchAll(\PDO::FETCH_ASSOC) as $c) {
+                $cols[strtolower((string)$c['Field'])] = true;
+            }
+            $alters = [];
+            if (!isset($cols['is_ally'])) $alters[] = 'ADD COLUMN is_ally TINYINT(1) NOT NULL DEFAULT 0';
+            if (!isset($cols['discount_percent'])) $alters[] = 'ADD COLUMN discount_percent DECIMAL(5,2) NOT NULL DEFAULT 0';
+            if ($alters) $this->db->exec('ALTER TABLE suppliers ' . implode(', ', $alters));
+        } catch (\Throwable $e) {}
+
+        $isAlly = $this->request->post('is_ally') === '1' ? 1 : 0;
+        $discountPct = max(0, min(100, (float)$this->request->post('discount_percent', 0)));
         
-        $this->query("INSERT INTO suppliers (name, document_type, document_number, contact_name, email, phone, address, notes, image) VALUES (?,?,?,?,?,?,?,?,?)",
-            [$name, $this->request->post('document_type','NIT'), $documentNumber, $this->request->post('contact_name'), $this->request->post('email'), $phone, $this->request->post('address'), $this->request->post('notes'), $image]);
+        $this->query("INSERT INTO suppliers (name, document_type, document_number, contact_name, email, phone, address, notes, image, is_ally, discount_percent) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            [$name, $this->request->post('document_type','NIT'), $documentNumber, $this->request->post('contact_name'), $this->request->post('email'), $phone, $this->request->post('address'), $this->request->post('notes'), $image, $isAlly, $discountPct]);
         
         $this->respond(true, 'Proveedor creado: ' . $name, '/app/proveedores');
     }
@@ -88,8 +102,10 @@ class TenantProveedoresController extends TenantController
         }
         
         $image = $this->uploadImage();
-        $sql = "UPDATE suppliers SET name=?, document_type=?, document_number=?, contact_name=?, email=?, phone=?, address=?, notes=?";
-        $params = [$name, $this->request->post('document_type','NIT'), $documentNumber, $this->request->post('contact_name'), $this->request->post('email'), $phone, $this->request->post('address'), $this->request->post('notes')];
+        $isAlly = $this->request->post('is_ally') === '1' ? 1 : 0;
+        $discountPct = max(0, min(100, (float)$this->request->post('discount_percent', 0)));
+        $sql = "UPDATE suppliers SET name=?, document_type=?, document_number=?, contact_name=?, email=?, phone=?, address=?, notes=?, is_ally=?, discount_percent=?";
+        $params = [$name, $this->request->post('document_type','NIT'), $documentNumber, $this->request->post('contact_name'), $this->request->post('email'), $phone, $this->request->post('address'), $this->request->post('notes'), $isAlly, $discountPct];
         
         if ($image) {
             $sql .= ", image=?";

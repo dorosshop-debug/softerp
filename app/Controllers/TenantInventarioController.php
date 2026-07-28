@@ -435,7 +435,19 @@ class TenantInventarioController extends TenantController
             return;
         }
         
-        $this->stock->increase($id, $qty, 'adjustment', null, $notes, 'in', $movementDate);
+        $this->stock->increase(
+            $id,
+            $qty,
+            'adjustment',
+            null,
+            $notes,
+            'in',
+            null,
+            null,
+            null,
+            false,
+            $movementDate
+        );
         $this->respond(true, "Stock aumentado en {$qty} unidades", '/app/inventario');
     }
     

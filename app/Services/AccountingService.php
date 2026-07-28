@@ -1463,4 +1463,254 @@ class AccountingService
             'third_party_name' => $thirdPartyName,
         ];
     }
+    public function postPurchaseOrder(int $orderId): ?int
+    {
+        $purchasing = new PurchasingService($this->db);
+        $order = $purchasing->getOrder($orderId);
+        if (!$order || $order['status'] !== 'received') {
+            throw new \RuntimeException('La orden debe estar recibida para contabilizar');
+        }
+        if (!empty($order['accounting_entry_id'])) {
+            return (int)$order['accounting_entry_id'];
+        }
+
+        $subtotal = round((float)$order['subtotal'], 2);
+        $tax = round((float)$order['tax'], 2);
+        $total = round((float)$order['total'], 2);
+        $discount = round((float)($order['early_payment_discount_amount'] ?? 0), 2);
+        $gross = round($subtotal + $tax, 2);
+        if ($total <= 0) {
+            throw new \RuntimeException('La orden no tiene total contable');
+        }
+
+        $date = !empty($order['warehouse_date'])
+            ? date('Y-m-d', strtotime((string)$order['warehouse_date']))
+            : date('Y-m-d', strtotime((string)$order['order_date']));
+
+        $paymentMode = (string)($order['payment_mode'] ?? 'payable');
+        $creditCode = match ($paymentMode) {
+            'cash' => $this->setting('cash_account', '110505'),
+            'transfer', 'card' => $this->setting('bank_account', '111005'),
+            default => $this->setting('payable_account', '220505'),
+        };
+        $creditLabel = match ($paymentMode) {
+            'cash' => 'Pago compra en efectivo',
+            'transfer', 'card' => 'Pago compra transferencia/tarjeta',
+            default => 'Factura proveedor por pagar',
+        };
+
+        $label = 'OC ' . $order['order_number'];
+        if (!empty($order['invoice_number'])) {
+            $label .= ' / Factura ' . $order['invoice_number'];
+        }
+
+        $lines = [];
+        if ($subtotal > 0) {
+            $lines[] = $this->line(
+                $this->setting('inventory_account', '143501'),
+                $subtotal,
+                0,
+                'Entrada mercancía ' . $label
+            );
+        }
+        if ($tax > 0) {
+            $lines[] = $this->line(
+                $this->setting('vat_deductible_account', '240802'),
+                $tax,
+                0,
+                'IVA descontable ' . $label,
+                'supplier',
+                $order['supplier_id'] ?? null,
+                $order['supplier_name'] ?? null
+            );
+        }
+        if (empty($lines)) {
+            $lines[] = $this->line(
+                $this->setting('inventory_account', '143501'),
+                $gross > 0 ? $gross : $total,
+                0,
+                'Entrada mercancía ' . $label
+            );
+        }
+
+        if ($discount > 0.009) {
+            $lines[] = $this->line(
+                '421040',
+                0,
+                $discount,
+                'Descuento pronto pago / aliado ' . $label,
+                'supplier',
+                $order['supplier_id'] ?? null,
+                $order['supplier_name'] ?? null
+            );
+        }
+
+        $lines[] = $this->line(
+            $creditCode,
+            0,
+            $total,
+            $creditLabel,
+            'supplier',
+            $order['supplier_id'] ?? null,
+            $order['supplier_name'] ?? null
+        );
+
+        $entryId = $this->postEntry(
+            $date,
+            'Compra ' . $label,
+            $lines,
+            'purchase_order',
+            $orderId,
+            'received'
+        );
+
+        $this->query(
+            "UPDATE purchase_orders SET accounting_entry_id = ? WHERE id = ?",
+            [$entryId, $orderId]
+        );
+        $this->query(
+            "UPDATE stock_movements
+             SET accounting_entry_id = ?
+             WHERE reference_type = 'purchase_order' AND reference_id = ?",
+            [$entryId, $orderId]
+        );
+
+        return $entryId;
+    }
+
+    /**
+     * Contabiliza un movimiento de inventario (compra, apertura o ajuste).
+     * Las salidas por venta/devolución se omiten: ya van en postSale / reverseSale.
+     */
+    public function postStockMovement(int $movementId): ?int
+    {
+        $movement = $this->query(
+            "SELECT sm.*, p.name product_name, p.code product_code, p.product_type,
+                    s.name supplier_name
+             FROM stock_movements sm
+             JOIN products p ON p.id = sm.product_id
+             LEFT JOIN suppliers s ON s.id = sm.supplier_id
+             WHERE sm.id = ?",
+            [$movementId]
+        )->fetch();
+
+        if (!$movement) {
+            throw new \RuntimeException('Movimiento de inventario no encontrado');
+        }
+        if (($movement['product_type'] ?? 'product') === 'service') {
+            return null;
+        }
+        if (!empty($movement['accounting_entry_id'])) {
+            return (int)$movement['accounting_entry_id'];
+        }
+
+        $referenceType = (string)($movement['reference_type'] ?? '');
+        if (in_array($referenceType, ['sale', 'return', 'purchase_order'], true)) {
+            // sale/return: asiento de venta. purchase_order: asiento de la OC (con IVA).
+            return null;
+        }
+
+        $amount = round((float)($movement['total_cost'] ?? 0), 2);
+        if ($amount <= 0) {
+            $amount = round((float)($movement['unit_cost'] ?? 0) * abs((int)$movement['quantity']), 2);
+        }
+        if ($amount <= 0) {
+            return null;
+        }
+
+        $qty = (int)$movement['quantity'];
+        $label = trim(($movement['product_code'] ?? '') . ' ' . ($movement['product_name'] ?? ''));
+        $date = !empty($movement['movement_date'])
+            ? date('Y-m-d', strtotime((string)$movement['movement_date']))
+            : date('Y-m-d', strtotime((string)$movement['created_at']));
+        $inventory = $this->setting('inventory_account', '143501');
+        $paymentMode = (string)($movement['payment_mode'] ?? '');
+        $type = (string)$movement['type'];
+
+        // Ajuste negativo o salida no-venta: merma / pérdida
+        $isOutbound = $type === 'out'
+            || ($type === 'adjustment' && ($paymentMode === 'loss' || str_contains((string)($movement['notes'] ?? ''), 'Ajuste (−)')));
+
+        if ($isOutbound) {
+            $lines = [
+                $this->line(
+                    $this->setting('inventory_adjustment_account', '519595'),
+                    $amount,
+                    0,
+                    'Ajuste/merma inventario: ' . $label
+                ),
+                $this->line(
+                    $inventory,
+                    0,
+                    $amount,
+                    'Salida de inventario: ' . $label
+                ),
+            ];
+            $description = 'Ajuste inventario (−) ' . $label;
+        } else {
+            // Entrada / apertura / ajuste positivo
+            $creditCode = match ($paymentMode) {
+                'cash' => $this->setting('cash_account', '110505'),
+                'transfer', 'card' => $this->setting('bank_account', '111005'),
+                'equity', 'opening' => $this->setting('opening_inventory_equity_account', '310505'),
+                default => $this->setting('payable_account', '220505'),
+            };
+            $creditLabel = match ($paymentMode) {
+                'cash' => 'Pago en efectivo',
+                'transfer', 'card' => 'Pago por transferencia/tarjeta',
+                'equity', 'opening' => 'Inventario inicial / capital',
+                default => 'Cuenta por pagar proveedores',
+            };
+
+            $lines = [
+                $this->line(
+                    $inventory,
+                    $amount,
+                    0,
+                    'Entrada inventario: ' . $label . ' x' . $qty
+                ),
+                $this->line(
+                    $creditCode,
+                    0,
+                    $amount,
+                    $creditLabel,
+                    !empty($movement['supplier_id']) ? 'supplier' : null,
+                    $movement['supplier_id'] ?? null,
+                    $movement['supplier_name'] ?? null
+                ),
+            ];
+            $description = ($referenceType === 'opening' || $paymentMode === 'equity' || $paymentMode === 'opening')
+                ? ('Inventario inicial: ' . $label)
+                : ('Compra/entrada inventario: ' . $label);
+        }
+
+        $entryId = $this->postEntry(
+            $date,
+            $description,
+            $lines,
+            'stock_movement',
+            $movementId,
+            'created'
+        );
+
+        $this->query(
+            "UPDATE stock_movements SET accounting_entry_id = ? WHERE id = ?",
+            [$entryId, $movementId]
+        );
+
+        return $entryId;
+    }
+
+    /**
+     * Crea comprobantes para operaciones anteriores a la activación del módulo.
+     * En gastos históricos se presume que el método registrado fue pagado.
+     *
+     * Procesa por lotes para no agotar el tiempo de ejecución con históricos grandes.
+     * Devuelve 'remaining' > 0 cuando aún quedan operaciones por sincronizar,
+     * de modo que la UI pueda invocar el proceso nuevamente.
+     *
+     * @param int $limit Máximo de operaciones a procesar por invocación (0 = sin límite).
+     * @return array{sales:int,expenses:int,payments:int,stock:int,errors:int,remaining:int,done:bool}
+     */
+
 }

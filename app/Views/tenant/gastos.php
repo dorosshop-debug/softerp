@@ -6,41 +6,48 @@ $tenantName = $tenantName ?? 'Mi Empresa';
 $userName = $userName ?? 'Usuario';
 $expenses = $expenses ?? [];
 $suppliers = $suppliers ?? [];
+$categories = $categories ?? [];
 $monthTotal = $monthTotal ?? 0;
-$monthFixed = $monthFixed ?? 0;
 $monthFinancial = $monthFinancial ?? 0;
-$monthOperating = $monthOperating ?? 0;
-$groupFilter = $groupFilter ?? '';
+$monthOperational = $monthOperational ?? 0;
+$kindFilter = $kindFilter ?? '';
 $currency = $currency ?? ['symbol' => '$', 'decimals' => 2, 'decimal' => ',', 'thousands' => '.'];
 $pagination = $pagination ?? null;
-$suggestAmount = isset($_GET['amount']) ? (float)$_GET['amount'] : 0;
-$suggestCategory = (string)($_GET['category'] ?? 'dataphone_commission');
-$suggestDescription = (string)($_GET['description'] ?? '');
-$openSuggest = !empty($_GET['suggest']) && $suggestAmount > 0;
-$gastosBase = $viewInstance->route('app/gastos');
+$paymentMethods = $paymentMethods ?? \SoftNova\Services\PaymentMethodCatalog::all();
 
 function fmtG(float $a, array $c): string
 {
     return $c['symbol'] . ' ' . number_format($a, $c['decimals'], $c['decimal'] ?? ',', $c['thousands'] ?? '.');
 }
+
+$financialCats = array_filter($categories, static fn($c) => ($c['kind'] ?? '') === 'financial');
+$operationalCats = array_filter($categories, static fn($c) => ($c['kind'] ?? '') === 'operational');
 ?>
 <?php echo flashMessage(); ?>
 
 <div class="stats-grid">
-    <div class="stat-card neumorphic"><h4>Total mes</h4><div class="stat-value" style="color:#DC2626;"><?php echo fmtG((float)$monthTotal, $currency); ?></div></div>
-    <div class="stat-card neumorphic"><h4>Gastos fijos</h4><div class="stat-value"><?php echo fmtG((float)$monthFixed, $currency); ?></div><small>Arriendo, servicios, nómina…</small></div>
-    <div class="stat-card neumorphic"><h4>Gastos financieros</h4><div class="stat-value" style="color:#B45309;"><?php echo fmtG((float)$monthFinancial, $currency); ?></div><small>Comisiones, retenciones, bancos…</small></div>
-    <div class="stat-card neumorphic"><h4>Otros / operativos</h4><div class="stat-value"><?php echo fmtG((float)$monthOperating, $currency); ?></div></div>
+    <div class="stat-card neumorphic"><h4>Gastos mes</h4><div class="stat-value" style="color:#DC2626;"><?php echo fmtG((float)$monthTotal, $currency); ?></div></div>
+    <div class="stat-card neumorphic"><h4>Financieros (mes)</h4><div class="stat-value" style="color:#B45309;"><?php echo fmtG((float)$monthFinancial, $currency); ?></div></div>
+    <div class="stat-card neumorphic"><h4>Operativos (mes)</h4><div class="stat-value"><?php echo fmtG((float)$monthOperational, $currency); ?></div></div>
+    <div class="stat-card neumorphic"><h4>Registros</h4><div class="stat-value"><?php echo (int)($pagination['total'] ?? count($expenses)); ?></div></div>
 </div>
 
-<div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;align-items:center;">
+<div style="display:flex;gap:15px;margin-bottom:20px;flex-wrap:wrap;align-items:center;">
     <button onclick="document.getElementById('expenseModal').style.display='flex'" class="btn btn-primary neumorphic-btn" title="Nuevo gasto">Nuevo Gasto</button>
-    <a href="<?php echo $gastosBase; ?>?action=export" class="btn btn-secondary" title="Exportar CSV">Exportar CSV</a>
-    <a class="btn <?php echo $groupFilter === '' ? 'btn-primary' : 'btn-secondary'; ?>" href="<?php echo $gastosBase; ?>">Todos</a>
-    <a class="btn <?php echo $groupFilter === 'fixed' ? 'btn-primary' : 'btn-secondary'; ?>" href="<?php echo $gastosBase; ?>?group=fixed">Solo fijos</a>
-    <a class="btn <?php echo $groupFilter === 'financial' ? 'btn-primary' : 'btn-secondary'; ?>" href="<?php echo $gastosBase; ?>?group=financial">Solo financieros</a>
-    <a class="btn <?php echo $groupFilter === 'operating' ? 'btn-primary' : 'btn-secondary'; ?>" href="<?php echo $gastosBase; ?>?group=operating">Solo operativos</a>
+    <a href="<?php echo $viewInstance->route('app/gastos'); ?>?action=export" class="btn btn-secondary" title="Exportar CSV">Exportar CSV</a>
+    <form method="GET" action="<?php echo $viewInstance->route('app/gastos'); ?>" style="display:flex;gap:8px;margin:0;align-items:center;">
+        <select name="kind" class="form-control" style="width:auto;" onchange="this.form.submit()">
+            <option value="">Todos los tipos</option>
+            <option value="financial" <?php echo $kindFilter === 'financial' ? 'selected' : ''; ?>>Financieros</option>
+            <option value="operational" <?php echo $kindFilter === 'operational' ? 'selected' : ''; ?>>Operativos</option>
+        </select>
+    </form>
 </div>
+
+<p style="font-size:13px;color:var(--color-text-secondary);margin:0 0 14px;">
+    <strong>Financieros:</strong> comisiones banco, datáfono, ventas, 4x1000.
+    <strong>Operativos:</strong> arriendo, servicios, gasolina, etc. Cada categoría lleva su cuenta contable.
+</p>
 
 <div class="card neumorphic">
     <div class="card-header"><h3>Listado de Gastos</h3></div>
@@ -49,28 +56,34 @@ function fmtG(float $a, array $c): string
             <p style="text-align:center;color:var(--color-text-secondary);padding:20px;">No hay gastos registrados</p>
         <?php else: ?>
             <div class="table-container"><table>
-                <thead><tr><th>Fecha</th><th>Descripcion</th><th>Grupo</th><th>Tipo</th><th>Proveedor</th><th>Monto</th><th>Metodo</th><th>Acciones</th></tr></thead>
+                <thead><tr><th>Fecha</th><th>Descripcion</th><th>Categoria</th><th>Proveedor</th><th>Monto</th><th>Metodo</th><th>Soporte</th><th>Acciones</th></tr></thead>
                 <tbody>
                 <?php foreach ($expenses as $exp): ?>
                     <?php
-                    $cat = (string)($exp['category'] ?? 'general');
-                    $grp = \SoftNova\Core\expense_category_group($cat);
-                    $grpBadge = match ($grp) {
-                        'financial' => 'badge-warning',
-                        'fixed' => 'badge-info',
-                        default => 'badge-secondary',
-                    };
+                    $catLabel = $exp['category_label'] ?? ($exp['category'] ?? '');
+                    $kindBadge = ($exp['category_kind'] ?? '') === 'financial' ? 'badge-warning' : 'badge-secondary';
+                    $kindText = ($exp['category_kind'] ?? '') === 'financial' ? 'Financiero' : (($exp['category_kind'] ?? '') === 'operational' ? 'Operativo' : '');
+                    $methodLabel = \SoftNova\Services\PaymentMethodCatalog::label((string)($exp['payment_method'] ?? 'cash'));
                     ?>
                     <tr>
                         <td><?php echo date('d/m/Y', strtotime($exp['expense_date'])); ?></td>
                         <td><?php echo htmlspecialchars($exp['description']); ?></td>
-                        <td><span class="badge <?php echo $grpBadge; ?>"><?php echo htmlspecialchars(\SoftNova\Core\expense_group_label($grp)); ?></span></td>
-                        <td><?php echo htmlspecialchars(\SoftNova\Core\expense_category_label($cat)); ?></td>
+                        <td>
+                            <?php echo htmlspecialchars($catLabel); ?>
+                            <?php if ($kindText): ?><br><span class="badge <?php echo $kindBadge; ?>" style="font-size:10px;"><?php echo $kindText; ?></span><?php endif; ?>
+                        </td>
                         <td><?php echo htmlspecialchars($exp['supplier_name'] ?? '-'); ?></td>
                         <td style="font-weight:600;color:#DC2626;"><?php echo fmtG((float)$exp['amount'], $currency); ?></td>
-                        <td><?php echo htmlspecialchars(\SoftNova\Core\payment_method_label((string)($exp['payment_method'] ?? 'cash'))); ?></td>
+                        <td><?php echo htmlspecialchars($methodLabel); ?></td>
+                        <td>
+                            <?php if (!empty($exp['receipt_path'])): ?>
+                                <a class="btn btn-sm btn-secondary" href="<?php echo $viewInstance->route('app/gastos'); ?>?action=receipt&id=<?php echo (int)$exp['id']; ?>" target="_blank" title="Ver foto/PDF">Ver</a>
+                            <?php else: ?>
+                                —
+                            <?php endif; ?>
+                        </td>
                         <td class="table-actions">
-                            <form method="POST" action="<?php echo $gastosBase; ?>?action=delete" style="display:inline;" data-ajax="true">
+                            <form method="POST" action="<?php echo $viewInstance->route('app/gastos'); ?>?action=delete" style="display:inline;" data-ajax="true">
                                 <?php echo \SoftNova\Core\csrf_field(); ?>
                                 <input type="hidden" name="id" value="<?php echo (int)$exp['id']; ?>">
                                 <button type="submit" onclick="return confirm('Eliminar gasto?')" class="btn btn-sm btn-danger" title="Eliminar">
@@ -83,8 +96,8 @@ function fmtG(float $a, array $c): string
                 </tbody>
             </table></div>
             <?php
-            $paginationBaseUrl = $gastosBase;
-            $paginationQuery = $groupFilter !== '' ? ['group' => $groupFilter] : [];
+            $paginationBaseUrl = $viewInstance->route('app/gastos');
+            $paginationQuery = array_filter(['kind' => $kindFilter !== '' ? $kindFilter : null]);
             $viewInstance->partial('pagination', compact('pagination', 'paginationBaseUrl', 'paginationQuery'));
             ?>
         <?php endif; ?>
@@ -92,22 +105,22 @@ function fmtG(float $a, array $c): string
 </div>
 
 <div id="expenseModal" class="modal-overlay" style="display:none;">
-    <div class="modal-content neumorphic" style="max-width:560px;">
+    <div class="modal-content neumorphic" style="max-width:600px;max-height:90vh;overflow-y:auto;">
         <div class="modal-header">
             <h3>Nuevo Gasto</h3>
             <button type="button" class="modal-close" onclick="document.getElementById('expenseModal').style.display='none'" title="Cerrar">&times;</button>
         </div>
-        <form method="POST" action="<?php echo $gastosBase; ?>?action=create" data-ajax="true">
+        <form method="POST" action="<?php echo $viewInstance->route('app/gastos'); ?>?action=create" data-ajax="true" enctype="multipart/form-data">
             <?php echo \SoftNova\Core\csrf_field(); ?>
             <div class="modal-body">
                 <div class="form-group">
-                    <label>Descripcion * <span class="field-tip" data-tip="Detalle claro del gasto (ej. arriendo, comisión datáfono, retefuente).">?</span></label>
-                    <input type="text" name="description" class="form-control" required value="<?php echo htmlspecialchars($suggestDescription); ?>">
+                    <label>Descripcion *</label>
+                    <input type="text" name="description" class="form-control" required placeholder="Ej. Comisión datáfono marzo">
                 </div>
                 <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
                     <div class="form-group">
                         <label>Monto *</label>
-                        <input type="number" step="0.01" min="0.01" name="amount" class="form-control" required value="<?php echo $suggestAmount > 0 ? htmlspecialchars((string)$suggestAmount) : ''; ?>">
+                        <input type="number" step="0.01" min="0.01" name="amount" class="form-control" required>
                     </div>
                     <div class="form-group">
                         <label>Fecha</label>
@@ -116,16 +129,25 @@ function fmtG(float $a, array $c): string
                 </div>
                 <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
                     <div class="form-group">
-                        <label>Tipo de gasto *</label>
-                        <select name="category" class="form-control" required>
-                            <?php echo \SoftNova\Core\expense_category_options($suggestCategory !== '' ? $suggestCategory : 'fixed'); ?>
+                        <label>Categoria *</label>
+                        <select name="category_id" class="form-control" required>
+                            <option value="">Seleccionar…</option>
+                            <optgroup label="Gastos financieros">
+                                <?php foreach ($financialCats as $c): ?>
+                                    <option value="<?php echo (int)$c['id']; ?>"><?php echo htmlspecialchars($c['name']); ?></option>
+                                <?php endforeach; ?>
+                            </optgroup>
+                            <optgroup label="Gastos operativos">
+                                <?php foreach ($operationalCats as $c): ?>
+                                    <option value="<?php echo (int)$c['id']; ?>" <?php echo ($c['code'] ?? '') === 'general' ? 'selected' : ''; ?>><?php echo htmlspecialchars($c['name']); ?></option>
+                                <?php endforeach; ?>
+                            </optgroup>
                         </select>
-                        <small style="color:var(--color-text-secondary);">Fijos → 510505 · Financieros (comisiones/retenciones) → 530505</small>
                     </div>
                     <div class="form-group">
-                        <label>Metodo de pago</label>
+                        <label>Medio de pago</label>
                         <select name="payment_method" class="form-control">
-                            <?php echo \SoftNova\Core\payment_method_options($openSuggest ? 'transfer' : 'cash'); ?>
+                            <?php echo \SoftNova\Services\PaymentMethodCatalog::optionsHtml('cash'); ?>
                         </select>
                     </div>
                 </div>
@@ -138,35 +160,31 @@ function fmtG(float $a, array $c): string
                         <?php endforeach; ?>
                     </select>
                 </div>
-                <div class="form-group">
-                    <label>Comprobante</label>
-                    <input type="text" name="receipt_number" class="form-control">
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                    <div class="form-group">
+                        <label>N° comprobante</label>
+                        <input type="text" name="receipt_number" class="form-control" placeholder="Referencia">
+                    </div>
+                    <div class="form-group">
+                        <label>Foto / PDF del pago</label>
+                        <input type="file" name="receipt_file" class="form-control" accept="image/jpeg,image/png,image/webp,application/pdf">
+                    </div>
                 </div>
                 <div class="form-group">
                     <label>Notas</label>
-                    <textarea name="notes" class="form-control" rows="2" title="Notas"></textarea>
+                    <textarea name="notes" class="form-control" rows="2"></textarea>
                 </div>
                 <div class="form-group">
                     <label style="display:flex;align-items:center;gap:8px;">
-                        <input type="checkbox" name="affect_cash" value="1" <?php echo $openSuggest ? '' : 'checked'; ?> title="Registrar en caja">
-                        Registrar egreso en caja abierta (solo efectivo)
+                        <input type="checkbox" name="affect_cash" value="1" checked>
+                        Ya pagado (si es efectivo, también registra egreso en caja)
                     </label>
                 </div>
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" onclick="document.getElementById('expenseModal').style.display='none'">Cancelar</button>
-                <button type="submit" class="btn btn-primary" title="Guardar gasto">Guardar</button>
+                <button type="submit" class="btn btn-primary">Guardar</button>
             </div>
         </form>
     </div>
 </div>
-<?php if ($openSuggest): ?>
-<script>
-document.addEventListener('DOMContentLoaded', function () {
-    var modal = document.getElementById('expenseModal');
-    if (modal) modal.style.display = 'flex';
-    var cash = modal && modal.querySelector('input[name="affect_cash"]');
-    if (cash) cash.checked = false;
-});
-</script>
-<?php endif; ?>

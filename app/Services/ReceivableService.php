@@ -64,7 +64,8 @@ class ReceivableService
         string $invoiceNumber,
         float $total,
         float $paid,
-        ?string $notes = null
+        ?string $notes = null,
+        ?string $dueDate = null
     ): void {
         $balance = max(0, round($total - $paid, 2));
         if ($balance <= 0) {
@@ -73,7 +74,9 @@ class ReceivableService
         }
         
         $status = $paid > 0 ? 'partial' : 'open';
-        $dueDate = date('Y-m-d', strtotime('+15 days'));
+        if ($dueDate === null || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $dueDate)) {
+            $dueDate = date('Y-m-d', strtotime('+15 days'));
+        }
         $taskNote = $notes ?: ('Cobrar saldo pendiente de factura ' . $invoiceNumber);
         
         $existing = $this->query("SELECT id FROM receivables WHERE sale_id = ?", [$saleId])->fetch();
@@ -81,9 +84,9 @@ class ReceivableService
             $this->query(
                 "UPDATE receivables
                  SET customer_id = ?, invoice_number = ?, total_amount = ?, paid_amount = ?,
-                     balance = ?, status = ?, notes = ?, updated_at = NOW()
+                     balance = ?, status = ?, due_date = ?, notes = ?, updated_at = NOW()
                  WHERE sale_id = ?",
-                [$customerId, $invoiceNumber, $total, $paid, $balance, $status, $taskNote, $saleId]
+                [$customerId, $invoiceNumber, $total, $paid, $balance, $status, $dueDate, $taskNote, $saleId]
             );
             return;
         }
@@ -150,6 +153,7 @@ class ReceivableService
                 COALESCE(p.paid_amount, 0) as paid_amount,
                 GREATEST(s.total - COALESCE(p.paid_amount, 0), 0) as balance,
                 COALESCE(r.due_date, DATE_ADD(DATE(s.sale_date), INTERVAL 15 DAY)) as due_date,
+                GREATEST(DATEDIFF(CURDATE(), COALESCE(r.due_date, DATE_ADD(DATE(s.sale_date), INTERVAL 15 DAY))), 0) as days_overdue,
                 CASE
                     WHEN COALESCE(p.paid_amount, 0) <= 0 THEN 'open'
                     WHEN COALESCE(p.paid_amount, 0) < s.total THEN 'partial'
@@ -175,7 +179,119 @@ class ReceivableService
              LIMIT " . (int)$limit
         )->fetchAll();
     }
-    
+
+    /**
+     * Totales reales de cartera (no limitados por listado).
+     * @return array{total:float,count:int,overdue_total:float,overdue_count:int}
+     */
+    public function summary(): array
+    {
+        $row = $this->query(
+            "SELECT
+                COALESCE(SUM(bal), 0) total,
+                COUNT(*) cnt,
+                COALESCE(SUM(CASE WHEN days_overdue > 0 THEN bal ELSE 0 END), 0) overdue_total,
+                COALESCE(SUM(CASE WHEN days_overdue > 0 THEN 1 ELSE 0 END), 0) overdue_count
+             FROM (
+                SELECT GREATEST(s.total - COALESCE(p.paid_amount, 0), 0) bal,
+                       GREATEST(DATEDIFF(CURDATE(), COALESCE(r.due_date, DATE_ADD(DATE(s.sale_date), INTERVAL 15 DAY))), 0) days_overdue
+                FROM sales s
+                LEFT JOIN (
+                    SELECT sale_id, COALESCE(SUM(amount), 0) as paid_amount
+                    FROM sale_payments GROUP BY sale_id
+                ) p ON p.sale_id = s.id
+                LEFT JOIN receivables r ON r.sale_id = s.id AND r.status != 'cancelled'
+                WHERE s.payment_status IN ('pending', 'partial')
+                  AND s.status NOT IN ('cancelled')
+                  AND (s.total - COALESCE(p.paid_amount, 0)) > 0.009
+             ) x"
+        )->fetch() ?: [];
+
+        return [
+            'total' => (float)($row['total'] ?? 0),
+            'count' => (int)($row['cnt'] ?? 0),
+            'overdue_total' => (float)($row['overdue_total'] ?? 0),
+            'overdue_count' => (int)($row['overdue_count'] ?? 0),
+        ];
+    }
+
+    /**
+     * Aging por fecha de vencimiento (días vencidos, no desde la venta).
+     * @return array{total:float,d0:float,d30:float,d60:float,d90:float,cnt:int,current:float}
+     */
+    public function agingByDueDate(): array
+    {
+        $row = $this->query(
+            "SELECT
+                COALESCE(SUM(bal), 0) total,
+                COALESCE(SUM(CASE WHEN days_overdue <= 0 THEN bal ELSE 0 END), 0) current_due,
+                COALESCE(SUM(CASE WHEN days_overdue BETWEEN 1 AND 30 THEN bal ELSE 0 END), 0) d0,
+                COALESCE(SUM(CASE WHEN days_overdue BETWEEN 31 AND 60 THEN bal ELSE 0 END), 0) d30,
+                COALESCE(SUM(CASE WHEN days_overdue BETWEEN 61 AND 90 THEN bal ELSE 0 END), 0) d60,
+                COALESCE(SUM(CASE WHEN days_overdue > 90 THEN bal ELSE 0 END), 0) d90,
+                COUNT(*) cnt
+             FROM (
+                SELECT GREATEST(s.total - COALESCE(p.paid_amount, 0), 0) bal,
+                       GREATEST(DATEDIFF(CURDATE(), COALESCE(r.due_date, DATE_ADD(DATE(s.sale_date), INTERVAL 15 DAY))), 0) days_overdue
+                FROM sales s
+                LEFT JOIN (
+                    SELECT sale_id, COALESCE(SUM(amount), 0) as paid_amount
+                    FROM sale_payments GROUP BY sale_id
+                ) p ON p.sale_id = s.id
+                LEFT JOIN receivables r ON r.sale_id = s.id AND r.status != 'cancelled'
+                WHERE s.payment_status IN ('pending', 'partial')
+                  AND s.status NOT IN ('cancelled')
+                  AND (s.total - COALESCE(p.paid_amount, 0)) > 0.009
+             ) x"
+        )->fetch() ?: [];
+
+        return [
+            'total' => (float)($row['total'] ?? 0),
+            'current' => (float)($row['current_due'] ?? 0),
+            'd0' => (float)($row['d0'] ?? 0),
+            'd30' => (float)($row['d30'] ?? 0),
+            'd60' => (float)($row['d60'] ?? 0),
+            'd90' => (float)($row['d90'] ?? 0),
+            'cnt' => (int)($row['cnt'] ?? 0),
+        ];
+    }
+
+    public function updateDueDate(int $saleId, string $dueDate): void
+    {
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $dueDate)) {
+            throw new \InvalidArgumentException('Fecha de vencimiento inválida');
+        }
+        $exists = $this->query("SELECT id FROM receivables WHERE sale_id = ?", [$saleId])->fetch();
+        if ($exists) {
+            $this->query(
+                "UPDATE receivables SET due_date = ?, updated_at = NOW() WHERE sale_id = ?",
+                [$dueDate, $saleId]
+            );
+            return;
+        }
+        // Crear fila mínima si no existe
+        $sale = $this->query(
+            "SELECT id, invoice_number, customer_id, total,
+                    COALESCE((SELECT SUM(amount) FROM sale_payments WHERE sale_id = s.id), 0) paid
+             FROM sales s WHERE id = ?",
+            [$saleId]
+        )->fetch();
+        if (!$sale) {
+            throw new \RuntimeException('Venta no encontrada');
+        }
+        $this->upsertFromSale(
+            (int)$sale['id'],
+            $sale['customer_id'] ? (int)$sale['customer_id'] : null,
+            (string)$sale['invoice_number'],
+            (float)$sale['total'],
+            (float)$sale['paid']
+        );
+        $this->query(
+            "UPDATE receivables SET due_date = ?, updated_at = NOW() WHERE sale_id = ?",
+            [$dueDate, $saleId]
+        );
+    }
+
     /**
      * Ultimas ventas ya saldadas (pago completo)
      */

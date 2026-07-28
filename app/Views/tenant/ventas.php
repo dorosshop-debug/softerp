@@ -91,8 +91,8 @@ function fmtV(float $a, array $c): string
                         <td style="font-weight:600;"><?php echo fmtV($sale['total'], $currency); ?></td>
                         <td><?php echo $sale['payment_status'] === 'paid' ? fmtV($sale['total'], $currency) : fmtV($sale['paid_amount'] ?? 0, $currency); ?></td>
                         <td>
-                            <span class="badge <?php echo $sale['payment_method'] === 'cash' ? 'badge-success' : (in_array($sale['payment_method'], ['card','debit_card','credit_card','dataphone','payment_link'], true) ? 'badge-info' : 'badge-warning'); ?>">
-                                <?php echo htmlspecialchars(\SoftNova\Core\payment_method_label((string)$sale['payment_method'])); ?>
+                            <span class="badge <?php echo $sale['payment_method'] === 'cash' ? 'badge-success' : (in_array($sale['payment_method'], ['card','dataphone','payment_link','transfer'], true) ? 'badge-info' : 'badge-warning'); ?>">
+                                <?php echo htmlspecialchars(\SoftNova\Services\PaymentMethodCatalog::label((string)$sale['payment_method'])); ?>
                             </span>
                         </td>
                         <td>
@@ -108,7 +108,9 @@ function fmtV(float $a, array $c): string
                         </td>
                         <td class="table-actions">
                             <button onclick="viewDetail(<?php echo $sale['id']; ?>)" class="btn btn-sm btn-info" title="Ver detalle"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg></button>
-                            <a href="<?php echo $ventasBase; ?>?action=pdf&id=<?php echo $sale['id']; ?>" class="btn btn-sm btn-secondary" target="_blank" title="Descargar PDF"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line></svg></a>
+                            <a href="<?php echo $ventasBase; ?>?action=pdf&id=<?php echo $sale['id']; ?>" class="btn btn-sm btn-secondary" target="_blank" title="PDF carta"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line></svg></a>
+                            <a href="<?php echo $ventasBase; ?>?action=pdf&format=ticket&id=<?php echo $sale['id']; ?>" class="btn btn-sm btn-secondary" target="_blank" title="Ticket 58mm">58mm</a>
+                            <button type="button" class="btn btn-sm btn-success" onclick="shareSale(<?php echo (int)$sale['id']; ?>)" title="WhatsApp / Correo">↗</button>
                             <?php if (in_array($sale['payment_status'], ['pending', 'partial'])): ?>
                                 <button onclick="openPaymentModal(<?php echo $sale['id']; ?>,<?php echo $sale['total']; ?>,<?php echo ($sale['paid_amount'] ?? 0); ?>)" class="btn btn-sm btn-success" title="Registrar abono"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg></button>
                             <?php endif; ?>
@@ -172,22 +174,55 @@ function fmtV(float $a, array $c): string
                                     data-price="<?php echo $p['sale_price']; ?>"
                                     data-name="<?php echo htmlspecialchars($p['name']); ?>"
                                     data-stock="<?php echo $p['stock']; ?>">
-                                <?php echo htmlspecialchars($p['name']); ?> (<?php echo fmtV($p['sale_price'], $currency); ?>)
+                                <?php echo htmlspecialchars($p['name']); ?> (<?php echo fmtV($p['sale_price'], $currency); ?>) — Stock: <?php echo (int)$p['stock']; ?>
                             </option>
                         <?php endforeach; ?>
                     </select>
                     <input type="number" id="productQty" value="1" min="1" class="form-control" style="width:80px;" placeholder="Cant" title="Cantidad a vender">
                     <button type="button" class="btn btn-primary" id="addProductBtn" onclick="addProduct(event)">+</button>
                 </div>
+                <p id="productStockHint" style="font-size:12px;color:var(--color-text-secondary);margin:0 0 8px;min-height:18px;"></p>
                 <table id="itemsTable" style="width:100%;margin-top:10px;display:none;">
-                    <thead><tr><th>Producto</th><th>Cant</th><th>Precio</th><th>Subtotal</th><th></th></tr></thead>
+                    <thead><tr><th>Producto</th><th>Cant</th><th>Precio</th><th>Restante</th><th>Subtotal</th><th></th></tr></thead>
                     <tbody></tbody>
-                    <tfoot><tr><td colspan="3" style="text-align:right;font-weight:600;">Total:</td><td id="saleTotal" style="font-weight:700;color:#10B981;">0</td><td></td></tr></tfoot>
+                    <tfoot><tr><td colspan="4" style="text-align:right;font-weight:600;">Total:</td><td id="saleTotal" style="font-weight:700;color:#10B981;">0</td><td></td></tr></tfoot>
                 </table>
             </div>
             <div class="form-group">
                 <label>Notas <span class="field-tip" data-tip="Observaciones internas de la venta (referencia, mesa, entrega, etc.). No aparecen como ítem facturado.">?</span></label>
                 <input type="text" name="notes" class="form-control" placeholder="Observaciones...">
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:15px;">
+                <div class="form-group">
+                    <label>Tipo de documento</label>
+                    <select name="document_type" id="documentType" class="form-control">
+                        <?php foreach (\SoftNova\Services\SalesDocumentService::documentTypes() as $code => $lab): ?>
+                            <option value="<?php echo htmlspecialchars($code); ?>"><?php echo htmlspecialchars($lab); ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Condición de pago</label>
+                    <select name="payment_terms" id="paymentTerms" class="form-control" onchange="onPaymentTermsChange()">
+                        <?php foreach (\SoftNova\Services\SalesDocumentService::paymentTerms() as $code => $lab): ?>
+                            <option value="<?php echo htmlspecialchars($code); ?>"><?php echo htmlspecialchars($lab); ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;">
+                <div class="form-group">
+                    <label>Fecha facturación</label>
+                    <input type="date" name="sale_date" id="saleDate" class="form-control" value="<?php echo date('Y-m-d'); ?>" onchange="onPaymentTermsChange()">
+                </div>
+                <div class="form-group">
+                    <label>Fecha vencimiento</label>
+                    <input type="date" name="due_date" id="dueDate" class="form-control" value="<?php echo date('Y-m-d'); ?>">
+                </div>
+                <div class="form-group">
+                    <label>Fecha recepción</label>
+                    <input type="date" name="received_date" class="form-control" placeholder="Opcional">
+                </div>
             </div>
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:15px;">
                 <div class="form-group">
@@ -200,8 +235,7 @@ function fmtV(float $a, array $c): string
                 <div class="form-group">
                     <label>Método de Pago <span class="field-tip" data-tip="Medio con el que se recibe el dinero (efectivo, tarjeta, transferencia u otro).">?</span></label>
                     <select name="payment_method" class="form-control">
-                        <?php echo \SoftNova\Core\payment_method_options('cash'); ?>
-                    </select>
+                        <?php echo \SoftNova\Services\PaymentMethodCatalog::optionsHtml('cash'); ?>
                     </select>
                 </div>
                 <div class="form-group" id="initialPaymentGroup" style="display:none;grid-column:1/-1;">
@@ -254,7 +288,7 @@ function fmtV(float $a, array $c): string
             <input type="hidden" name="sale_id" id="paySaleId">
             <p id="payInfo" style="margin-bottom:10px;"></p>
             <div class="form-group"><label>Monto * <span class="field-tip" data-tip="Cantidad que el cliente abona ahora. No puede superar el saldo pendiente.">?</span></label><input type="number" name="amount" id="payAmount" class="form-control" step="0.01" min="0.01" required></div>
-            <div class="form-group"><label>Método <span class="field-tip" data-tip="Medio de pago de este abono.">?</span></label><select name="payment_method" class="form-control"><?php echo \SoftNova\Core\payment_method_options('cash'); ?></select></div>
+            <div class="form-group"><label>Método <span class="field-tip" data-tip="Medio de pago de este abono.">?</span></label><select name="payment_method" class="form-control"><?php echo \SoftNova\Services\PaymentMethodCatalog::optionsHtml('cash', false); ?></select></div>
             <div class="form-group"><label>Notas <span class="field-tip" data-tip="Referencia del abono (número de transferencia, recibo, etc.).">?</span></label><input type="text" name="notes" class="form-control" placeholder="Abono"></div>
             <div class="modal-footer"><button type="button" class="btn btn-secondary" onclick="document.getElementById('paymentModal').style.display='none'">Cancelar</button><button type="submit" class="btn btn-success">Registrar Abono</button></div>
         </form>
@@ -269,7 +303,23 @@ function fmtV(float $a, array $c): string
     </div>
 </div>
 
+<div id="shareModal" class="modal-overlay" style="display:none;">
+    <div class="modal-content neumorphic" style="max-width:420px;">
+        <div class="modal-header"><h3>Enviar recibo</h3><button type="button" class="modal-close" onclick="document.getElementById('shareModal').style.display='none'">&times;</button></div>
+        <div class="modal-body">
+            <a id="shareWhatsappBtn" href="#" target="_blank" class="btn btn-success" style="width:100%;margin-bottom:10px;">Abrir WhatsApp</a>
+            <form method="POST" action="<?php echo $viewInstance->route('app/ventas'); ?>?action=email" data-ajax="true">
+                <?php echo \SoftNova\Core\csrf_field(); ?>
+                <input type="hidden" name="id" id="shareSaleId">
+                <div class="form-group"><label>Correo</label><input type="email" name="email" id="shareEmail" class="form-control" required></div>
+                <button type="submit" class="btn btn-primary" style="width:100%;">Enviar por correo</button>
+            </form>
+        </div>
+    </div>
+</div>
+
 <script>
     window.invRouteVentasDetail = '<?php echo $viewInstance->route('app/ventas'); ?>?action=detail';
+    window.invRouteVentasShare = '<?php echo $viewInstance->route('app/ventas'); ?>?action=share';
 </script>
 <script src="<?php echo $viewInstance->asset('js/ventas.js'); ?>"></script>
