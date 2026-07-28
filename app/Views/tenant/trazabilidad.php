@@ -5,9 +5,25 @@ $pageTitle = 'Trazabilidad de inventario';
 $movements = $movements ?? [];
 $filters = $filters ?? ['q'=>'','type'=>'','reference_type'=>'','from'=>'','to'=>''];
 $pagination = $pagination ?? null;
-$currency = $currency ?? ['symbol'=>'$','decimals'=>2];
+$currency = $currency ?? ['symbol'=>'$','decimals'=>2,'decimal'=>',','thousands'=>'.'];
+$kardex = $kardex ?? [];
+$costAlerts = $costAlerts ?? [];
+$purchaseProjection = $purchaseProjection ?? [];
+$pendingAccounting = (int)($pendingAccounting ?? 0);
+
+function fmtT(float $a, array $c): string
+{
+    return ($c['symbol'] ?? '$') . ' ' . number_format($a, (int)($c['decimals'] ?? 2), $c['decimal'] ?? ',', $c['thousands'] ?? '.');
+}
 ?>
 <?php echo flashMessage(); ?>
+
+<div class="stats-grid" style="margin-bottom:16px;">
+    <div class="stat-card neumorphic"><h4>Movimientos (filtro)</h4><div class="stat-value"><?php echo (int)($pagination['total'] ?? count($movements)); ?></div></div>
+    <div class="stat-card neumorphic"><h4>Pendientes de asiento</h4><div class="stat-value" style="color:#F59E0B;"><?php echo $pendingAccounting; ?></div></div>
+    <div class="stat-card neumorphic"><h4>Alertas de costo</h4><div class="stat-value"><?php echo count($costAlerts); ?></div></div>
+    <div class="stat-card neumorphic"><h4>A reponer (proyección)</h4><div class="stat-value"><?php echo count($purchaseProjection); ?></div></div>
+</div>
 
 <div class="card neumorphic" style="margin-bottom:18px;">
     <div class="card-body" style="padding:14px 18px;">
@@ -25,7 +41,16 @@ $currency = $currency ?? ['symbol'=>'$','decimals'=>2];
             <div class="form-group" style="margin:0;"><label>Origen</label>
                 <select name="reference_type" class="form-control">
                     <option value="">Todos</option>
-                    <?php foreach (['purchase'=>'Compra','sale'=>'Venta','adjustment'=>'Ajuste','return'=>'Devolución','woocommerce'=>'WooCommerce','mercadolibre'=>'Mercado Libre','purchase_cancel'=>'Cancel. compra'] as $k=>$v): ?>
+                    <?php foreach ([
+                        'purchase'=>'Compra',
+                        'purchase_order'=>'Orden de compra',
+                        'sale'=>'Venta',
+                        'adjustment'=>'Ajuste',
+                        'return'=>'Devolución',
+                        'woocommerce'=>'WooCommerce',
+                        'mercadolibre'=>'Mercado Libre',
+                        'purchase_cancel'=>'Cancel. compra',
+                    ] as $k=>$v): ?>
                         <option value="<?php echo $k; ?>" <?php echo ($filters['reference_type']??'')===$k?'selected':''; ?>><?php echo $v; ?></option>
                     <?php endforeach; ?>
                 </select>
@@ -39,6 +64,78 @@ $currency = $currency ?? ['symbol'=>'$','decimals'=>2];
     </div>
 </div>
 
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;">
+    <div class="card neumorphic">
+        <div class="card-header"><h3>Alertas de variación de costo</h3></div>
+        <div class="card-body">
+            <?php if (empty($costAlerts)): ?>
+                <p style="color:var(--color-text-secondary);font-size:13px;margin:0;">Sin alertas relevantes.</p>
+            <?php else: ?>
+                <div class="table-container"><table>
+                    <thead><tr><th>Producto</th><th>Antes</th><th>Ahora</th><th>Var.%</th></tr></thead>
+                    <tbody>
+                    <?php foreach (array_slice($costAlerts, 0, 8) as $a): ?>
+                        <tr>
+                            <td><?php echo htmlspecialchars($a['name'] ?? '—'); ?></td>
+                            <td><?php echo fmtT((float)($a['avg_previous'] ?? 0), $currency); ?></td>
+                            <td><?php echo fmtT((float)($a['avg_current'] ?? 0), $currency); ?></td>
+                            <td><?php echo htmlspecialchars((string)($a['change_pct'] ?? '—')); ?>%</td>
+                        </tr>
+                    <?php endforeach; ?>
+                    </tbody>
+                </table></div>
+            <?php endif; ?>
+        </div>
+    </div>
+    <div class="card neumorphic">
+        <div class="card-header"><h3>Proyección de reposición</h3></div>
+        <div class="card-body">
+            <?php if (empty($purchaseProjection)): ?>
+                <p style="color:var(--color-text-secondary);font-size:13px;margin:0;">Sin sugerencias de compra ahora.</p>
+            <?php else: ?>
+                <div class="table-container"><table>
+                    <thead><tr><th>Producto</th><th>Stock</th><th>Sugerido</th></tr></thead>
+                    <tbody>
+                    <?php foreach (array_slice($purchaseProjection, 0, 8) as $p): ?>
+                        <tr>
+                            <td><?php echo htmlspecialchars($p['name'] ?? $p['product_name'] ?? '—'); ?></td>
+                            <td><?php echo (int)($p['stock'] ?? 0); ?></td>
+                            <td><?php echo (int)($p['suggested_qty'] ?? $p['to_buy'] ?? $p['qty'] ?? 0); ?></td>
+                        </tr>
+                    <?php endforeach; ?>
+                    </tbody>
+                </table></div>
+            <?php endif; ?>
+        </div>
+    </div>
+</div>
+
+<div class="card neumorphic" style="margin-bottom:16px;">
+    <div class="card-header"><h3>Kardex valorizado (reciente)</h3></div>
+    <div class="card-body">
+        <?php if (empty($kardex)): ?>
+            <p style="color:var(--color-text-secondary);font-size:13px;margin:0;">Sin movimientos valorizados.</p>
+        <?php else: ?>
+            <div class="table-container"><table>
+                <thead><tr><th>Fecha</th><th>Producto</th><th>Tipo</th><th>Cant.</th><th>Costo u.</th><th>Total</th><th>Stock</th></tr></thead>
+                <tbody>
+                <?php foreach (array_slice($kardex, 0, 15) as $k): ?>
+                    <tr>
+                        <td><?php echo !empty($k['movement_date']) ? date('d/m/Y', strtotime($k['movement_date'])) : (!empty($k['created_at']) ? date('d/m/Y', strtotime($k['created_at'])) : '—'); ?></td>
+                        <td><?php echo htmlspecialchars($k['product_name'] ?? $k['name'] ?? '—'); ?></td>
+                        <td><?php echo htmlspecialchars($k['type'] ?? '—'); ?></td>
+                        <td><?php echo (int)($k['quantity'] ?? 0); ?></td>
+                        <td><?php echo fmtT((float)($k['unit_cost'] ?? 0), $currency); ?></td>
+                        <td><?php echo fmtT((float)($k['total_cost'] ?? 0), $currency); ?></td>
+                        <td><?php echo isset($k['stock_after']) ? (int)$k['stock_after'] : '—'; ?></td>
+                    </tr>
+                <?php endforeach; ?>
+                </tbody>
+            </table></div>
+        <?php endif; ?>
+    </div>
+</div>
+
 <div class="card neumorphic">
     <div class="card-header"><h3>Movimientos de stock</h3></div>
     <div class="card-body">
@@ -49,6 +146,7 @@ $currency = $currency ?? ['symbol'=>'$','decimals'=>2];
                 <thead>
                 <tr>
                     <th>Fecha ingreso</th><th>Producto</th><th>Canal</th><th>Tipo</th><th>Cant.</th>
+                    <th>Costo u.</th><th>Total</th><th>Stock</th>
                     <th>Origen</th><th>Notas</th><th>Usuario</th><th>Editar fecha</th>
                 </tr>
                 </thead>
@@ -73,6 +171,9 @@ $currency = $currency ?? ['symbol'=>'$','decimals'=>2];
                             <span class="badge <?php echo $badge; ?>"><?php echo htmlspecialchars($m['type']); ?></span>
                         </td>
                         <td><?php echo (int)$m['quantity']; ?></td>
+                        <td><?php echo fmtT((float)($m['unit_cost'] ?? 0), $currency); ?></td>
+                        <td><?php echo fmtT((float)($m['total_cost'] ?? 0), $currency); ?></td>
+                        <td><?php echo isset($m['stock_after']) && $m['stock_after'] !== null ? (int)$m['stock_after'] : '—'; ?></td>
                         <td>
                             <?php echo htmlspecialchars((string)($m['reference_type'] ?? '—')); ?>
                             <?php if (!empty($m['reference_id'])): ?>

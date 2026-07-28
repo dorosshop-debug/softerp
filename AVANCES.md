@@ -3,7 +3,9 @@
 > Documento vivo del producto. Última actualización: **28 jul 2026**  
 > Repo: https://github.com/dorosshop-debug/softerp · Rama: `main`  
 > Detalle técnico/arquitectura: ver también [`PROJECT_SUMMARY.md`](PROJECT_SUMMARY.md)  
-> Despliegue / unificación servidor: ver [`DEPLOY_UNIFICACION.md`](DEPLOY_UNIFICACION.md)
+> Despliegue servidor de prueba: [`DEPLOY_UNIFICACION.md`](DEPLOY_UNIFICACION.md)
+
+**Fuentes de trabajo (solo 2):** (1) GitHub ↔ este PC · (2) servidor `seri.heraconsultores.com` como entorno de prueba/deploy.
 
 ---
 
@@ -79,10 +81,11 @@ Panel: **Contabilidad → pestaña Comisiones**
 - Órdenes de compra → recepción a inventario
 - Descuento pronto pago / proveedor aliado (`is_ally`, `%`)
 - Asiento contable de OC / movimientos de stock
+- **Foto/PDF de factura proveedor** en la OC (crear o al recibir)
 
 ### Inventario / costos
 - Costo promedio ponderado (WAC) al ingresar mercancía
-- Trazabilidad `listMovements` + pendientes de contabilizar
+- **Trazabilidad completa:** movimientos filtrables, costo unitario/total, stock resultante, kardex valorizado, alertas de costo y proyección de reposición
 
 ### Nómina
 - SMMLV y parámetros de aportes
@@ -102,7 +105,7 @@ Panel: **Contabilidad → pestaña Comisiones**
 
 | Fecha / commit | Avance |
 |----------------|--------|
-| 28 jul 2026 | Unificación servidor heraconsultores + GitHub (OC, ticket 58mm, docs venta, WAC, gastos con comprobante) |
+| 28 jul 2026 | Unificación servidor prueba + GitHub: OC, foto factura compras, trazabilidad completa, ticket 58mm, WAC |
 | 27 jul 2026 | Comisiones vendedor/pasarela 100% + fix layout chat IA + AVANCES.md |
 | `ed2add7` | Nómina: primas, cesantías, incapacidad, PDF, asiento SS |
 | `0f94ac0` | Nómina MVP + guía imagen IA |

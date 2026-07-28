@@ -67,7 +67,7 @@ $statusLabels = [
             <div class="table-container"><table>
                 <thead>
                     <tr>
-                        <th>OC</th><th>Fecha</th><th>Proveedor</th><th>Factura</th>
+                        <th>OC</th><th>Fecha</th><th>Proveedor</th><th>Factura</th><th>Foto</th>
                         <th>Total</th><th>Estado</th><th>Asiento</th><th>Acciones</th>
                     </tr>
                 </thead>
@@ -87,6 +87,13 @@ $statusLabels = [
                         <td><?php echo date('d/m/Y', strtotime($o['order_date'])); ?></td>
                         <td><?php echo htmlspecialchars($o['supplier_name'] ?? '—'); ?></td>
                         <td><?php echo htmlspecialchars($o['invoice_number'] ?? '—'); ?></td>
+                        <td>
+                            <?php if (!empty($o['invoice_path'])): ?>
+                                <a class="btn btn-sm btn-secondary" href="<?php echo $viewInstance->route('app/compras'); ?>?action=invoice&id=<?php echo (int)$o['id']; ?>" target="_blank" title="Ver foto/PDF factura">Ver</a>
+                            <?php else: ?>
+                                —
+                            <?php endif; ?>
+                        </td>
                         <td style="font-weight:600;"><?php echo fmtC((float)$o['total'], $currency); ?></td>
                         <td><span class="badge <?php echo $badge; ?>"><?php echo $statusLabels[$st] ?? $st; ?></span></td>
                         <td style="font-size:12px;"><?php echo htmlspecialchars($o['accounting_entry_id'] ? ('#' . $o['accounting_entry_id']) : '—'); ?></td>
@@ -123,7 +130,7 @@ $statusLabels = [
             <h3>Nueva orden de compra</h3>
             <button type="button" class="modal-close" onclick="document.getElementById('purchaseModal').style.display='none'">&times;</button>
         </div>
-        <form method="POST" action="<?php echo $viewInstance->route('app/compras'); ?>?action=create" data-ajax="true" id="purchaseForm">
+        <form method="POST" action="<?php echo $viewInstance->route('app/compras'); ?>?action=create" data-ajax="true" id="purchaseForm" enctype="multipart/form-data">
             <?php echo \SoftNova\Core\csrf_field(); ?>
             <div class="modal-body">
                 <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;">
@@ -148,6 +155,11 @@ $statusLabels = [
                 <div class="form-group">
                     <label>Notas</label>
                     <input type="text" name="notes" class="form-control" placeholder="Observaciones de la compra">
+                </div>
+                <div class="form-group">
+                    <label>Foto / PDF factura proveedor</label>
+                    <input type="file" name="invoice_file" class="form-control" accept="image/jpeg,image/png,image/webp,application/pdf">
+                    <small style="color:var(--color-text-secondary);">Opcional. También puedes adjuntarla al recibir.</small>
                 </div>
                 <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;">
                     <div class="form-group" style="margin:0;">
@@ -204,7 +216,7 @@ $statusLabels = [
             <h3>Recibir mercancía</h3>
             <button type="button" class="modal-close" onclick="document.getElementById('receiveModal').style.display='none'">&times;</button>
         </div>
-        <form method="POST" action="<?php echo $viewInstance->route('app/compras'); ?>?action=receive" data-ajax="true">
+        <form method="POST" action="<?php echo $viewInstance->route('app/compras'); ?>?action=receive" data-ajax="true" enctype="multipart/form-data">
             <?php echo \SoftNova\Core\csrf_field(); ?>
             <input type="hidden" name="id" id="receiveOrderId">
             <p id="receiveOrderLabel" style="font-weight:600;margin-bottom:10px;"></p>
@@ -215,6 +227,10 @@ $statusLabels = [
             <div class="form-group">
                 <label>N° factura proveedor</label>
                 <input type="text" name="invoice_number" class="form-control" placeholder="FV-001">
+            </div>
+            <div class="form-group">
+                <label>Foto / PDF factura</label>
+                <input type="file" name="invoice_file" class="form-control" accept="image/jpeg,image/png,image/webp,application/pdf">
             </div>
             <div class="form-group">
                 <label>Pago / contrapartida *</label>
@@ -353,6 +369,9 @@ function viewPurchase(id) {
             h += '<div><strong>Estado:</strong> ' + esc(o.status) + '</div>';
             h += '<div><strong>Proveedor:</strong> ' + esc(o.supplier_name || '—') + '</div>';
             h += '<div><strong>Factura:</strong> ' + esc(o.invoice_number || '—') + '</div>';
+            if (o.invoice_path) {
+                h += '<div><strong>Adjunto:</strong> <a href="<?php echo $viewInstance->route('app/compras'); ?>?action=invoice&id=' + o.id + '" target="_blank">Ver foto/PDF</a></div>';
+            }
             h += '<div><strong>Fecha OC:</strong> ' + esc((o.order_date || '').substr(0,10)) + '</div>';
             h += '<div><strong>Fecha bodega:</strong> ' + esc((o.warehouse_date || '—').toString().substr(0,10)) + '</div>';
             h += '<div><strong>Subtotal:</strong> ' + sym + parseFloat(o.subtotal||0).toFixed(dec) + '</div>';

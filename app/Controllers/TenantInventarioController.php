@@ -267,6 +267,10 @@ class TenantInventarioController extends TenantController
             'movements' => $result['rows'],
             'filters' => $filters,
             'pagination' => $pagination,
+            'kardex' => $this->stock->valuedKardex(null, 40),
+            'costAlerts' => $this->stock->costVariationAlerts(5.0, 20),
+            'purchaseProjection' => $this->stock->purchaseProjection(30, 20),
+            'pendingAccounting' => $this->stock->pendingAccountingCount(),
         ]));
     }
 

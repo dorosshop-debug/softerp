@@ -15,6 +15,14 @@ class TenantComprasController extends TenantController
     private PurchasingService $purchasing;
     private AccountingService $accounting;
 
+    private const MAX_INVOICE_BYTES = 5242880; // 5MB
+    private const INVOICE_MIME = [
+        'image/jpeg' => 'jpg',
+        'image/png' => 'png',
+        'image/webp' => 'webp',
+        'application/pdf' => 'pdf',
+    ];
+
     public function __construct()
     {
         parent::__construct();
@@ -44,6 +52,10 @@ class TenantComprasController extends TenantController
         }
         if ($action === 'detail' && $this->request->method() === 'GET') {
             $this->detail();
+            return;
+        }
+        if ($action === 'invoice' && $this->request->method() === 'GET') {
+            $this->serveInvoice();
             return;
         }
 
@@ -145,6 +157,15 @@ class TenantComprasController extends TenantController
                 $invoiceNumberCreate !== '' ? $invoiceNumberCreate : null
             );
 
+            $invoiceFile = $this->storeInvoiceUpload();
+            if ($invoiceFile === false) {
+                $this->respond(false, 'No se pudo subir la foto/PDF de la factura (máx 5MB: JPG, PNG, WEBP o PDF)', '/app/compras');
+                return;
+            }
+            if ($invoiceFile !== null) {
+                $this->purchasing->attachInvoiceFile($orderId, $invoiceFile);
+            }
+
             if ($receiveNow) {
                 $this->doReceive(
                     $orderId,
@@ -174,13 +195,22 @@ class TenantComprasController extends TenantController
             return;
         }
         try {
+            $orderId = (int)$this->request->post('id', 0);
             $this->doReceive(
-                (int)$this->request->post('id', 0),
+                $orderId,
                 (string)$this->request->post('warehouse_date', date('Y-m-d')),
                 trim((string)$this->request->post('invoice_number', '')),
                 (string)$this->request->post('payment_mode', 'payable'),
                 trim((string)$this->request->post('notes', ''))
             );
+            $invoiceFile = $this->storeInvoiceUpload();
+            if ($invoiceFile === false) {
+                $this->respond(false, 'Mercancía recibida, pero falló la subida de la foto/PDF de factura', '/app/compras');
+                return;
+            }
+            if ($invoiceFile !== null) {
+                $this->purchasing->attachInvoiceFile($orderId, $invoiceFile);
+            }
             $this->respond(true, 'Mercancía recibida, inventario y contabilidad actualizados', '/app/compras');
         } catch (\Throwable $e) {
             $this->respond(false, $e->getMessage(), '/app/compras');
@@ -216,5 +246,70 @@ class TenantComprasController extends TenantController
         } catch (\Throwable $e) {
             $this->respond(false, $e->getMessage(), '/app/compras');
         }
+    }
+
+    private function serveInvoice(): void
+    {
+        $order = $this->purchasing->getOrder((int)$this->request->get('id', 0));
+        if (!$order || empty($order['invoice_path'])) {
+            http_response_code(404);
+            echo 'Archivo no encontrado';
+            exit;
+        }
+        $relative = str_replace(['\\', '..'], ['/', ''], (string)$order['invoice_path']);
+        $full = PUBLIC_PATH . '/' . ltrim($relative, '/');
+        if (!is_file($full)) {
+            // También aceptar path relativo tipo uploads/...
+            $alt = ROOT_PATH . '/public/' . ltrim($relative, '/');
+            $full = is_file($alt) ? $alt : $full;
+        }
+        if (!is_file($full)) {
+            http_response_code(404);
+            echo 'Archivo no encontrado';
+            exit;
+        }
+        $mime = (string)($order['invoice_mime'] ?: 'application/octet-stream');
+        $name = (string)($order['invoice_original_name'] ?: basename($full));
+        header('Content-Type: ' . $mime);
+        header('Content-Disposition: inline; filename="' . rawurlencode($name) . '"');
+        header('Content-Length: ' . filesize($full));
+        readfile($full);
+        exit;
+    }
+
+    /**
+     * @return array{path:string,original:string,mime:string}|null|false null=sin archivo, false=error
+     */
+    private function storeInvoiceUpload(): array|null|false
+    {
+        if (empty($_FILES['invoice_file']['tmp_name'])) {
+            return null;
+        }
+        if (!is_uploaded_file($_FILES['invoice_file']['tmp_name'])) {
+            return false;
+        }
+        if (($_FILES['invoice_file']['size'] ?? 0) > self::MAX_INVOICE_BYTES) {
+            return false;
+        }
+        $finfo = new \finfo(FILEINFO_MIME_TYPE);
+        $mime = $finfo->file($_FILES['invoice_file']['tmp_name']);
+        if (!isset(self::INVOICE_MIME[$mime])) {
+            return false;
+        }
+        $ext = self::INVOICE_MIME[$mime];
+        $dir = PUBLIC_PATH . '/uploads/purchases';
+        if (!is_dir($dir)) {
+            mkdir($dir, 0755, true);
+        }
+        $filename = 'po_' . date('YmdHis') . '_' . bin2hex(random_bytes(4)) . '.' . $ext;
+        $dest = $dir . '/' . $filename;
+        if (!move_uploaded_file($_FILES['invoice_file']['tmp_name'], $dest)) {
+            return false;
+        }
+        return [
+            'path' => 'uploads/purchases/' . $filename,
+            'original' => (string)($_FILES['invoice_file']['name'] ?? $filename),
+            'mime' => $mime,
+        ];
     }
 }

@@ -1,87 +1,57 @@
 # Despliegue y unificación — Seri ERP (seri.heraconsultores.com)
 
-Documento operativo tras unificar el código del servidor con GitHub (`main`).
+## Contexto (solo 2 fuentes)
 
-## Línea oficial
+1. **GitHub / este PC** — línea oficial del producto (`dorosshop-debug/softerp` · `main`)
+2. **Servidor de prueba** — https://seri.heraconsultores.com (cPanel)
 
-- **Código de producto:** siempre en GitHub → https://github.com/dorosshop-debug/softerp (`main`)
-- **Este PC (SoftNova)** y el servidor deben desplegarse **desde ese `main`**
-- El servidor **no** es una copia editable paralela
+No hay una tercera línea de código. Local y GitHub son la misma: los cambios se suben desde el PC a GitHub y luego se despliegan al servidor.
 
 Flujo correcto:
 
 ```text
-Cambios en PC → commit + push a GitHub → desplegar a cPanel → migrar BD
+PC (SoftNova) → commit + push GitHub → desplegar a cPanel → migrate_existing.php
 ```
+
+El servidor no se edita “a mano” como otra rama de producto: es destino de despliegue.
 
 ## Por qué cayó el sitio (jul 2026)
 
-Al sincronizar un ZIP se sobrescribió `config/database.php` con credenciales de desarrollo (`root` / password vacía). Eso provoca **HTTP 500**.
+Al sincronizar un ZIP se sobrescribió `config/database.php` con credenciales de desarrollo (`root` / password vacía). Eso provoca HTTP 500.
 
-También apareció en logs:
-
-```text
-Permission denied ... vendor/.../thecodingmachine/safe/...
-```
-
-→ revisar permisos de `vendor/` en cPanel (755 carpetas, 644 archivos; propietario correcto).
+También puede haber permisos rotos en `vendor/` (ver `error_log` del hosting).
 
 ## Checklist de reparación en el servidor
 
-1. **Backup** de `config/`, `storage/`, `public/uploads/` y BD (cPanel Backup / phpMyAdmin).
-2. Desplegar el código de `main` (FTP o File Manager), **sin sobrescribir**:
-   - `config/database.php` (credenciales reales)
+1. Backup de `config/`, `storage/`, `public/uploads/` y BD.
+2. Desplegar el código de `main` sin sobrescribir:
+   - `config/database.php` (credenciales reales de cPanel)
    - `storage/installed.lock`
    - `.env` si existe
-   - `public/uploads/`
+   - `public/uploads/` (fotos de productos, gastos, facturas de compra)
 3. Si hace falta regenerar config:
-   - Copiar [`config/database.TEMPLATE.php`](config/database.TEMPLATE.php) → `config/database.php` y poner datos de MySQL
-   - Copiar [`config/app.production.example.php`](config/app.production.example.php) → `config/app.php` (`debug` => false)
-4. `composer install --no-dev` en la raíz del sitio (o subir `vendor/` completo del build).
-5. Ejecutar:
+   - `config/database.TEMPLATE.php` → `config/database.php`
+   - `config/app.production.example.php` → `config/app.php` (`debug` => false)
+4. `composer install --no-dev` (o subir `vendor/` completo).
+5. `php database/migrate_existing.php`
+6. Probar: login, Compras (foto factura), Inventario → Trazabilidad, Contabilidad → Comisiones.
+7. Borrar `seri_diag.php` si quedó de diagnóstico.
 
-```bash
-php database/migrate_existing.php
-```
+## Qué se unificó desde el servidor de prueba
 
-6. Probar login, Ventas (ticket 58mm), Contabilidad → Comisiones, Compras (OC).
-7. Borrar cualquier `seri_diag.php` / `public/seri_diag.php` de diagnóstico.
+Features del servidor integradas en GitHub manteniendo estructura y diseño del repo:
 
-## Qué quedó unificado desde el servidor (otro PC)
+- OC + recepción + WAC
+- Foto/PDF de factura en compras
+- Trazabilidad completa (movimientos + costos + kardex + alertas + proyección)
+- Ticket 58mm, tipos documento, WhatsApp/correo
+- Gastos con comprobante, proveedor aliado
+- Comisiones (ya en GitHub) conservadas
 
-Portado a GitHub `main` (además de lo ya documentado en AVANCES):
+No van a GitHub: dumps SQL, credenciales, `error_log`, uploads reales del hosting.
 
-| Feature | Dónde |
-|---------|--------|
-| Órdenes de compra (OC) + recepción | Compras / `PurchasingService` |
-| Tipos documento / plazos / vencimiento | Ventas / `SalesDocumentService` |
-| Ticket PDF 58mm | Ventas PDF `?format=ticket` |
-| WhatsApp / correo de recibo | `ReceiptShareService` + `MailService` |
-| Catálogo medios de pago | `PaymentMethodCatalog` (+ débito/crédito) |
-| Proveedor aliado + % descuento | Proveedores |
-| Gastos tipados + comprobante adjunto | `ExpenseCategoryService` |
-| Stock WAC / costos / pending accounting | `StockService` |
-| Asientos OC / movimientos stock | `AccountingService` |
-| CxC por vencimiento | `ReceivableService` |
+## Regla para no volver a divergir
 
-**No portado a git (correcto):** dumps SQL, `error_log`, credenciales, uploads, scripts de diagnóstico del hosting.
-
-## Paquete FTP recomendado
-
-Usar `deploy/prepare_ftp.ps1` si existe, o subir árbol completo **excepto**:
-
-- `config/database.php` del ZIP de desarrollo
-- `.git/`
-- `storage/logs/*` pesados
-- dumps `*.sql` con datos reales
-
-## Después de cada update
-
-1. Push a GitHub
-2. Deploy al servidor
-3. `php database/migrate_existing.php`
-4. Smoke test: login + 1 venta + Contabilidad
-
-## Contacto pie de app
-
-Seri ERP © 2026 | Osgo Support
+1. Cambios de producto solo en el PC → GitHub.
+2. Deploy al servidor solo desde `main`.
+3. Documentar en `AVANCES.md`.

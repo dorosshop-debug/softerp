@@ -94,6 +94,15 @@ class PurchasingService
             if (!isset($cols['invoice_date'])) {
                 $alters[] = 'ADD COLUMN invoice_date DATE NULL AFTER invoice_number';
             }
+            if (!isset($cols['invoice_path'])) {
+                $alters[] = 'ADD COLUMN invoice_path VARCHAR(255) NULL AFTER invoice_date';
+            }
+            if (!isset($cols['invoice_original_name'])) {
+                $alters[] = 'ADD COLUMN invoice_original_name VARCHAR(255) NULL AFTER invoice_path';
+            }
+            if (!isset($cols['invoice_mime'])) {
+                $alters[] = 'ADD COLUMN invoice_mime VARCHAR(100) NULL AFTER invoice_original_name';
+            }
             if ($alters) {
                 $this->db->exec('ALTER TABLE purchase_orders ' . implode(', ', $alters));
             }
@@ -282,6 +291,26 @@ class PurchasingService
             [$id]
         )->fetchAll();
         return $order;
+    }
+
+    /**
+     * Adjunta foto/PDF de factura proveedor a la OC.
+     * @param array{path:string,original:string,mime:string} $file
+     */
+    public function attachInvoiceFile(int $orderId, array $file): void
+    {
+        $this->ensureSchema();
+        $this->query(
+            "UPDATE purchase_orders
+             SET invoice_path = ?, invoice_original_name = ?, invoice_mime = ?
+             WHERE id = ?",
+            [
+                $file['path'] ?? null,
+                $file['original'] ?? null,
+                $file['mime'] ?? null,
+                $orderId,
+            ]
+        );
     }
 
     public function listOrders(int $limit = 50, int $offset = 0, string $status = ''): array
