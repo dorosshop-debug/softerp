@@ -28,6 +28,10 @@ class TenantDashboardController extends TenantController
             $this->saveLayout($db);
             return;
         }
+        if ($action === 'lookup_barcode' && $this->request->method() === 'GET') {
+            $this->lookupBarcode($db);
+            return;
+        }
         
         $layoutService = new DashboardLayoutService($db);
         $userId = (int)($_SESSION['tenant_user_id'] ?? 0);
@@ -169,6 +173,50 @@ class TenantDashboardController extends TenantController
         ]);
     }
     
+    /**
+     * Búsqueda exacta por código de barras / SKU (pistola lectora).
+     */
+    private function lookupBarcode(\PDO $db): void
+    {
+        $code = trim((string)$this->request->get('code', ''));
+        if ($code === '') {
+            $this->json(['success' => false, 'message' => 'Código vacío', 'product' => null]);
+            return;
+        }
+
+        try {
+            $stmt = $db->prepare(
+                "SELECT id, name, code, sale_price, purchase_price, stock, product_type, status
+                 FROM products
+                 WHERE status = 'active' AND code = ?
+                 LIMIT 1"
+            );
+            $stmt->execute([$code]);
+            $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+        } catch (\Throwable $e) {
+            $this->json(['success' => false, 'message' => 'Error al buscar', 'product' => null]);
+            return;
+        }
+
+        if (!$row) {
+            $this->json(['success' => false, 'message' => 'Producto no encontrado', 'product' => null]);
+            return;
+        }
+
+        $this->json([
+            'success' => true,
+            'product' => [
+                'id' => (int)$row['id'],
+                'name' => (string)$row['name'],
+                'code' => (string)($row['code'] ?? ''),
+                'sale_price' => (float)$row['sale_price'],
+                'purchase_price' => (float)($row['purchase_price'] ?? 0),
+                'stock' => (int)$row['stock'],
+                'product_type' => (string)($row['product_type'] ?? 'product'),
+            ],
+        ]);
+    }
+
     /**
      * Búsqueda global en vivo
      */

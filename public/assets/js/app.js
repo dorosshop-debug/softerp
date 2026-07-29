@@ -506,6 +506,18 @@ function setSelectedCustomer(id, label) {
             list.appendChild(li);
         }
     }
+    // Caja-POS: selector simple
+    var posSelect = document.getElementById('posCustomer');
+    if (posSelect && id) {
+        var opt = posSelect.querySelector('option[value="' + id + '"]');
+        if (!opt) {
+            opt = document.createElement('option');
+            opt.value = id;
+            opt.textContent = label || ('Cliente #' + id);
+            posSelect.appendChild(opt);
+        }
+        posSelect.value = String(id);
+    }
 }
 
 function resetCustomerCombobox() {
@@ -565,4 +577,65 @@ document.addEventListener('DOMContentLoaded', function() {
     if (typeof initCustomerCombobox === 'function') {
         initCustomerCombobox();
     }
+    initBarcodeModuleHandlers();
 });
+
+/**
+ * Contextos del ERP que reaccionan a la pistola de códigos.
+ * El primero que retorna true consume el escaneo.
+ */
+function initBarcodeModuleHandlers() {
+    if (!window.SoftNovaBarcode || typeof SoftNovaBarcode.onScan !== 'function') return;
+
+    SoftNovaBarcode.onScan(function(code) {
+        // 1) Caja-POS
+        if (typeof window.posAddByBarcode === 'function' && document.getElementById('posPanel')) {
+            window.posAddByBarcode(code);
+            return true;
+        }
+
+        // 2) Modal venta abierto
+        var saleModal = document.getElementById('saleModal');
+        if (saleModal && saleModal.style.display !== 'none' && typeof window.addProductByBarcode === 'function') {
+            window.addProductByBarcode(code);
+            return true;
+        }
+
+        // 3) Modal cotización
+        var quoteModal = document.getElementById('quoteModal');
+        if (quoteModal && quoteModal.style.display !== 'none' && typeof window.addQuoteProductByBarcode === 'function') {
+            window.addQuoteProductByBarcode(code);
+            return true;
+        }
+
+        // 4) Modal compra
+        var poModal = document.getElementById('purchaseModal') || document.getElementById('poModal');
+        if (poModal && poModal.style.display !== 'none' && typeof window.addPurchaseByBarcode === 'function') {
+            window.addPurchaseByBarcode(code);
+            return true;
+        }
+
+        // 5) Inventario: modal producto → llenar código; si no, filtrar lista
+        var prodModal = document.getElementById('productModal');
+        var prodCode = document.getElementById('prodCode');
+        if (prodModal && prodModal.style.display !== 'none' && prodCode) {
+            prodCode.value = code;
+            if (typeof showAlert === 'function') showAlert('Código cargado en el producto', 'success');
+            return true;
+        }
+        var onInventario = (window.location.pathname + window.location.href).toLowerCase().indexOf('inventario') !== -1;
+        if (onInventario) {
+            var qInput = document.querySelector('input[name="q"]');
+            if (qInput) {
+                qInput.value = code;
+                var form = qInput.closest('form');
+                if (form) {
+                    form.submit();
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    });
+}

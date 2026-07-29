@@ -1,16 +1,23 @@
 <?php
 $layout = 'tenant';
-$title = 'Caja - ' . ($tenantName ?? 'Sistema');
-$pageTitle = 'Control de Caja';
+$title = 'Caja-POS - ' . ($tenantName ?? 'Sistema');
+$pageTitle = 'Caja-POS';
 $tenantName = $tenantName ?? 'Mi Empresa'; $userName = $userName ?? 'Usuario';
 $openSession = $openSession ?? null; $movements = $movements ?? [];
 $todaySales = $todaySales ?? [];
 $totals = $totals ?? ['incomes'=>0,'expenses'=>0,'balance'=>0];
 $historySessions = $historySessions ?? [];
+$posCustomers = $posCustomers ?? [];
+$paymentMethods = $paymentMethods ?? \SoftNova\Services\PaymentMethodCatalog::all();
+$invoicePrefix = $invoicePrefix ?? 'FAC-';
 $currency = $currency ?? ['symbol'=>'$','name'=>'Peso','decimals'=>0];
+$canSell = \SoftNova\Core\TenantMiddleware::canAccess('ventas')
+    && \SoftNova\Core\TenantMiddleware::canDo('create', 'ventas');
 function fmt(float $a, array $c): string { return $c['symbol'].' '.number_format($a,$c['decimals'],$c['decimal']??',',$c['thousands']??'.'); }
 function hoursOpen(string $date): float { return round((time()-strtotime($date))/3600, 1); }
 ?>
+<meta name="currency-symbol" content="<?php echo htmlspecialchars($currency['symbol'] ?? '$'); ?>">
+<meta name="currency-decimals" content="<?php echo (int)($currency['decimals'] ?? 0); ?>">
 <?php echo flashMessage(); ?>
 
 <?php if (!$openSession): ?>
@@ -36,8 +43,105 @@ function hoursOpen(string $date): float { return round((time()-strtotime($date))
 </div>
 
 <?php else: ?>
-<?php $hours = hoursOpen($openSession['opening_date']); $warningClass = $hours > 20 ? 'badge-danger' : ($hours > 16 ? 'badge-warning' : 'badge-success'); ?>
-<!-- CAJA ABIERTA -->
+<?php
+$hours = hoursOpen($openSession['opening_date']);
+$warningClass = $hours > 20 ? 'badge-danger' : ($hours > 16 ? 'badge-warning' : 'badge-success');
+$csrfPos = \SoftNova\Core\csrf_token();
+$searchUrl = $viewInstance->route('app/caja') . '?action=searchProducts';
+$saleUrl = $viewInstance->route('app/ventas') . '?action=create';
+?>
+
+<?php if ($canSell): ?>
+<!-- POS (venta rápida) -->
+<section class="pos-panel" id="posPanel"
+         data-search-url="<?php echo htmlspecialchars($searchUrl); ?>"
+         data-sale-url="<?php echo htmlspecialchars($saleUrl); ?>"
+         data-csrf="<?php echo htmlspecialchars($csrfPos); ?>"
+         data-symbol="<?php echo htmlspecialchars($currency['symbol'] ?? '$'); ?>"
+         data-decimals="<?php echo (int)($currency['decimals'] ?? 0); ?>"
+         data-prefix="<?php echo htmlspecialchars((string)$invoicePrefix); ?>"
+         data-user="<?php echo htmlspecialchars($userName); ?>">
+    <div class="pos-sale card neumorphic">
+        <div class="pos-sale-head">
+            <div class="pos-sale-meta">
+                <label class="pos-label">Cliente</label>
+                <div class="pos-customer-row">
+                    <select id="posCustomer" class="form-control pos-customer">
+                        <option value="">Cliente general</option>
+                        <?php foreach ($posCustomers as $c):
+                            $cname = trim((string)($c['name'] ?? ''));
+                            if ($cname === '') {
+                                $cname = trim(($c['first_name'] ?? '') . ' ' . ($c['last_name'] ?? ''));
+                            }
+                            if ($cname === '') {
+                                $cname = 'Cliente #' . $c['id'];
+                            }
+                        ?>
+                            <option value="<?php echo (int)$c['id']; ?>"><?php echo htmlspecialchars($cname); ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                    <?php if (\SoftNova\Core\TenantMiddleware::canDo('create', 'clientes')): ?>
+                        <button type="button" class="btn btn-secondary btn-sm" id="posNewCustomerBtn" title="Nuevo cliente">+ Nuevo</button>
+                    <?php endif; ?>
+                </div>
+                <div class="pos-discount-row">
+                    <label class="pos-label" for="posDiscountPercent">Descuento %</label>
+                    <input type="number" id="posDiscountPercent" class="form-control pos-discount" min="0" max="100" step="0.01" value="0" title="Descuento sobre el subtotal">
+                </div>
+                <div class="pos-attendant">
+                    <span class="pos-label">Atendido</span>
+                    <strong id="posAttendant"><?php echo htmlspecialchars(mb_strtoupper($userName)); ?></strong>
+                </div>
+                <div class="pos-ticket-meta">
+                    <span>Nº <strong id="posPrefijo"><?php echo htmlspecialchars((string)$invoicePrefix); ?>…</strong></span>
+                    <span>Total Items: <strong id="posItemCount">0</strong></span>
+                    <span>Registro: <strong id="posClock"><?php echo date('g:i A'); ?></strong></span>
+                </div>
+                <div class="pos-subtotal-line" id="posSubtotalLine" hidden>Subtotal: <span id="posSubtotal"><?php echo fmt(0, $currency); ?></span></div>
+                <div class="pos-discount-line" id="posDiscountLine" hidden>Descuento: <span id="posDiscountAmt"><?php echo fmt(0, $currency); ?></span></div>
+                <div class="pos-total-line">TOTAL: <span id="posTotal"><?php echo fmt(0, $currency); ?></span></div>
+            </div>
+            <button type="button" class="pos-pay-btn" id="posPayBtn" disabled>$ PAGO</button>
+        </div>
+        <div class="pos-items-wrap">
+            <table class="pos-items-table">
+                <thead>
+                    <tr><th style="width:70px;">Cant</th><th>Producto</th><th style="width:110px;">Acción</th></tr>
+                </thead>
+                <tbody id="posItemsBody">
+                    <tr class="pos-empty-row"><td colspan="3">Escanee o busque productos a la derecha</td></tr>
+                </tbody>
+            </table>
+        </div>
+        <div class="pos-pay-bar" id="posPayBar" hidden>
+            <select id="posPayMethod" class="form-control">
+                <?php foreach ($paymentMethods as $code => $meta): ?>
+                    <option value="<?php echo htmlspecialchars($code); ?>" <?php echo $code === 'cash' ? 'selected' : ''; ?>>
+                        <?php echo htmlspecialchars($meta['label'] ?? $code); ?>
+                    </option>
+                <?php endforeach; ?>
+            </select>
+            <button type="button" class="btn btn-success" id="posConfirmPay">Cobrar ahora</button>
+            <button type="button" class="btn btn-secondary" id="posCancelPay">Cancelar</button>
+        </div>
+    </div>
+
+    <div class="pos-search card neumorphic">
+        <div class="pos-search-box">
+            <span class="pos-search-icon" aria-hidden="true">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+            </span>
+            <input type="text" id="posProductSearch" class="pos-search-input" placeholder="Código de barras o nombre…" autocomplete="off" autofocus data-barcode-input="true">
+            <button type="button" class="pos-search-clear" id="posSearchClear" title="Limpiar">&times;</button>
+        </div>
+        <div class="pos-search-results" id="posSearchResults">
+            <p class="pos-search-hint">Escriba o escanee un código para encontrar productos</p>
+        </div>
+    </div>
+</section>
+<?php endif; ?>
+
+<!-- CAJA ABIERTA: stats y movimientos -->
 <div class="stats-grid">
     <div class="stat-card neumorphic"><h4>Monto Apertura</h4><div class="stat-value"><?php echo fmt($openSession['opening_amount'], $currency); ?></div></div>
     <div class="stat-card neumorphic"><h4>Ingresos</h4><div class="stat-value" style="color:#10B981;">+<?php echo fmt($totals['incomes'], $currency); ?></div></div>
@@ -64,28 +168,76 @@ function hoursOpen(string $date): float { return round((time()-strtotime($date))
     <button onclick="document.getElementById('closeCashModal').style.display='flex'" class="btn btn-danger">Cerrar Caja</button>
 </div>
 
-<!-- Ventas del Día -->
-<?php if (!empty($todaySales)): ?>
+<!-- Ventas de la sesión (mismo formato que módulo Ventas) -->
+<?php
+$ventasBase = $viewInstance->route('app/ventas');
+$canDeleteSale = \SoftNova\Core\TenantMiddleware::canDo('delete', 'ventas');
+$canPaySale = \SoftNova\Core\TenantMiddleware::canDo('create', 'ventas');
+?>
 <div class="card neumorphic" style="margin-bottom:20px;">
-    <div class="card-header"><h3>🛒 Ventas del Día (<?php echo count($todaySales); ?>)</h3></div>
+    <div class="card-header"><h3>📋 Últimas Ventas (<?php echo count($todaySales); ?>)</h3></div>
     <div class="card-body">
-        <div class="table-container"><table>
-            <thead><tr><th>Factura</th><th>Cliente</th><th>Hora</th><th>Método</th><th>Total</th></tr></thead>
-            <tbody>
-            <?php foreach($todaySales as $sale): ?>
-                <tr>
-                    <td><strong><?php echo htmlspecialchars($sale['invoice_number']); ?></strong></td>
-                    <td><?php echo htmlspecialchars($sale['customer_name'] ?? 'Cliente general'); ?></td>
-                    <td><?php echo date('H:i', strtotime($sale['sale_date'])); ?></td>
-                    <td><span class="badge badge-info"><?php echo htmlspecialchars($sale['payment_method'] ?? 'cash'); ?></span></td>
-                    <td style="color:#10B981;font-weight:600;">+<?php echo fmt((float)$sale['total'], $currency); ?></td>
-                </tr>
-            <?php endforeach; ?>
-            </tbody>
-        </table></div>
+        <?php if (empty($todaySales)): ?>
+            <p style="text-align:center;color:var(--color-text-secondary);padding:20px;">Aún no hay ventas en esta sesión de caja</p>
+        <?php else: ?>
+            <div class="table-container"><table>
+                <thead><tr>
+                    <th>Factura</th>
+                    <th>Cliente</th>
+                    <th>Fecha</th>
+                    <th>Total</th>
+                    <th>Pagado</th>
+                    <th>Pago</th>
+                    <th>Estado</th>
+                    <th>Acciones</th>
+                </tr></thead>
+                <tbody>
+                <?php foreach ($todaySales as $sale): ?>
+                    <tr>
+                        <td><strong><?php echo htmlspecialchars($sale['invoice_number']); ?></strong></td>
+                        <td><?php echo htmlspecialchars($sale['customer_name'] ?? 'General'); ?></td>
+                        <td><?php echo date('d/m/Y H:i', strtotime($sale['sale_date'])); ?></td>
+                        <td style="font-weight:600;"><?php echo fmt((float)$sale['total'], $currency); ?></td>
+                        <td><?php echo ($sale['payment_status'] ?? '') === 'paid' ? fmt((float)$sale['total'], $currency) : fmt((float)($sale['paid_amount'] ?? 0), $currency); ?></td>
+                        <td>
+                            <span class="badge <?php echo ($sale['payment_method'] ?? '') === 'cash' ? 'badge-success' : (in_array($sale['payment_method'] ?? '', ['card','dataphone','payment_link','transfer'], true) ? 'badge-info' : 'badge-warning'); ?>">
+                                <?php echo htmlspecialchars(\SoftNova\Services\PaymentMethodCatalog::label((string)($sale['payment_method'] ?? 'cash'))); ?>
+                            </span>
+                        </td>
+                        <td>
+                            <?php if (($sale['status'] ?? '') === 'cancelled'): ?>
+                                <span class="badge badge-danger">Cancelado</span>
+                            <?php elseif (($sale['payment_status'] ?? '') === 'paid'): ?>
+                                <span class="badge badge-success">Pagado</span>
+                            <?php elseif (($sale['payment_status'] ?? '') === 'partial'): ?>
+                                <span class="badge badge-warning">Parcial</span>
+                            <?php else: ?>
+                                <span class="badge badge-info">Pendiente</span>
+                            <?php endif; ?>
+                        </td>
+                        <td class="table-actions">
+                            <button type="button" onclick="viewDetail(<?php echo (int)$sale['id']; ?>)" class="btn btn-sm btn-info" title="Ver detalle"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg></button>
+                            <a href="<?php echo $ventasBase; ?>?action=pdf&id=<?php echo (int)$sale['id']; ?>" class="btn btn-sm btn-secondary" target="_blank" title="PDF carta"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line></svg></a>
+                            <a href="<?php echo $ventasBase; ?>?action=pdf&format=ticket&id=<?php echo (int)$sale['id']; ?>" class="btn btn-sm btn-secondary" target="_blank" title="Ticket 58mm">58mm</a>
+                            <button type="button" class="btn btn-sm btn-success" onclick="shareSale(<?php echo (int)$sale['id']; ?>)" title="WhatsApp / Correo">↗</button>
+                            <?php if ($canPaySale && in_array($sale['payment_status'] ?? '', ['pending', 'partial'], true)): ?>
+                                <button type="button" onclick="openPaymentModal(<?php echo (int)$sale['id']; ?>,<?php echo (float)$sale['total']; ?>,<?php echo (float)($sale['paid_amount'] ?? 0); ?>)" class="btn btn-sm btn-success" title="Registrar abono">$</button>
+                            <?php endif; ?>
+                            <?php if ($canDeleteSale && ($sale['status'] ?? '') !== 'cancelled'): ?>
+                                <form method="POST" action="<?php echo $ventasBase; ?>?action=cancel" style="display:inline;" data-ajax="true">
+                                    <?php echo \SoftNova\Core\csrf_field(); ?>
+                                    <input type="hidden" name="id" value="<?php echo (int)$sale['id']; ?>">
+                                    <button type="submit" data-confirm="¿Eliminar esta venta? Se cancelará, se devolverá el stock y se ajustará la caja." class="btn btn-sm btn-danger" title="Eliminar venta"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg></button>
+                                </form>
+                            <?php endif; ?>
+                        </td>
+                    </tr>
+                <?php endforeach; ?>
+                </tbody>
+            </table></div>
+        <?php endif; ?>
     </div>
 </div>
-<?php endif; ?>
 
 <div class="card neumorphic">
     <div class="card-header"><h3>📋 Movimientos del Día (<?php echo count($movements); ?>)</h3></div>
@@ -159,23 +311,74 @@ function hoursOpen(string $date): float { return round((time()-strtotime($date))
 </div>
 <?php endif; ?>
 
+<!-- Modales compartidos con Ventas (detalle / abono / compartir / cliente rápido) -->
+<div id="quickCustomerModal" class="modal-overlay" style="display:none;z-index:1100;">
+    <div class="modal-content neumorphic" style="max-width:450px;">
+        <div class="modal-header">
+            <h3>Nuevo Cliente</h3>
+            <button type="button" onclick="closeQuickCustomer()" class="modal-close">&times;</button>
+        </div>
+        <form method="POST" action="<?php echo $viewInstance->route('app/clientes'); ?>?action=create" id="quickCustomerForm" onsubmit="return submitQuickCustomer(this)">
+            <?php echo \SoftNova\Core\csrf_field(); ?>
+            <div class="modal-body">
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                    <div class="form-group"><label>Tipo Doc.</label><select name="document_type" class="form-control"><option value="CC">C.C</option><option value="CE">C.E</option><option value="NIT">NIT</option><option value="PPT">PPT</option><option value="OTROS">OTROS</option></select></div>
+                    <div class="form-group"><label>N° Documento *</label><input type="text" name="document_number" class="form-control" placeholder="Número" required></div>
+                    <div class="form-group"><label>Nombre *</label><input type="text" name="first_name" class="form-control" required placeholder="Nombres"></div>
+                    <div class="form-group"><label>Apellido</label><input type="text" name="last_name" class="form-control" placeholder="Apellidos"></div>
+                    <div class="form-group"><label>Email</label><input type="email" name="email" class="form-control" placeholder="correo@ejemplo.com"></div>
+                    <div class="form-group"><label>Teléfono *</label><input type="text" name="phone" class="form-control" placeholder="Teléfono" required></div>
+                </div>
+                <div class="form-group"><label>Dirección</label><textarea name="address" class="form-control" rows="2" placeholder="Dirección"></textarea></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" onclick="closeQuickCustomer()">Cancelar</button>
+                <button type="submit" class="btn btn-primary">Crear y Seleccionar</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div id="paymentModal" class="modal-overlay" style="display:none;">
+    <div class="modal-content neumorphic" style="max-width:400px;">
+        <div class="modal-header"><h3>Registrar Abono</h3><button type="button" onclick="document.getElementById('paymentModal').style.display='none'" class="modal-close">&times;</button></div>
+        <form method="POST" action="<?php echo $viewInstance->route('app/ventas'); ?>?action=payment" data-ajax="true">
+            <?php echo \SoftNova\Core\csrf_field(); ?>
+            <input type="hidden" name="sale_id" id="paySaleId">
+            <p id="payInfo" style="margin-bottom:10px;"></p>
+            <div class="form-group"><label>Monto *</label><input type="number" name="amount" id="payAmount" class="form-control" step="0.01" min="0.01" required></div>
+            <div class="form-group"><label>Método</label><select name="payment_method" class="form-control"><?php echo \SoftNova\Services\PaymentMethodCatalog::optionsHtml('cash', false); ?></select></div>
+            <div class="form-group"><label>Notas</label><input type="text" name="notes" class="form-control" placeholder="Abono"></div>
+            <div class="modal-footer"><button type="button" class="btn btn-secondary" onclick="document.getElementById('paymentModal').style.display='none'">Cancelar</button><button type="submit" class="btn btn-success">Registrar Abono</button></div>
+        </form>
+    </div>
+</div>
+
+<div id="saleDetailModal" class="modal-overlay" style="display:none;">
+    <div class="modal-content neumorphic" style="max-width:650px;max-height:85vh;overflow-y:auto;">
+        <div class="modal-header"><h3>Detalle de Venta</h3><button type="button" onclick="document.getElementById('saleDetailModal').style.display='none'" class="modal-close">&times;</button></div>
+        <div class="modal-body" id="saleDetailContent"></div>
+    </div>
+</div>
+
+<div id="shareModal" class="modal-overlay" style="display:none;">
+    <div class="modal-content neumorphic" style="max-width:420px;">
+        <div class="modal-header"><h3>Enviar recibo</h3><button type="button" class="modal-close" onclick="document.getElementById('shareModal').style.display='none'">&times;</button></div>
+        <div class="modal-body">
+            <a id="shareWhatsappBtn" href="#" target="_blank" class="btn btn-success" style="width:100%;margin-bottom:10px;">Abrir WhatsApp</a>
+            <form method="POST" action="<?php echo $viewInstance->route('app/ventas'); ?>?action=email" data-ajax="true">
+                <?php echo \SoftNova\Core\csrf_field(); ?>
+                <input type="hidden" name="id" id="shareSaleId">
+                <div class="form-group"><label>Correo</label><input type="email" name="email" id="shareEmail" class="form-control" required></div>
+                <button type="submit" class="btn btn-primary" style="width:100%;">Enviar por correo</button>
+            </form>
+        </div>
+    </div>
+</div>
+
 <script>
-function printClosing(id) {
-    const row = event.target.closest('tr');
-    const cells = row.querySelectorAll('td');
-    const printWin = window.open('','_blank','width=400,height=600');
-    printWin.document.write(`<!DOCTYPE html><html><head><title>Cierre de Caja</title>
-        <style>body{font-family:Arial;padding:20px;font-size:12px;} h2{text-align:center;} table{width:100%;border-collapse:collapse;} td{padding:6px;border-bottom:1px solid #ddd;} .right{text-align:right;} .green{color:green;} .red{color:red;}</style></head>
-        <body><h2>Cierre de Caja #${id}</h2><p style="text-align:center;color:#666;">${getTenantName()} — ${new Date().toLocaleDateString()}</p>
-        <table><tr><td>Apertura:</td><td class="right">${cells[0].textContent}</td></tr>
-        <tr><td>Cierre:</td><td class="right">${cells[1].textContent}</td></tr>
-        <tr><td>Usuario:</td><td>${cells[2].textContent}</td></tr>
-        <tr><td>Monto Inicial:</td><td class="right">${cells[3].textContent}</td></tr>
-        <tr><td>Monto Final:</td><td class="right">${cells[4].textContent}</td></tr>
-        <tr><td>Diferencia:</td><td class="right ${cells[5].style.color}">${cells[5].textContent}</td></tr></table>
-        <p style="text-align:center;margin-top:20px;color:#999;">SoftNova ERP — Osgo Support 2026</p></body></html>`);
-    printWin.document.close();
-    setTimeout(()=>printWin.print(),300);
-}
-function getTenantName(){return '<?php echo htmlspecialchars($tenantName);?>';}
+    window.invRouteVentasDetail = '<?php echo $viewInstance->route('app/ventas'); ?>?action=detail';
+    window.invRouteVentasShare = '<?php echo $viewInstance->route('app/ventas'); ?>?action=share';
 </script>
+<script src="<?php echo $viewInstance->asset('js/ventas.js'); ?>"></script>
+<script src="<?php echo $viewInstance->asset('js/caja.js'); ?>"></script>

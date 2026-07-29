@@ -130,7 +130,8 @@ function fmtQ(float $a, array $c): string { return $c['symbol'].' '.number_forma
             <div class="form-group"><label>Notas <span class="field-tip" data-tip="Observaciones visibles en la cotización.">?</span></label><input type="text" name="notes" class="form-control" placeholder="Observaciones..."></div>
             <div class="form-group"><label>Productos <span class="field-tip" data-tip="Agregue los ítems a cotizar con cantidad y precio.">?</span></label>
                 <div style="display:flex;gap:8px;margin-bottom:8px;">
-                    <select id="productSelect" class="form-control" style="flex:1;"><option value="">Seleccionar...</option><?php foreach($products as $p): ?><option value="<?php echo $p['id']; ?>" data-price="<?php echo $p['sale_price']; ?>" data-name="<?php echo htmlspecialchars($p['name']); ?>"><?php echo htmlspecialchars($p['name']); ?> (<?php echo fmtQ($p['sale_price'],$currency); ?>)</option><?php endforeach; ?></select>
+                    <select id="productSelect" class="form-control" style="flex:1;"><option value="">Seleccionar...</option><?php foreach($products as $p): ?><option value="<?php echo $p['id']; ?>" data-price="<?php echo $p['sale_price']; ?>" data-name="<?php echo htmlspecialchars($p['name']); ?>" data-code="<?php echo htmlspecialchars((string)($p['code'] ?? '')); ?>"><?php echo htmlspecialchars(($p['code'] ? $p['code'] . ' — ' : '') . $p['name']); ?> (<?php echo fmtQ($p['sale_price'],$currency); ?>)</option><?php endforeach; ?></select>
+                    <input type="text" id="quoteBarcodeInput" class="form-control" style="width:130px;" placeholder="Escanear…" autocomplete="off" data-barcode-input="true" title="Pistola de código de barras">
                     <input type="number" id="productQty" value="1" min="1" class="form-control" style="width:80px;">
                     <button type="button" class="btn btn-primary" onclick="addQuoteProduct()">+</button>
                 </div>

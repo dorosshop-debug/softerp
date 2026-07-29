@@ -173,11 +173,13 @@ function fmtV(float $a, array $c): string
                             <option value="<?php echo $p['id']; ?>"
                                     data-price="<?php echo $p['sale_price']; ?>"
                                     data-name="<?php echo htmlspecialchars($p['name']); ?>"
-                                    data-stock="<?php echo $p['stock']; ?>">
-                                <?php echo htmlspecialchars($p['name']); ?> (<?php echo fmtV($p['sale_price'], $currency); ?>) — Stock: <?php echo (int)$p['stock']; ?>
+                                    data-stock="<?php echo $p['stock']; ?>"
+                                    data-code="<?php echo htmlspecialchars((string)($p['code'] ?? '')); ?>">
+                                <?php echo htmlspecialchars(($p['code'] ? $p['code'] . ' — ' : '') . $p['name']); ?> (<?php echo fmtV($p['sale_price'], $currency); ?>) — Stock: <?php echo (int)$p['stock']; ?>
                             </option>
                         <?php endforeach; ?>
                     </select>
+                    <input type="text" id="saleBarcodeInput" class="form-control" style="width:130px;" placeholder="Escanear…" autocomplete="off" data-barcode-input="true" title="Pistola de código de barras">
                     <input type="number" id="productQty" value="1" min="1" class="form-control" style="width:80px;" placeholder="Cant" title="Cantidad a vender">
                     <button type="button" class="btn btn-primary" id="addProductBtn" onclick="addProduct(event)">+</button>
                 </div>

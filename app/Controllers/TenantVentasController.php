@@ -138,7 +138,7 @@ class TenantVentasController extends TenantController
         $todayCount = (int)($todayStats['c'] ?? 0);
         
         $products = $this->query(
-            "SELECT id, name, sale_price, stock FROM products
+            "SELECT id, name, code, sale_price, stock FROM products
              WHERE status = 'active'
              ORDER BY name"
         )->fetchAll();
@@ -264,8 +264,14 @@ class TenantVentasController extends TenantController
         }
         
         $taxRate = (float)$this->getSetting('tax_rate', '0');
-        $tax = $subtotal * ($taxRate / 100);
-        $total = $subtotal + $tax;
+        $discountPercent = max(0.0, min(100.0, (float)$this->request->post('discount_percent', 0)));
+        $discount = round($subtotal * ($discountPercent / 100), 2);
+        $taxable = max(0.0, $subtotal - $discount);
+        $tax = round($taxable * ($taxRate / 100), 2);
+        $total = $taxable + $tax;
+        if ($discountPercent > 0) {
+            $notes = trim($notes . ($notes !== '' ? ' | ' : '') . 'Descuento ' . rtrim(rtrim(number_format($discountPercent, 2, '.', ''), '0'), '.') . '%');
+        }
         
         $paymentStatus = $paymentType === 'credit' ? 'pending' : 'paid';
         $initialPayment = max(0, $initialPayment);
@@ -283,7 +289,7 @@ class TenantVentasController extends TenantController
                 "INSERT INTO sales
                     (invoice_number, document_type, customer_id, user_id, sale_date, due_date, received_date,
                      subtotal, tax, discount, total, payment_method, payment_terms, payment_status, notes, status)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?)",
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 [
                     $invoiceNumber,
                     $documentType,
@@ -294,6 +300,7 @@ class TenantVentasController extends TenantController
                     $receivedDate !== '' ? $receivedDate : null,
                     $subtotal,
                     $tax,
+                    $discount,
                     $total,
                     $paymentMethod,
                     $paymentTerms,

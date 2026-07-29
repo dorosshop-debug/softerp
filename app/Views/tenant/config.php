@@ -243,6 +243,8 @@ $avatarUrl = $settings['user_avatar'] ?? null;
         </div>
     </div>
 
+    <?php require APP_PATH . '/Views/partials/config_ecommerce.php'; ?>
+
     <!-- Copia de seguridad -->
     <?php
     $backups = $backups ?? [];

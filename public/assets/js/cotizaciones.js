@@ -18,6 +18,52 @@ function addQuoteProduct() {
     renderQuoteItems();
 }
 
+function addQuoteProductByBarcode(code) {
+    code = String(code || '').trim();
+    if (!code) return;
+    var sel = document.getElementById('productSelect');
+    if (!sel) return;
+    var opt = null;
+    for (var i = 0; i < sel.options.length; i++) {
+        var o = sel.options[i];
+        if (o.value && String(o.dataset.code || '').toLowerCase() === code.toLowerCase()) {
+            opt = o;
+            break;
+        }
+    }
+    if (opt) {
+        sel.value = opt.value;
+        addQuoteProduct();
+        var bar = document.getElementById('quoteBarcodeInput');
+        if (bar) bar.value = '';
+        if (typeof showAlert === 'function') showAlert((opt.dataset.name || 'Producto') + ' agregado', 'success');
+        return;
+    }
+    if (window.SoftNovaBarcode && SoftNovaBarcode.lookup) {
+        SoftNovaBarcode.lookup(code).then(function(p) {
+            if (!p) {
+                if (typeof showAlert === 'function') showAlert('Producto no encontrado: ' + code, 'error');
+                return;
+            }
+            var existing = sel.querySelector('option[value="' + p.id + '"]');
+            if (!existing) {
+                existing = document.createElement('option');
+                existing.value = p.id;
+                existing.dataset.name = p.name;
+                existing.dataset.price = p.sale_price;
+                existing.dataset.code = p.code || code;
+                existing.textContent = (p.code ? p.code + ' — ' : '') + p.name;
+                sel.appendChild(existing);
+            }
+            sel.value = String(p.id);
+            addQuoteProduct();
+            var bar = document.getElementById('quoteBarcodeInput');
+            if (bar) bar.value = '';
+            if (typeof showAlert === 'function') showAlert(p.name + ' agregado', 'success');
+        });
+    }
+}
+
 function removeQuoteItem(idx) { quoteItems.splice(idx, 1); renderQuoteItems(); }
 
 function renderQuoteItems() {
@@ -119,3 +165,17 @@ function viewQuoteDetail(id) {
         document.getElementById('quoteDetailModal').style.display = 'flex';
     });
 }
+
+document.addEventListener('DOMContentLoaded', function () {
+    var quoteBar = document.getElementById('quoteBarcodeInput');
+    if (quoteBar) {
+        quoteBar.addEventListener('keydown', function (e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                var code = quoteBar.value.trim();
+                if (code) addQuoteProductByBarcode(code);
+                quoteBar.value = '';
+            }
+        });
+    }
+});

@@ -24,7 +24,7 @@ class TenantContabilidadController extends TenantController
 
         if ($this->request->method() === 'POST') {
             $redirect = match ($action) {
-                'save-integration', 'set-active-provider', 'save-catalog-integration' => '/app/contabilidad?tab=integrations',
+                'save-integration', 'set-active-provider' => '/app/contabilidad?tab=integrations',
                 'save-account' => '/app/contabilidad?tab=accounts',
                 'save-commission-rates', 'save-commission-config', 'save-user-commission', 'settle-commissions' => '/app/contabilidad?tab=commissions',
                 'period' => '/app/contabilidad?tab=periods',
@@ -44,7 +44,6 @@ class TenantContabilidadController extends TenantController
                 'period' => $this->updatePeriod(),
                 'sync' => $this->syncOperations(),
                 'save-integration' => $this->saveIntegration(),
-                'save-catalog-integration' => $this->saveCatalogIntegration(),
                 'set-active-provider' => $this->setActiveProvider(),
                 default => $this->respond(false, 'Acción contable inválida', '/app/contabilidad'),
             };
@@ -59,17 +58,11 @@ class TenantContabilidadController extends TenantController
             $this->testIntegration();
             return;
         }
-        if ($action === 'catalog-test') {
-            $this->testCatalogIntegration();
-            return;
-        }
-        if ($action === 'ml-oauth-start') {
-            $this->mlOAuthStart();
-            return;
-        }
-        if ($action === 'ml-oauth-callback') {
-            $this->mlOAuthCallback();
-            return;
+        // E-commerce (Woo/ML) se gestiona en Configuración
+        if (in_array($action, ['catalog-test', 'ml-oauth-start', 'ml-oauth-callback', 'save-catalog-integration'], true)) {
+            $qs = $_SERVER['QUERY_STRING'] ?? '';
+            header('Location: ' . \SoftNova\Core\route('app/configuracion') . ($qs !== '' ? '?' . $qs : '?section=ecommerce'));
+            exit;
         }
         if ($action === 'export') {
             TenantMiddleware::authorize('contabilidad', 'export');
@@ -85,7 +78,6 @@ class TenantContabilidadController extends TenantController
         $tab = (string)$this->request->get('tab', 'dashboard');
         $accountId = max(0, (int)$this->request->get('account_id', 0));
         $integrations = new IntegrationManager($this->db);
-        $catalog = new \SoftNova\Services\Integrations\CatalogSyncService($this->db);
         \SoftNova\Services\TenantOpsSchema::ensure($this->db);
 
         $purchaseSummary = ['cnt' => 0, 'total' => 0.0];
@@ -156,102 +148,15 @@ class TenantContabilidadController extends TenantController
             'selectedAccountId' => $accountId,
             'periods' => $this->accounting->periods(),
             'integrationStatuses' => $integrations->statuses(),
-            'catalogStatuses' => $catalog->statuses(),
             'activeProvider' => $integrations->settings()->getActiveProvider(),
             'purchaseSummary' => $purchaseSummary,
             'expenseByType' => $expenseByType,
             'traceMovements' => $trace['rows'],
             'accountAudit' => $accountAudit,
-            'mlOAuthRedirect' => \SoftNova\Core\route('app/contabilidad') . '?action=ml-oauth-callback',
             'commissionCfg' => $commissionCfg,
             'commissionList' => $commissionList,
             'commissionUsers' => $commissionUsers,
         ]));
-    }
-
-    private function saveCatalogIntegration(): void
-    {
-        TenantMiddleware::authorize('contabilidad', 'edit');
-        $provider = (string)$this->request->post('provider', '');
-        try {
-            $svc = new \SoftNova\Services\Integrations\CatalogSyncService($this->db);
-            $svc->saveProvider($provider, [
-                'enabled' => $this->request->post('enabled', '0'),
-                'store_url' => $this->request->post('store_url', ''),
-                'consumer_key' => $this->request->post('consumer_key', ''),
-                'consumer_secret' => $this->request->post('consumer_secret', ''),
-                'access_token' => $this->request->post('access_token', ''),
-                'refresh_token' => $this->request->post('refresh_token', ''),
-                'client_id' => $this->request->post('client_id', ''),
-                'client_secret' => $this->request->post('client_secret', ''),
-                'user_id' => $this->request->post('user_id', ''),
-                'site_id' => $this->request->post('site_id', 'MCO'),
-                'base_url' => $this->request->post('base_url', ''),
-                'stock_authority' => $this->request->post('stock_authority', 'create_only'),
-            ]);
-            $this->respond(true, 'Integración de catálogo guardada', '/app/contabilidad?tab=integrations&provider=' . urlencode($provider));
-        } catch (\Throwable $e) {
-            $this->respond(false, $e->getMessage(), '/app/contabilidad?tab=integrations');
-        }
-    }
-
-    private function mlOAuthStart(): void
-    {
-        TenantMiddleware::authorize('contabilidad', 'edit');
-        $svc = new \SoftNova\Services\Integrations\CatalogSyncService($this->db);
-        $ml = $svc->mercadoLibre();
-        if (!$ml) {
-            $this->respond(false, 'Conector ML no disponible', '/app/contabilidad?tab=integrations&provider=mercadolibre');
-            return;
-        }
-        $st = $ml->status();
-        if (empty($st['oauth_ready'])) {
-            $this->respond(false, 'Guarde primero Client ID y Client Secret', '/app/contabilidad?tab=integrations&provider=mercadolibre');
-            return;
-        }
-        $state = bin2hex(random_bytes(16));
-        $_SESSION['ml_oauth_state'] = $state;
-        $redirect = \SoftNova\Core\route('app/contabilidad') . '?action=ml-oauth-callback';
-        header('Location: ' . $ml->authorizationUrl($redirect, $state));
-        exit;
-    }
-
-    private function mlOAuthCallback(): void
-    {
-        TenantMiddleware::authorize('contabilidad', 'edit');
-        $error = (string)$this->request->get('error', '');
-        if ($error !== '') {
-            $this->respond(false, 'OAuth ML cancelado: ' . $error, '/app/contabilidad?tab=integrations&provider=mercadolibre');
-            return;
-        }
-        $state = (string)$this->request->get('state', '');
-        $expected = (string)($_SESSION['ml_oauth_state'] ?? '');
-        unset($_SESSION['ml_oauth_state']);
-        if ($expected === '' || !hash_equals($expected, $state)) {
-            $this->respond(false, 'Estado OAuth inválido. Intente conectar de nuevo.', '/app/contabilidad?tab=integrations&provider=mercadolibre');
-            return;
-        }
-        $code = (string)$this->request->get('code', '');
-        if ($code === '') {
-            $this->respond(false, 'Sin código de autorización', '/app/contabilidad?tab=integrations&provider=mercadolibre');
-            return;
-        }
-        try {
-            $svc = new \SoftNova\Services\Integrations\CatalogSyncService($this->db);
-            $ml = $svc->mercadoLibre();
-            if (!$ml) {
-                throw new \RuntimeException('Conector ML no disponible');
-            }
-            $redirect = \SoftNova\Core\route('app/contabilidad') . '?action=ml-oauth-callback';
-            $ml->exchangeToken('authorization_code', [
-                'code' => $code,
-                'redirect_uri' => $redirect,
-            ]);
-            $svc->settings()->set('mercadolibre', 'enabled', '1', false);
-            $this->respond(true, 'Mercado Libre conectado (token + refresh guardados)', '/app/contabilidad?tab=integrations&provider=mercadolibre');
-        } catch (\Throwable $e) {
-            $this->respond(false, $e->getMessage(), '/app/contabilidad?tab=integrations&provider=mercadolibre');
-        }
     }
 
     private function saveCommissionRates(): void
@@ -335,11 +240,11 @@ class TenantContabilidadController extends TenantController
         }
     }
 
-    private function testCatalogIntegration(): void
+    private function testIntegration(): void
     {
+        TenantMiddleware::authorize('contabilidad', 'edit');
         $provider = (string)$this->request->get('provider', '');
-        $result = (new \SoftNova\Services\Integrations\CatalogSyncService($this->db))->test($provider);
-        $this->json($result);
+        $this->json((new IntegrationManager($this->db))->test($provider));
     }
 
     private function saveIntegration(): void
@@ -393,13 +298,6 @@ class TenantContabilidadController extends TenantController
         } catch (\Throwable $e) {
             $this->respond(false, $e->getMessage(), '/app/contabilidad?tab=integrations');
         }
-    }
-
-    private function testIntegration(): void
-    {
-        TenantMiddleware::authorize('contabilidad', 'edit');
-        $provider = (string)$this->request->get('provider', '');
-        $this->json((new IntegrationManager($this->db))->test($provider));
     }
 
     private function createManualEntry(): void

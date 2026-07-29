@@ -14,13 +14,11 @@ $ledger = $ledger ?? [];
 $periods = $periods ?? [];
 $selectedAccountId = $selectedAccountId ?? 0;
 $integrationStatuses = $integrationStatuses ?? [];
-$catalogStatuses = $catalogStatuses ?? [];
 $activeProvider = $activeProvider ?? null;
 $selectedProvider = (string)($_GET['provider'] ?? ($activeProvider ?: 'alegra'));
-if (!isset($integrationStatuses[$selectedProvider]) && !isset($catalogStatuses[$selectedProvider])) {
-    $selectedProvider = 'alegra';
+if (!isset($integrationStatuses[$selectedProvider])) {
+    $selectedProvider = array_key_first($integrationStatuses) ?: 'alegra';
 }
-$isCatalogProvider = isset($catalogStatuses[$selectedProvider]);
 $canCreate = \SoftNova\Core\TenantMiddleware::canDo('create', 'contabilidad');
 $canEdit = \SoftNova\Core\TenantMiddleware::canDo('edit', 'contabilidad');
 $canExport = \SoftNova\Core\TenantMiddleware::canDo('export', 'contabilidad');
@@ -29,7 +27,6 @@ $purchaseSummary = $purchaseSummary ?? ['cnt' => 0, 'total' => 0];
 $expenseByType = $expenseByType ?? [];
 $traceMovements = $traceMovements ?? [];
 $accountAudit = $accountAudit ?? ['settings' => [], 'notes' => [], 'fixed' => [], 'missing' => []];
-$mlOAuthRedirect = $mlOAuthRedirect ?? '';
 
 function acctFmt(float $amount, array $currency): string
 {
@@ -67,10 +64,6 @@ $commissionList = $commissionList ?? ['rows' => [], 'pending' => 0, 'paid' => 0,
 $commissionUsers = $commissionUsers ?? [];
 $kindFilter = (string)($_GET['kind'] ?? '');
 $statusFilterComm = (string)($_GET['status'] ?? '');
-$catalogProviders = ['woocommerce', 'mercadolibre'];
-if (in_array($selectedProvider, $catalogProviders, true)) {
-    // ok
-}
 $accountOptions = '';
 foreach ($accounts as $account) {
     if ($account['status'] !== 'active' || empty($account['accepts_entries'])) {
@@ -543,249 +536,7 @@ foreach ($accounts as $account) {
     </div>
 
 <?php elseif ($tab === 'integrations'): ?>
-    <?php
-    $providerMeta = [
-        'alegra' => 'Emite factura electrónica DIAN vía Alegra (proveedor autorizado).',
-        'siigo' => 'Emite documentos electrónicos vía Siigo Nube API.',
-        'factus' => 'API especializada en facturación electrónica Colombia.',
-        'dian' => 'Datos fiscales para emisión directa. Requiere ser Proveedor Tecnológico o factura gratuita DIAN.',
-        'woocommerce' => 'Importa productos de su tienda WooCommerce al inventario (canal: WooCommerce).',
-        'mercadolibre' => 'Importa publicaciones activas de Mercado Libre al inventario (canal: Mercado Libre).',
-    ];
-    ?>
-    <div class="alert alert-info" style="margin-bottom:16px;">
-        Hay dos tipos de integración:
-        <strong>1) Facturación electrónica</strong> (Alegra/Siigo/Factus) y
-        <strong>2) Catálogo e-commerce</strong> (WooCommerce / Mercado Libre → Inventario).
-        Las credenciales se guardan por empresa (cifradas).
-    </div>
-
-    <div class="card neumorphic" style="margin-bottom:18px;">
-        <div class="card-header"><h3>Proveedor activo (facturación electrónica)</h3></div>
-        <div class="card-body">
-            <?php if ($canEdit): ?>
-            <form method="POST" action="<?php echo $viewInstance->route('app/contabilidad'); ?>?action=set-active-provider" data-ajax="true" style="display:flex;gap:10px;align-items:end;flex-wrap:wrap;">
-                <?php echo \SoftNova\Core\csrf_field(); ?>
-                <div class="form-group" style="margin:0;min-width:220px;">
-                    <label>Usar para facturación electrónica</label>
-                    <select class="form-control" name="provider">
-                        <option value="">Ninguno</option>
-                        <?php foreach ($integrationStatuses as $code => $st): ?>
-                            <option value="<?php echo htmlspecialchars($code); ?>" <?php echo $activeProvider === $code ? 'selected' : ''; ?>>
-                                <?php echo htmlspecialchars($st['label'] ?? $code); ?>
-                            </option>
-                        <?php endforeach; ?>
-                    </select>
-                </div>
-                <button class="btn btn-primary" type="submit">Guardar proveedor activo</button>
-            </form>
-            <?php else: ?>
-                <p style="margin:0;">Activo: <strong><?php echo htmlspecialchars($activeProvider ?: 'Ninguno'); ?></strong></p>
-            <?php endif; ?>
-        </div>
-    </div>
-
-    <h4 style="margin:8px 0 10px;">Facturación electrónica</h4>
-    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:18px;">
-        <?php foreach ($integrationStatuses as $code => $st): ?>
-            <a class="btn <?php echo $selectedProvider === $code ? 'btn-primary' : 'btn-secondary'; ?>"
-               href="<?php echo $viewInstance->route('app/contabilidad'); ?>?tab=integrations&provider=<?php echo urlencode($code); ?>">
-                <?php echo htmlspecialchars($st['label'] ?? $code); ?>
-                <?php if (!empty($st['active'])): ?><span class="badge badge-success" style="margin-left:6px;">Activo</span><?php endif; ?>
-            </a>
-        <?php endforeach; ?>
-    </div>
-
-    <h4 style="margin:8px 0 10px;">Catálogo e-commerce → Inventario</h4>
-    <p style="font-size:13px;color:var(--color-text-secondary);margin-top:0;">
-        Configure WooCommerce o Mercado Libre aquí; luego importe desde Inventario.
-    </p>
-    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;">
-        <?php if (empty($catalogStatuses)): ?>
-            <div class="alert alert-warning">No se cargaron conectores de catálogo. Verifique que el código desplegado incluye CatalogSyncService.</div>
-        <?php endif; ?>
-        <?php foreach ($catalogStatuses as $code => $st): ?>
-            <a class="btn <?php echo $selectedProvider === $code ? 'btn-primary' : 'btn-secondary'; ?>"
-               href="<?php echo $viewInstance->route('app/contabilidad'); ?>?tab=integrations&provider=<?php echo urlencode($code); ?>">
-                <?php echo htmlspecialchars($st['label'] ?? $code); ?>
-                <span class="badge badge-info" style="margin-left:6px;">Catálogo</span>
-                <?php if (!empty($st['enabled']) && !empty($st['configured'])): ?>
-                    <span class="badge badge-success" style="margin-left:4px;">Listo</span>
-                <?php endif; ?>
-            </a>
-        <?php endforeach; ?>
-        <a class="btn btn-secondary" href="<?php echo $viewInstance->route('app/inventario'); ?>">Ir a Inventario</a>
-    </div>
-
-    <?php
-    $st = $isCatalogProvider ? ($catalogStatuses[$selectedProvider] ?? []) : ($integrationStatuses[$selectedProvider] ?? []);
-    $form = $st['form'] ?? [];
-    $routeBase = $viewInstance->route('app/contabilidad');
-    $saveAction = $isCatalogProvider ? 'save-catalog-integration' : 'save-integration';
-    $testAction = $isCatalogProvider ? 'catalog-test' : 'integration-test';
-    ?>
-    <div class="card neumorphic">
-        <div class="card-header">
-            <h3><?php echo htmlspecialchars($st['label'] ?? $selectedProvider); ?></h3>
-        </div>
-        <div class="card-body">
-            <p style="margin-top:0;color:var(--color-text-secondary);">
-                <?php echo htmlspecialchars($providerMeta[$selectedProvider] ?? ''); ?>
-            </p>
-            <p>
-                Estado:
-                <?php if (!empty($st['configured'])): ?>
-                    <span class="badge badge-success">Listo</span>
-                <?php elseif (!empty($st['enabled'])): ?>
-                    <span class="badge badge-warning">Habilitado, faltan credenciales</span>
-                <?php else: ?>
-                    <span class="badge badge-danger">Deshabilitado</span>
-                <?php endif; ?>
-            </p>
-
-            <?php if ($canEdit): ?>
-            <form method="POST" action="<?php echo $routeBase; ?>?action=<?php echo $saveAction; ?>" data-ajax="true">
-                <?php echo \SoftNova\Core\csrf_field(); ?>
-                <input type="hidden" name="provider" value="<?php echo htmlspecialchars($selectedProvider); ?>">
-
-                <div class="form-grid" style="margin-bottom:12px;">
-                    <div class="form-group">
-                        <label><input type="checkbox" name="enabled" value="1" <?php echo !empty($form['enabled']) && $form['enabled'] !== '0' ? 'checked' : ''; ?>> Habilitar conector</label>
-                    </div>
-                    <?php if (!$isCatalogProvider): ?>
-                    <div class="form-group">
-                        <label><input type="checkbox" name="make_active" value="1" <?php echo $activeProvider === $selectedProvider ? 'checked' : ''; ?>> Marcar como proveedor activo</label>
-                    </div>
-                    <div class="form-group">
-                        <label><input type="checkbox" name="sync_sales" value="1" <?php echo !empty($form['sync_sales']) && $form['sync_sales'] !== '0' ? 'checked' : ''; ?>> Sincronizar ventas</label>
-                    </div>
-                    <?php endif; ?>
-                </div>
-
-                <?php if ($selectedProvider === 'woocommerce'): ?>
-                    <div class="form-grid">
-                        <div class="form-group" style="grid-column:1/-1;"><label>URL de la tienda</label><input class="form-control" name="store_url" value="<?php echo htmlspecialchars($form['store_url'] ?? ''); ?>" placeholder="https://mitienda.com"></div>
-                        <div class="form-group"><label>Consumer Key</label><input class="form-control" name="consumer_key" value="<?php echo htmlspecialchars($form['consumer_key'] ?? ''); ?>" autocomplete="off"></div>
-                        <div class="form-group"><label>Consumer Secret <?php if (!empty($form['consumer_secret_set'])): ?><small>(guardado)</small><?php endif; ?></label><input class="form-control" type="password" name="consumer_secret" placeholder="<?php echo !empty($form['consumer_secret_set']) ? 'Dejar vacío para conservar' : 'Secret'; ?>" autocomplete="new-password"></div>
-                        <div class="form-group" style="grid-column:1/-1;"><label>Política de stock (quién manda)</label>
-                            <?php $auth = $form['stock_authority'] ?? ($st['stock_authority'] ?? 'create_only'); ?>
-                            <select class="form-control" name="stock_authority">
-                                <option value="create_only" <?php echo $auth === 'create_only' ? 'selected' : ''; ?>>Solo al crear (recomendado) — updates no tocan stock ERP</option>
-                                <option value="erp" <?php echo $auth === 'erp' ? 'selected' : ''; ?>>ERP manda — nunca sincroniza cantidades</option>
-                                <option value="store" <?php echo $auth === 'store' ? 'selected' : ''; ?>>Tienda manda — ajusta stock local al remoto</option>
-                            </select>
-                        </div>
-                    </div>
-                    <p style="font-size:12px;color:var(--color-text-secondary);">WooCommerce → Ajustes → Avanzado → REST API. Luego Inventario → Importar WooCommerce.</p>
-
-                <?php elseif ($selectedProvider === 'mercadolibre'): ?>
-                    <div class="form-grid">
-                        <div class="form-group"><label>Client ID (App ML)</label><input class="form-control" name="client_id" value="<?php echo htmlspecialchars($form['client_id'] ?? ''); ?>" autocomplete="off"></div>
-                        <div class="form-group"><label>Client Secret <?php if (!empty($form['client_secret_set'])): ?><small>(guardado)</small><?php endif; ?></label><input class="form-control" type="password" name="client_secret" placeholder="<?php echo !empty($form['client_secret_set']) ? 'Dejar vacío para conservar' : 'Secret'; ?>" autocomplete="new-password"></div>
-                        <div class="form-group" style="grid-column:1/-1;"><label>Redirect URI (registre esta URL en su app ML)</label>
-                            <input class="form-control" readonly value="<?php echo htmlspecialchars($mlOAuthRedirect); ?>">
-                        </div>
-                        <div class="form-group"><label>Site ID</label><input class="form-control" name="site_id" value="<?php echo htmlspecialchars($form['site_id'] ?? 'MCO'); ?>"></div>
-                        <div class="form-group"><label>User ID</label><input class="form-control" name="user_id" value="<?php echo htmlspecialchars($form['user_id'] ?? ''); ?>" placeholder="Se completa con OAuth"></div>
-                        <div class="form-group" style="grid-column:1/-1;"><label>Access Token (manual / legado) <?php if (!empty($form['access_token_set'])): ?><small>(guardado)</small><?php endif; ?></label><input class="form-control" type="password" name="access_token" placeholder="<?php echo !empty($form['access_token_set']) ? 'Dejar vacío para conservar' : 'Opcional si usa OAuth'; ?>" autocomplete="new-password"></div>
-                        <div class="form-group" style="grid-column:1/-1;"><label>Refresh Token <?php if (!empty($form['refresh_token_set'])): ?><small>(guardado)</small><?php endif; ?></label><input class="form-control" type="password" name="refresh_token" placeholder="<?php echo !empty($form['refresh_token_set']) ? 'Dejar vacío para conservar' : 'Se guarda con OAuth'; ?>" autocomplete="new-password"></div>
-                        <div class="form-group" style="grid-column:1/-1;"><label>Política de stock</label>
-                            <?php $auth = $form['stock_authority'] ?? ($st['stock_authority'] ?? 'create_only'); ?>
-                            <select class="form-control" name="stock_authority">
-                                <option value="create_only" <?php echo $auth === 'create_only' ? 'selected' : ''; ?>>Solo al crear (recomendado)</option>
-                                <option value="erp" <?php echo $auth === 'erp' ? 'selected' : ''; ?>>ERP manda</option>
-                                <option value="store" <?php echo $auth === 'store' ? 'selected' : ''; ?>>ML manda (ajusta stock local)</option>
-                            </select>
-                        </div>
-                    </div>
-                    <?php if ($canEdit): ?>
-                        <p style="margin:10px 0;">
-                            <a class="btn btn-secondary" href="<?php echo $viewInstance->route('app/contabilidad'); ?>?action=ml-oauth-start">Conectar con Mercado Libre (OAuth)</a>
-                            <?php if (!empty($st['meta']['token_expires_at'])): ?>
-                                <small style="margin-left:8px;color:var(--color-text-secondary);">Expira: <?php echo htmlspecialchars($st['meta']['token_expires_at']); ?><?php echo !empty($st['meta']['has_refresh']) ? ' · refresh activo' : ''; ?></small>
-                            <?php endif; ?>
-                        </p>
-                    <?php endif; ?>
-                    <p style="font-size:12px;color:var(--color-text-secondary);">El sistema renueva el access_token automáticamente con refresh_token cuando vence o responde 401.</p>
-
-                <?php elseif ($selectedProvider === 'alegra'): ?>
-                    <div class="form-grid">
-                        <div class="form-group"><label>Email Alegra</label><input class="form-control" name="email" value="<?php echo htmlspecialchars($form['email'] ?? ''); ?>" autocomplete="off"></div>
-                        <div class="form-group"><label>Token API <?php if (!empty($form['token_set'])): ?><small>(guardado)</small><?php endif; ?></label><input class="form-control" type="password" name="token" placeholder="<?php echo !empty($form['token_set']) ? 'Dejar vacío para conservar' : 'Token'; ?>" autocomplete="new-password"></div>
-                        <div class="form-group" style="grid-column:1/-1;"><label>Base URL</label><input class="form-control" name="base_url" value="<?php echo htmlspecialchars($form['base_url'] ?? 'https://api.alegra.com/api/v1'); ?>"></div>
-                        <div class="form-group"><label>ID impuesto IVA (Alegra)</label><input class="form-control" name="tax_id" value="<?php echo htmlspecialchars($form['tax_id'] ?? ''); ?>" placeholder="Ej: 1 (ID del IVA en Alegra)"></div>
-                        <div class="form-group"><label><input type="checkbox" name="stamp" value="1" <?php echo !empty($form['stamp']) && $form['stamp'] !== '0' ? 'checked' : ''; ?>> Generar factura electrónica (timbrar DIAN)</label></div>
-                    </div>
-                    <div class="form-grid" style="margin-top:8px;">
-                        <div class="form-group"><label><input type="checkbox" name="sync_payments" value="1" <?php echo !empty($form['sync_payments']) && $form['sync_payments'] !== '0' ? 'checked' : ''; ?>> Sync abonos</label></div>
-                        <div class="form-group"><label><input type="checkbox" name="sync_expenses" value="1" <?php echo !empty($form['sync_expenses']) && $form['sync_expenses'] !== '0' ? 'checked' : ''; ?>> Sync gastos</label></div>
-                    </div>
-                    <p style="font-size:12px;color:var(--color-text-secondary);">El ID del impuesto se obtiene en Alegra → Impuestos (o GET /taxes). Con sync ventas activo, cada venta nueva hace POST /invoices.</p>
-
-                <?php elseif ($selectedProvider === 'siigo'): ?>
-                    <div class="form-grid">
-                        <div class="form-group"><label>Usuario API</label><input class="form-control" name="username" value="<?php echo htmlspecialchars($form['username'] ?? ''); ?>" autocomplete="off"></div>
-                        <div class="form-group"><label>Access Key <?php if (!empty($form['access_key_set'])): ?><small>(guardado)</small><?php endif; ?></label><input class="form-control" type="password" name="access_key" placeholder="<?php echo !empty($form['access_key_set']) ? 'Dejar vacío para conservar' : 'Access key'; ?>" autocomplete="new-password"></div>
-                        <div class="form-group"><label>Partner-Id</label><input class="form-control" name="partner_id" value="<?php echo htmlspecialchars($form['partner_id'] ?? 'SeriERP'); ?>"></div>
-                        <div class="form-group"><label>Base URL</label><input class="form-control" name="base_url" value="<?php echo htmlspecialchars($form['base_url'] ?? 'https://api.siigo.com'); ?>"></div>
-                        <div class="form-group"><label>ID tipo documento (FV)</label><input class="form-control" name="document_id" value="<?php echo htmlspecialchars($form['document_id'] ?? ''); ?>" placeholder="GET /v1/document-types"></div>
-                        <div class="form-group"><label>ID vendedor</label><input class="form-control" name="seller_id" value="<?php echo htmlspecialchars($form['seller_id'] ?? ''); ?>" placeholder="GET /v1/users"></div>
-                        <div class="form-group"><label>ID medio de pago</label><input class="form-control" name="payment_type_id" value="<?php echo htmlspecialchars($form['payment_type_id'] ?? ''); ?>" placeholder="GET /v1/payment-types"></div>
-                        <div class="form-group"><label>ID impuesto IVA</label><input class="form-control" name="tax_id" value="<?php echo htmlspecialchars($form['tax_id'] ?? ''); ?>" placeholder="Opcional (GET /v1/taxes)"></div>
-                        <div class="form-group"><label>ID grupo contable</label><input class="form-control" name="account_group_id" value="<?php echo htmlspecialchars($form['account_group_id'] ?? ''); ?>" placeholder="Opcional (para crear productos)"></div>
-                        <div class="form-group"><label><input type="checkbox" name="stamp" value="1" <?php echo !empty($form['stamp']) && $form['stamp'] !== '0' ? 'checked' : ''; ?>> Timbrar factura electrónica (DIAN)</label></div>
-                    </div>
-                    <p style="font-size:12px;color:var(--color-text-secondary);">Los IDs se consultan una sola vez desde Siigo Nube. Con sync ventas activo, cada venta hace POST /v1/invoices (resuelve/crea cliente y productos).</p>
-
-                <?php elseif ($selectedProvider === 'factus'): ?>
-                    <div class="form-grid">
-                        <div class="form-group"><label>Client ID</label><input class="form-control" name="client_id" value="<?php echo htmlspecialchars($form['client_id'] ?? ''); ?>" autocomplete="off"></div>
-                        <div class="form-group"><label>Client Secret <?php if (!empty($form['client_secret_set'])): ?><small>(guardado)</small><?php endif; ?></label><input class="form-control" type="password" name="client_secret" placeholder="<?php echo !empty($form['client_secret_set']) ? 'Dejar vacío para conservar' : 'Secret'; ?>" autocomplete="new-password"></div>
-                        <div class="form-group"><label>Usuario (email)</label><input class="form-control" name="username" value="<?php echo htmlspecialchars($form['username'] ?? ''); ?>" autocomplete="off"></div>
-                        <div class="form-group"><label>Password <?php if (!empty($form['password_set'])): ?><small>(guardado)</small><?php endif; ?></label><input class="form-control" type="password" name="password" placeholder="<?php echo !empty($form['password_set']) ? 'Dejar vacío para conservar' : 'Password'; ?>" autocomplete="new-password"></div>
-                        <div class="form-group" style="grid-column:1/-1;"><label>Base URL</label><input class="form-control" name="base_url" value="<?php echo htmlspecialchars($form['base_url'] ?? 'https://api-sandbox.factus.com.co'); ?>"></div>
-                        <div class="form-group"><label>ID rango numeración</label><input class="form-control" name="numbering_range_id" value="<?php echo htmlspecialchars($form['numbering_range_id'] ?? ''); ?>" placeholder="Opcional si solo hay uno activo"></div>
-                        <div class="form-group"><label>% IVA por defecto</label><input class="form-control" name="tax_rate" value="<?php echo htmlspecialchars($form['tax_rate'] ?? '19'); ?>" placeholder="19"></div>
-                        <div class="form-group"><label>ID municipio</label><input class="form-control" name="municipality_id" value="<?php echo htmlspecialchars($form['municipality_id'] ?? ''); ?>" placeholder="Opcional (tabla municipios)"></div>
-                    </div>
-                    <p style="font-size:12px;color:var(--color-text-secondary);">Factus valida contra DIAN. El cliente y los productos se envían en la misma factura (POST /v1/bills/validate), no requiere crearlos antes.</p>
-
-                <?php else: /* dian */ ?>
-                    <div class="form-grid">
-                        <div class="form-group"><label>NIT</label><input class="form-control" name="nit" value="<?php echo htmlspecialchars($form['nit'] ?? ''); ?>"></div>
-                        <div class="form-group"><label>DV</label><input class="form-control" name="dv" value="<?php echo htmlspecialchars($form['dv'] ?? ''); ?>" maxlength="1"></div>
-                        <div class="form-group" style="grid-column:1/-1;"><label>Razón social</label><input class="form-control" name="legal_name" value="<?php echo htmlspecialchars($form['legal_name'] ?? ''); ?>"></div>
-                        <div class="form-group"><label>Resolución</label><input class="form-control" name="resolution_number" value="<?php echo htmlspecialchars($form['resolution_number'] ?? ''); ?>"></div>
-                        <div class="form-group"><label>Prefijo</label><input class="form-control" name="prefix" value="<?php echo htmlspecialchars($form['prefix'] ?? ''); ?>"></div>
-                        <div class="form-group"><label>Rango desde</label><input class="form-control" name="range_from" value="<?php echo htmlspecialchars($form['range_from'] ?? ''); ?>"></div>
-                        <div class="form-group"><label>Rango hasta</label><input class="form-control" name="range_to" value="<?php echo htmlspecialchars($form['range_to'] ?? ''); ?>"></div>
-                        <div class="form-group"><label>Software ID</label><input class="form-control" name="software_id" value="<?php echo htmlspecialchars($form['software_id'] ?? ''); ?>"></div>
-                        <div class="form-group"><label>PIN <?php if (!empty($form['pin_set'])): ?><small>(guardado)</small><?php endif; ?></label><input class="form-control" type="password" name="pin" placeholder="<?php echo !empty($form['pin_set']) ? 'Dejar vacío para conservar' : 'PIN'; ?>" autocomplete="new-password"></div>
-                        <div class="form-group"><label>Clave técnica <?php if (!empty($form['technical_key_set'])): ?><small>(guardado)</small><?php endif; ?></label><input class="form-control" type="password" name="technical_key" placeholder="<?php echo !empty($form['technical_key_set']) ? 'Dejar vacío para conservar' : 'Clave técnica'; ?>" autocomplete="new-password"></div>
-                        <div class="form-group"><label>Ambiente</label>
-                            <select class="form-control" name="environment">
-                                <option value="habilitacion" <?php echo ($form['environment'] ?? '') === 'habilitacion' ? 'selected' : ''; ?>>Habilitación / pruebas</option>
-                                <option value="produccion" <?php echo ($form['environment'] ?? '') === 'produccion' ? 'selected' : ''; ?>>Producción</option>
-                            </select>
-                        </div>
-                    </div>
-                    <div class="alert alert-warning" style="margin-top:12px;">
-                        La DIAN no acepta envíos directos de cualquier software. Sin ser Proveedor Tecnológico autorizado,
-                        use Alegra, Siigo o Factus. Este panel guarda los datos fiscales para una fase futura.
-                    </div>
-                <?php endif; ?>
-
-                <div style="margin-top:16px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
-                    <button type="submit" class="btn btn-primary">Guardar configuración</button>
-                    <button type="button" class="btn btn-secondary" onclick="testIntegrationProvider(this, '<?php echo htmlspecialchars($selectedProvider); ?>')">Probar conexión</button>
-                    <span id="integrationTestResult" style="font-size:13px;"></span>
-                </div>
-            </form>
-            <?php else: ?>
-                <p class="dashboard-empty">No tiene permiso para editar integraciones.</p>
-            <?php endif; ?>
-        </div>
-    </div>
+    <?php require APP_PATH . '/Views/partials/contabilidad_fe_integrations.php'; ?>
 <?php endif; ?>
 
 <?php if ($canCreate): ?>

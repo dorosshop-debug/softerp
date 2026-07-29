@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="csrf-token" content="<?php echo htmlspecialchars(\SoftNova\Core\csrf_token()); ?>">
+    <meta name="barcode-lookup-url" content="<?php echo htmlspecialchars($viewInstance->route('app/dashboard') . '?action=lookup_barcode'); ?>">
     <title><?php echo htmlspecialchars($title ?? 'Seri ERP'); ?></title>
     <?php echo \SoftNova\Core\og_meta_tags($title ?? null); ?>
     <link rel="stylesheet" href="<?php echo $viewInstance->asset('css/style.css'); ?>">
@@ -36,7 +37,7 @@
                                 <circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line>
                             </svg>
                         </span>
-                        <input type="text" class="search-input" id="globalSearchInput" placeholder="Buscar en Seri ERP... (clientes, productos, ventas)" autocomplete="off" data-search-url="<?php echo $viewInstance->route('app/dashboard'); ?>">
+                        <input type="text" class="search-input" id="globalSearchInput" placeholder="Buscar o escanear código…" autocomplete="off" data-search-url="<?php echo $viewInstance->route('app/dashboard'); ?>">
                         <button type="button" id="searchClear" class="search-clear" style="display:none;" onclick="clearSearch()">&times;</button>
                         <div class="search-results" id="searchResults" style="display:none;"></div>
                     </div>
@@ -437,6 +438,7 @@
             if (savedTheme === 'dark') document.body.classList.add('dark-mode');
         });
     </script>
+    <script src="<?php echo $viewInstance->asset('js/barcode.js'); ?>"></script>
     <script src="<?php echo $viewInstance->asset('js/app.js'); ?>"></script>
 </body>
 </html>

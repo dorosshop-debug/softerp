@@ -67,6 +67,57 @@ function addProduct(ev) {
     }
 }
 
+function findSaleOptionByCode(code) {
+    var sel = document.getElementById('productSelect');
+    if (!sel) return null;
+    code = String(code || '').trim().toLowerCase();
+    for (var i = 0; i < sel.options.length; i++) {
+        var opt = sel.options[i];
+        if (!opt.value) continue;
+        if (String(opt.dataset.code || '').toLowerCase() === code) return opt;
+    }
+    return null;
+}
+
+function addProductByBarcode(code) {
+    code = String(code || '').trim();
+    if (!code) return;
+    var opt = findSaleOptionByCode(code);
+    if (opt) {
+        document.getElementById('productSelect').value = opt.value;
+        addProduct();
+        var bar = document.getElementById('saleBarcodeInput');
+        if (bar) bar.value = '';
+        return;
+    }
+    if (window.SoftNovaBarcode && SoftNovaBarcode.lookup) {
+        SoftNovaBarcode.lookup(code).then(function(p) {
+            if (!p) {
+                showAlert('Producto no encontrado: ' + code, 'error');
+                return;
+            }
+            var sel = document.getElementById('productSelect');
+            var existing = sel.querySelector('option[value="' + p.id + '"]');
+            if (!existing) {
+                existing = document.createElement('option');
+                existing.value = p.id;
+                existing.dataset.name = p.name;
+                existing.dataset.price = p.sale_price;
+                existing.dataset.stock = p.stock;
+                existing.dataset.code = p.code || code;
+                existing.textContent = (p.code ? p.code + ' — ' : '') + p.name;
+                sel.appendChild(existing);
+            }
+            sel.value = String(p.id);
+            addProduct();
+            var bar = document.getElementById('saleBarcodeInput');
+            if (bar) bar.value = '';
+        });
+    } else {
+        showAlert('Producto no encontrado: ' + code, 'error');
+    }
+}
+
 function updateStockHint() {
     var hint = document.getElementById('productStockHint');
     var sel = document.getElementById('productSelect');
@@ -239,5 +290,16 @@ document.addEventListener('DOMContentLoaded', function() {
     initCustomerCombobox();
     if (window.location.search.indexOf('fromCart=1') > -1) {
         openSaleModal();
+    }
+    var saleBar = document.getElementById('saleBarcodeInput');
+    if (saleBar) {
+        saleBar.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                var code = saleBar.value.trim();
+                if (code) addProductByBarcode(code);
+                saleBar.value = '';
+            }
+        });
     }
 });

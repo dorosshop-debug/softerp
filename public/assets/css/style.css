@@ -2684,3 +2684,258 @@ a.stat-card-link:hover {
     margin: 0;
     font-size: 13px;
 }
+
+/* ===== POS Caja (venta rápida) ===== */
+.pos-panel {
+    display: grid;
+    grid-template-columns: 1.15fr 0.85fr;
+    gap: 16px;
+    margin-bottom: 22px;
+    align-items: stretch;
+}
+.pos-panel > .card {
+    margin: 0;
+    padding: 14px 16px;
+    min-height: 420px;
+    display: flex;
+    flex-direction: column;
+}
+.pos-sale-head {
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+    justify-content: space-between;
+    margin-bottom: 12px;
+}
+.pos-sale-meta { flex: 1; min-width: 0; }
+.pos-label {
+    display: block;
+    font-size: 12px;
+    color: var(--color-text-secondary);
+    margin-bottom: 4px;
+}
+.pos-customer { max-width: 280px; margin-bottom: 0; flex: 1; min-width: 140px; }
+.pos-customer-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    margin-bottom: 8px;
+    flex-wrap: wrap;
+}
+.pos-discount-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+.pos-discount-row .pos-label { margin-bottom: 0; }
+.pos-discount {
+    width: 90px;
+    max-width: 100%;
+}
+.pos-subtotal-line,
+.pos-discount-line {
+    font-size: 13px;
+    color: var(--color-text-secondary);
+    margin-bottom: 2px;
+}
+.pos-discount-line { color: #DC2626; }
+.pos-attendant strong {
+    display: block;
+    font-size: 22px;
+    color: #2563EB;
+    letter-spacing: 0.02em;
+    line-height: 1.1;
+}
+.pos-ticket-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 16px;
+    font-size: 12px;
+    color: var(--color-text-secondary);
+    margin: 8px 0;
+}
+.pos-total-line {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--color-text);
+}
+.pos-pay-btn {
+    border: none;
+    background: #F97316;
+    color: #fff;
+    font-weight: 800;
+    font-size: 18px;
+    padding: 18px 22px;
+    border-radius: 10px;
+    cursor: pointer;
+    min-width: 110px;
+    box-shadow: 0 4px 14px rgba(249, 115, 22, 0.35);
+}
+.pos-pay-btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+    box-shadow: none;
+}
+.pos-pay-btn:not(:disabled):hover { filter: brightness(1.05); }
+.pos-items-wrap {
+    flex: 1;
+    overflow: auto;
+    border: 1px solid var(--color-border);
+    border-radius: 10px;
+    background: var(--bg-card, #fff);
+}
+.pos-items-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+}
+.pos-items-table th {
+    text-align: left;
+    padding: 8px 10px;
+    background: rgba(13, 124, 74, 0.06);
+    border-bottom: 1px solid var(--color-border);
+    font-size: 12px;
+}
+.pos-items-table td {
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--color-border);
+    vertical-align: middle;
+}
+.pos-empty-row td {
+    text-align: center;
+    color: var(--color-text-secondary);
+    padding: 28px 12px !important;
+}
+.pos-qty {
+    width: 58px;
+    padding: 6px 8px;
+    border: 1px solid #EF4444;
+    border-radius: 6px;
+    text-align: center;
+}
+.pos-prod-label {
+    font-size: 12px;
+    line-height: 1.35;
+    color: var(--color-text);
+}
+.pos-actions { display: flex; gap: 6px; }
+.pos-btn-plus, .pos-btn-del, .pos-result-add {
+    width: 34px;
+    height: 34px;
+    border: none;
+    border-radius: 8px;
+    color: #fff;
+    font-weight: 700;
+    cursor: pointer;
+}
+.pos-btn-plus { background: #2563EB; }
+.pos-btn-del { background: #DC2626; font-size: 18px; line-height: 1; }
+.pos-pay-bar {
+    display: flex;
+    gap: 8px;
+    margin-top: 12px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+.pos-pay-bar .form-control { max-width: 200px; }
+.pos-search-box {
+    position: relative;
+    display: flex;
+    align-items: center;
+    margin-bottom: 12px;
+}
+.pos-search-icon {
+    position: absolute;
+    left: 12px;
+    color: var(--color-text-secondary);
+    display: flex;
+}
+.pos-search-input {
+    width: 100%;
+    padding: 12px 40px 12px 40px;
+    border: 1px solid var(--color-border);
+    border-radius: 999px;
+    font-size: 15px;
+    background: var(--bg-input, #fff);
+}
+.pos-search-input:focus {
+    outline: none;
+    border-color: var(--color-primary);
+    box-shadow: 0 0 0 3px rgba(13, 124, 74, 0.15);
+}
+.pos-search-clear {
+    position: absolute;
+    right: 10px;
+    border: none;
+    background: transparent;
+    font-size: 22px;
+    line-height: 1;
+    color: var(--color-text-secondary);
+    cursor: pointer;
+}
+.pos-search-results {
+    flex: 1;
+    overflow: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+.pos-search-hint {
+    color: var(--color-text-secondary);
+    text-align: center;
+    padding: 24px 12px;
+    margin: 0;
+    font-size: 13px;
+}
+.pos-result-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    border: 1px solid var(--color-border);
+    border-radius: 10px;
+    background: rgba(13, 124, 74, 0.03);
+}
+.pos-result-info { flex: 1; min-width: 0; }
+.pos-result-title {
+    font-size: 13px;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.pos-result-meta {
+    font-size: 12px;
+    color: var(--color-text-secondary);
+    margin-top: 2px;
+}
+.pos-result-add { background: #2563EB; flex-shrink: 0; }
+@media (max-width: 960px) {
+    .pos-panel { grid-template-columns: 1fr; }
+    .pos-panel > .card { min-height: 280px; }
+}
+
+/* Flash de pistola lectora de códigos */
+.barcode-scan-flash {
+    position: fixed;
+    left: 50%;
+    bottom: 28px;
+    transform: translateX(-50%) translateY(12px);
+    background: rgba(15, 23, 42, 0.92);
+    color: #fff;
+    padding: 10px 18px;
+    border-radius: 999px;
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    z-index: 10050;
+    opacity: 0;
+    pointer-events: none;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+    transition: opacity 0.2s ease, transform 0.2s ease;
+}
+.barcode-scan-flash.is-visible {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+}

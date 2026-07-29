@@ -109,7 +109,7 @@ class TenantCotizacionesController extends TenantController
         )->fetchAll();
         
         $products = $this->query(
-            "SELECT id, name, sale_price, stock FROM products WHERE status = 'active' ORDER BY name"
+            "SELECT id, name, code, sale_price, stock FROM products WHERE status = 'active' ORDER BY name"
         )->fetchAll();
         $customers = $this->query(
             "SELECT id, name, first_name, last_name FROM customers WHERE status = 'active' ORDER BY name"

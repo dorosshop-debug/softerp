@@ -83,6 +83,26 @@ class TenantConfigController extends Controller
             $this->backupDelete();
             return;
         }
+
+        if ($action === 'save-catalog-integration' && $this->request->method() === 'POST') {
+            \SoftNova\Core\TenantMiddleware::authorize('configuracion', 'edit');
+            $this->saveCatalogIntegration();
+            return;
+        }
+        if ($action === 'catalog-test') {
+            $this->testCatalogIntegration();
+            return;
+        }
+        if ($action === 'ml-oauth-start') {
+            \SoftNova\Core\TenantMiddleware::authorize('configuracion', 'edit');
+            $this->mlOAuthStart();
+            return;
+        }
+        if ($action === 'ml-oauth-callback') {
+            \SoftNova\Core\TenantMiddleware::authorize('configuracion', 'edit');
+            $this->mlOAuthCallback();
+            return;
+        }
         
         // Cargar settings actuales
         $settings = [];
@@ -151,6 +171,14 @@ class TenantConfigController extends Controller
             'zh' => ['flag' => '🇨🇳', 'name' => '中文'],
             'ja' => ['flag' => '🇯🇵', 'name' => '日本語'],
         ];
+
+        $catalogStatuses = [];
+        try {
+            $catalogStatuses = (new \SoftNova\Services\Integrations\CatalogSyncService($this->db))->statuses();
+        } catch (\Throwable $e) {
+            $catalogStatuses = [];
+        }
+        $ecomProvider = (string)$this->request->get('provider', 'woocommerce');
         
         $this->view('tenant.config', [
             'settings' => $settings,
@@ -161,9 +189,103 @@ class TenantConfigController extends Controller
             'backups' => $backups,
             'backupsAll' => $backupsAll,
             'backupPagination' => $backupPagination,
+            'catalogStatuses' => $catalogStatuses,
+            'ecomProvider' => $ecomProvider,
+            'mlOAuthRedirect' => \SoftNova\Core\route('app/configuracion') . '?action=ml-oauth-callback',
             'tenantName' => $_SESSION['tenant_name'] ?? 'Mi Empresa',
             'userName' => $_SESSION['tenant_user_name'] ?? 'Usuario',
         ]);
+    }
+
+    private function saveCatalogIntegration(): void
+    {
+        if (!$this->validateCsrfOrFail('/app/configuracion?section=ecommerce')) {
+            return;
+        }
+        $provider = (string)$this->request->post('provider', '');
+        try {
+            $svc = new \SoftNova\Services\Integrations\CatalogSyncService($this->db);
+            $svc->saveProvider($provider, [
+                'enabled' => $this->request->post('enabled', '0'),
+                'store_url' => $this->request->post('store_url', ''),
+                'consumer_key' => $this->request->post('consumer_key', ''),
+                'consumer_secret' => $this->request->post('consumer_secret', ''),
+                'access_token' => $this->request->post('access_token', ''),
+                'refresh_token' => $this->request->post('refresh_token', ''),
+                'client_id' => $this->request->post('client_id', ''),
+                'client_secret' => $this->request->post('client_secret', ''),
+                'user_id' => $this->request->post('user_id', ''),
+                'site_id' => $this->request->post('site_id', 'MCO'),
+                'base_url' => $this->request->post('base_url', ''),
+                'stock_authority' => $this->request->post('stock_authority', 'create_only'),
+            ]);
+            $this->respond(true, 'Integración e-commerce guardada', '/app/configuracion?section=ecommerce&provider=' . urlencode($provider));
+        } catch (\Throwable $e) {
+            $this->respond(false, $e->getMessage(), '/app/configuracion?section=ecommerce');
+        }
+    }
+
+    private function testCatalogIntegration(): void
+    {
+        $provider = (string)$this->request->get('provider', '');
+        $this->json((new \SoftNova\Services\Integrations\CatalogSyncService($this->db))->test($provider));
+    }
+
+    private function mlOAuthStart(): void
+    {
+        $svc = new \SoftNova\Services\Integrations\CatalogSyncService($this->db);
+        $ml = $svc->mercadoLibre();
+        if (!$ml) {
+            $this->respond(false, 'Conector ML no disponible', '/app/configuracion?section=ecommerce&provider=mercadolibre');
+            return;
+        }
+        $st = $ml->status();
+        if (empty($st['oauth_ready'])) {
+            $this->respond(false, 'Guarde primero Client ID y Client Secret', '/app/configuracion?section=ecommerce&provider=mercadolibre');
+            return;
+        }
+        $state = bin2hex(random_bytes(16));
+        $_SESSION['ml_oauth_state'] = $state;
+        $redirect = \SoftNova\Core\route('app/configuracion') . '?action=ml-oauth-callback';
+        header('Location: ' . $ml->authorizationUrl($redirect, $state));
+        exit;
+    }
+
+    private function mlOAuthCallback(): void
+    {
+        $error = (string)$this->request->get('error', '');
+        if ($error !== '') {
+            $this->respond(false, 'OAuth ML cancelado: ' . $error, '/app/configuracion?section=ecommerce&provider=mercadolibre');
+            return;
+        }
+        $state = (string)$this->request->get('state', '');
+        $expected = (string)($_SESSION['ml_oauth_state'] ?? '');
+        unset($_SESSION['ml_oauth_state']);
+        if ($expected === '' || !hash_equals($expected, $state)) {
+            $this->respond(false, 'Estado OAuth inválido. Intente conectar de nuevo.', '/app/configuracion?section=ecommerce&provider=mercadolibre');
+            return;
+        }
+        $code = (string)$this->request->get('code', '');
+        if ($code === '') {
+            $this->respond(false, 'Sin código de autorización', '/app/configuracion?section=ecommerce&provider=mercadolibre');
+            return;
+        }
+        try {
+            $svc = new \SoftNova\Services\Integrations\CatalogSyncService($this->db);
+            $ml = $svc->mercadoLibre();
+            if (!$ml) {
+                throw new \RuntimeException('Conector ML no disponible');
+            }
+            $redirect = \SoftNova\Core\route('app/configuracion') . '?action=ml-oauth-callback';
+            $ml->exchangeToken('authorization_code', [
+                'code' => $code,
+                'redirect_uri' => $redirect,
+            ]);
+            $svc->settings()->set('mercadolibre', 'enabled', '1', false);
+            $this->respond(true, 'Mercado Libre conectado', '/app/configuracion?section=ecommerce&provider=mercadolibre');
+        } catch (\Throwable $e) {
+            $this->respond(false, $e->getMessage(), '/app/configuracion?section=ecommerce&provider=mercadolibre');
+        }
     }
     
     /**

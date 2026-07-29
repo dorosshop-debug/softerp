@@ -59,7 +59,8 @@ $exportQuery = http_build_query(array_merge(['action' => 'export'], $filters['qu
     <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
         <div class="form-group" style="margin:0;flex:1;min-width:200px;">
             <label style="font-size:12px;">Buscar</label>
-            <input type="text" name="q" value="<?php echo htmlspecialchars($filters['q'] ?? ''); ?>" class="form-control" placeholder="Nombre, código o descripción...">
+            <input type="text" name="q" value="<?php echo htmlspecialchars($filters['q'] ?? ''); ?>" class="form-control" placeholder="Nombre, código de barras o descripción..." data-barcode-input="true" title="También puede escanear con pistola">
+            <small style="display:block;margin-top:4px;color:var(--color-text-secondary);font-size:11px;">Pistola lectora: escanee para filtrar por SKU/código</small>
         </div>
         <div class="form-group" style="margin:0;">
             <label style="font-size:12px;">Tipo</label>
@@ -123,16 +124,19 @@ $exportQuery = http_build_query(array_merge(['action' => 'export'], $filters['qu
     <?php if ($canExportInv): ?>
         <a href="<?php echo $invBase . '?' . $exportQuery; ?>" class="btn btn-secondary" title="Exportar CSV">Exportar CSV</a>
     <?php endif; ?>
+    <?php if ($canCreateProduct): ?>
+        <button type="button" class="btn btn-secondary" onclick="document.getElementById('importCsvModal').style.display='flex'" title="Importar productos desde CSV">Importar CSV</button>
+    <?php endif; ?>
     <?php
-    $hasContabilidad = \SoftNova\Core\TenantMiddleware::canAccess('contabilidad');
+    $hasConfig = \SoftNova\Core\TenantMiddleware::canAccess('configuracion');
     $wooSt = $catalogStatuses['woocommerce'] ?? [];
     $mlSt = $catalogStatuses['mercadolibre'] ?? [];
     ?>
     <?php if ($canCreateProduct): ?>
-        <?php if ($hasContabilidad): ?>
-            <a class="btn btn-secondary" href="<?php echo $viewInstance->route('app/contabilidad'); ?>?tab=integrations&amp;provider=woocommerce"
+        <?php if ($hasConfig): ?>
+            <a class="btn btn-secondary" href="<?php echo $viewInstance->route('app/configuracion'); ?>?section=ecommerce&amp;provider=woocommerce"
                title="Configurar WooCommerce">WooCommerce</a>
-            <a class="btn btn-secondary" href="<?php echo $viewInstance->route('app/contabilidad'); ?>?tab=integrations&amp;provider=mercadolibre"
+            <a class="btn btn-secondary" href="<?php echo $viewInstance->route('app/configuracion'); ?>?section=ecommerce&amp;provider=mercadolibre"
                title="Configurar Mercado Libre">Mercado Libre</a>
         <?php endif; ?>
         <?php foreach (['woocommerce' => $wooSt, 'mercadolibre' => $mlSt] as $code => $st): ?>
@@ -286,8 +290,8 @@ $exportQuery = http_build_query(array_merge(['action' => 'export'], $filters['qu
                     </select>
                 </div>
                 <div class="form-group">
-                    <label>Código <span class="field-tip" data-tip="SKU o código interno. Si lo deja vacío se puede generar automáticamente.">?</span></label>
-                    <input type="text" name="code" id="prodCode" class="form-control" placeholder="Auto-generado">
+                    <label>Código / barras <span class="field-tip" data-tip="SKU o código de barras. Puede escanearlo con la pistola lectora.">?</span></label>
+                    <input type="text" name="code" id="prodCode" class="form-control" placeholder="Escanear o escribir SKU" autocomplete="off">
                 </div>
                 <div class="form-group" style="grid-column:1/-1;">
                     <label>Nombre * <span class="field-tip" data-tip="Nombre visible en ventas, cotizaciones e inventario.">?</span></label>
@@ -377,6 +381,45 @@ $exportQuery = http_build_query(array_merge(['action' => 'export'], $filters['qu
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" onclick="document.getElementById('stockModal').style.display='none'">Cancelar</button>
                 <button type="submit" class="btn btn-success">Agregar Stock</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Modal Importar CSV -->
+<div id="importCsvModal" class="modal-overlay" style="display:none;">
+    <div class="modal-content neumorphic" style="max-width:560px;">
+        <div class="modal-header">
+            <h3>Importar inventario desde CSV</h3>
+            <button type="button" onclick="document.getElementById('importCsvModal').style.display='none'" class="modal-close">&times;</button>
+        </div>
+        <form method="POST" action="<?php echo $invBase; ?>?action=import_csv" enctype="multipart/form-data" data-ajax="true">
+            <?php echo \SoftNova\Core\csrf_field(); ?>
+            <div class="modal-body">
+                <div class="alert alert-info" style="margin-bottom:14px;font-size:13px;line-height:1.45;">
+                    <strong>Cómo subir el archivo</strong>
+                    <ol style="margin:8px 0 0 18px;padding:0;">
+                        <li>Descargue una plantilla con <strong>Exportar CSV</strong> (recomendado) o cree un Excel/CSV con estas columnas en la primera fila:</li>
+                    </ol>
+                    <p style="margin:8px 0;font-family:monospace;font-size:12px;background:rgba(0,0,0,0.04);padding:8px;border-radius:6px;">
+                        SKU, Nombre, Tipo, Categoria, Costo, Precio, Stock, Min, Unidad, Estado
+                    </p>
+                    <ul style="margin:0 0 0 18px;padding:0;">
+                        <li><strong>Nombre</strong> es obligatorio. <strong>SKU</strong> identifica el producto: si ya existe se actualiza; si falta se genera uno.</li>
+                        <li><strong>Tipo</strong>: <code>product</code> o <code>service</code>.</li>
+                        <li><strong>Estado</strong>: <code>active</code> o <code>inactive</code>.</li>
+                        <li>Guarde como <strong>CSV (separado por comas)</strong>, UTF-8. Tamaño máximo 5 MB.</li>
+                        <li>Si la categoría no existe, se crea automáticamente.</li>
+                    </ul>
+                </div>
+                <div class="form-group">
+                    <label>Archivo CSV *</label>
+                    <input type="file" name="csv_file" class="form-control" accept=".csv,text/csv" required>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" onclick="document.getElementById('importCsvModal').style.display='none'">Cancelar</button>
+                <button type="submit" class="btn btn-primary">Importar</button>
             </div>
         </form>
     </div>

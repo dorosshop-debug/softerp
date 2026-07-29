@@ -28,7 +28,7 @@ $showAll = empty($allowedModules);
 // Definición de módulos disponibles con sus rutas e iconos
 $allModules = [
     'dashboard' => ['route' => 'app/dashboard', 'label' => 'Dashboard', 'icon' => 'home'],
-    'caja'      => ['route' => 'app/caja', 'label' => 'Caja', 'icon' => 'cash'],
+    'caja'      => ['route' => 'app/caja', 'label' => 'Caja-POS', 'icon' => 'cash'],
     'ventas'    => ['route' => 'app/ventas', 'label' => 'Ventas', 'icon' => 'cart'],
     'inventario'=> ['route' => 'app/inventario', 'label' => 'Inventario', 'icon' => 'box'],
     'compras'   => ['route' => 'app/compras', 'label' => 'Compras', 'icon' => 'truck'],

@@ -177,6 +177,10 @@ $statusLabels = [
                 </div>
 
                 <h4 style="margin:12px 0 8px;">Ítems</h4>
+                <div style="display:flex;gap:8px;margin-bottom:8px;align-items:center;">
+                    <input type="text" id="poBarcodeInput" class="form-control" style="max-width:220px;" placeholder="Escanear código…" autocomplete="off" data-barcode-input="true" title="Pistola de código de barras">
+                    <span style="font-size:12px;color:var(--color-text-secondary);">Pistola: agrega o suma cantidad</span>
+                </div>
                 <div id="poItems"></div>
                 <button type="button" class="btn btn-secondary" onclick="addPoItem()" style="margin-top:8px;">+ Agregar producto</button>
 
@@ -319,6 +323,80 @@ function addPoItem(prefill) {
         '<button type="button" class="btn btn-sm btn-danger" onclick="this.parentElement.remove()">✕</button>';
     document.getElementById('poItems').appendChild(wrap);
 }
+
+function addPurchaseByBarcode(code) {
+    code = String(code || '').trim();
+    if (!code) return;
+    var products = window.poProducts || [];
+    var p = products.find(function(x) {
+        return String(x.code || '').toLowerCase() === code.toLowerCase();
+    });
+    if (!p && window.SoftNovaBarcode && SoftNovaBarcode.lookup) {
+        SoftNovaBarcode.lookup(code).then(function(found) {
+            if (!found) {
+                if (typeof showAlert === 'function') showAlert('Producto no encontrado: ' + code, 'error');
+                return;
+            }
+            window.poProducts = window.poProducts || [];
+            if (!window.poProducts.find(function(x) { return String(x.id) === String(found.id); })) {
+                window.poProducts.push({
+                    id: found.id,
+                    code: found.code,
+                    name: found.name,
+                    purchase_price: found.purchase_price || 0
+                });
+            }
+            addPurchaseByBarcode(found.code || code);
+        });
+        return;
+    }
+    if (!p) {
+        if (typeof showAlert === 'function') showAlert('Producto no encontrado: ' + code, 'error');
+        return;
+    }
+    var rows = document.querySelectorAll('#poItems .po-item-row');
+    for (var i = 0; i < rows.length; i++) {
+        var sel = rows[i].querySelector('select[name="product_id[]"]');
+        if (sel && String(sel.value) === String(p.id)) {
+            var qty = rows[i].querySelector('input[name="quantity[]"]');
+            if (qty) qty.value = String((parseInt(qty.value, 10) || 0) + 1);
+            if (typeof showAlert === 'function') showAlert(p.name + ' +1', 'success');
+            var bar = document.getElementById('poBarcodeInput');
+            if (bar) bar.value = '';
+            return;
+        }
+    }
+    // Si hay una fila vacía, úsala
+    for (var j = 0; j < rows.length; j++) {
+        var s2 = rows[j].querySelector('select[name="product_id[]"]');
+        if (s2 && !s2.value) {
+            s2.value = String(p.id);
+            onPoProductChange(s2);
+            if (typeof showAlert === 'function') showAlert(p.name + ' agregado', 'success');
+            var bar2 = document.getElementById('poBarcodeInput');
+            if (bar2) bar2.value = '';
+            return;
+        }
+    }
+    addPoItem({ product_id: p.id, quantity: 1, unit_cost: p.purchase_price || 0 });
+    if (typeof showAlert === 'function') showAlert(p.name + ' agregado', 'success');
+    var bar3 = document.getElementById('poBarcodeInput');
+    if (bar3) bar3.value = '';
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    var poBar = document.getElementById('poBarcodeInput');
+    if (poBar) {
+        poBar.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                var code = poBar.value.trim();
+                if (code) addPurchaseByBarcode(code);
+                poBar.value = '';
+            }
+        });
+    }
+});
 
 function onPoProductChange(sel) {
     var opt = sel.options[sel.selectedIndex];

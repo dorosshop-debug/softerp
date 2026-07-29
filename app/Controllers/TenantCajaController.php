@@ -32,6 +32,10 @@ class TenantCajaController extends TenantController
             $this->closingPdf();
             return;
         }
+        if ($action === 'searchProducts' && $this->request->method() === 'GET') {
+            $this->searchProducts();
+            return;
+        }
         
         $openSession = $this->query(
             "SELECT cs.*, u.name as user_name
@@ -64,13 +68,13 @@ class TenantCajaController extends TenantController
             )->fetch();
             
             $todaySales = $this->query(
-                "SELECT s.id, s.invoice_number, s.total, s.sale_date, s.payment_method,
+                "SELECT s.id, s.invoice_number, s.total, s.sale_date, s.payment_method, s.payment_status, s.status,
                         c.name as customer_name, u.name as user_name,
                         COALESCE((SELECT SUM(sp.amount) FROM sale_payments sp WHERE sp.sale_id = s.id), 0) as paid_amount
                  FROM sales s
                  LEFT JOIN customers c ON s.customer_id = c.id
                  LEFT JOIN users u ON s.user_id = u.id
-                 WHERE s.status = 'completed'
+                 WHERE s.status != 'cancelled'
                    AND s.sale_date >= ?
                  ORDER BY s.sale_date DESC",
                 [$openSession['opening_date']]
@@ -99,6 +103,23 @@ class TenantCajaController extends TenantController
              WHERE cs.status = 'closed'
              ORDER BY cs.closing_date DESC LIMIT 10"
         )->fetchAll();
+
+        $posCustomers = [];
+        $paymentMethods = [];
+        if ($openSession) {
+            try {
+                $posCustomers = $this->query(
+                    "SELECT id, name, first_name, last_name
+                     FROM customers
+                     WHERE status = 'active'
+                     ORDER BY COALESCE(NULLIF(TRIM(name), ''), first_name) ASC
+                     LIMIT 400"
+                )->fetchAll();
+            } catch (\Throwable $e) {
+                $posCustomers = [];
+            }
+            $paymentMethods = \SoftNova\Services\PaymentMethodCatalog::all();
+        }
         
         $this->view('tenant.caja', $this->tenantViewData([
             'openSession' => $openSession,
@@ -106,8 +127,64 @@ class TenantCajaController extends TenantController
             'todaySales' => $todaySales,
             'totals' => $totals,
             'historySessions' => $historySessions,
+            'posCustomers' => $posCustomers,
+            'paymentMethods' => $paymentMethods,
+            'invoicePrefix' => $this->getSetting('invoice_prefix', 'FAC-'),
             'formatMoney' => fn($a) => $this->formatMoney($a),
         ]));
+    }
+
+    /**
+     * Búsqueda rápida de productos para el POS de caja (código / nombre).
+     */
+    private function searchProducts(): void
+    {
+        $q = trim((string)$this->request->get('q', ''));
+        if (mb_strlen($q) < 1) {
+            $this->json(['success' => true, 'products' => []]);
+            return;
+        }
+
+        $like = '%' . $q . '%';
+        $exact = $q;
+        try {
+            $rows = $this->query(
+                "SELECT id, name, code, sale_price, stock
+                 FROM products
+                 WHERE status = 'active'
+                   AND (
+                        code = ?
+                        OR code LIKE ?
+                        OR name LIKE ?
+                        OR CAST(id AS CHAR) = ?
+                   )
+                 ORDER BY
+                    CASE
+                        WHEN code = ? THEN 0
+                        WHEN code LIKE ? THEN 1
+                        WHEN name LIKE ? THEN 2
+                        ELSE 3
+                    END,
+                    name ASC
+                 LIMIT 25",
+                [$exact, $like, $like, $exact, $exact, $exact . '%', $like]
+            )->fetchAll();
+        } catch (\Throwable $e) {
+            $this->json(['success' => false, 'message' => 'No se pudo buscar productos', 'products' => []]);
+            return;
+        }
+
+        $products = array_map(static function (array $p): array {
+            return [
+                'id' => (int)$p['id'],
+                'name' => (string)$p['name'],
+                'code' => (string)($p['code'] ?? ''),
+                'sale_price' => (float)$p['sale_price'],
+                'stock' => (int)$p['stock'],
+            ];
+        }, $rows);
+
+        $this->json(['success' => true, 'products' => $products]);
     }
     
     private function openCash(): void

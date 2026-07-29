@@ -75,6 +75,11 @@ class TenantInventarioController extends TenantController
             $this->exportProducts();
             return;
         }
+        if ($action === 'import_csv' && $this->request->method() === 'POST') {
+            TenantMiddleware::authorize('inventario', 'create');
+            $this->importCsv();
+            return;
+        }
         
         $filters = $this->listFilters([
             'name' => 'p.name',
@@ -584,5 +589,198 @@ class TenantInventarioController extends TenantController
             ['SKU', 'Nombre', 'Tipo', 'Categoria', 'Costo', 'Precio', 'Stock', 'Min', 'Unidad', 'Estado'],
             $csvRows
         );
+    }
+
+    private function importCsv(): void
+    {
+        if (!$this->validateCsrfOrFail('/app/inventario')) {
+            return;
+        }
+
+        if (empty($_FILES['csv_file']['tmp_name']) || !is_uploaded_file($_FILES['csv_file']['tmp_name'])) {
+            $this->respond(false, 'Seleccione un archivo CSV para importar', '/app/inventario');
+            return;
+        }
+
+        $tmp = $_FILES['csv_file']['tmp_name'];
+        $size = (int)($_FILES['csv_file']['size'] ?? 0);
+        if ($size <= 0 || $size > 5 * 1024 * 1024) {
+            $this->respond(false, 'El archivo CSV debe pesar máximo 5 MB', '/app/inventario');
+            return;
+        }
+
+        $handle = fopen($tmp, 'r');
+        if ($handle === false) {
+            $this->respond(false, 'No se pudo leer el archivo CSV', '/app/inventario');
+            return;
+        }
+
+        $header = fgetcsv($handle, 0, ',');
+        if ($header === false || count($header) < 2) {
+            fclose($handle);
+            $this->respond(false, 'CSV vacío o sin encabezados. Use el formato de Exportar CSV.', '/app/inventario');
+            return;
+        }
+
+        // Normalizar BOM UTF-8
+        $header[0] = preg_replace('/^\xEF\xBB\xBF/', '', (string)$header[0]);
+        $map = [];
+        foreach ($header as $i => $col) {
+            $key = strtolower(trim((string)$col));
+            $key = str_replace(['á', 'é', 'í', 'ó', 'ú'], ['a', 'e', 'i', 'o', 'u'], $key);
+            $aliases = [
+                'sku' => 'code', 'codigo' => 'code', 'code' => 'code',
+                'nombre' => 'name', 'name' => 'name',
+                'tipo' => 'type', 'type' => 'type', 'product_type' => 'type',
+                'categoria' => 'category', 'category' => 'category',
+                'costo' => 'cost', 'cost' => 'cost', 'purchase_price' => 'cost',
+                'precio' => 'price', 'price' => 'price', 'sale_price' => 'price',
+                'stock' => 'stock',
+                'min' => 'min', 'min_stock' => 'min',
+                'unidad' => 'unit', 'unit' => 'unit',
+                'estado' => 'status', 'status' => 'status',
+            ];
+            if (isset($aliases[$key])) {
+                $map[$aliases[$key]] = $i;
+            }
+        }
+
+        if (!isset($map['name'])) {
+            fclose($handle);
+            $this->respond(false, 'Falta la columna Nombre (requerida). Encabezados esperados: SKU, Nombre, Tipo, Categoria, Costo, Precio, Stock, Min, Unidad, Estado', '/app/inventario');
+            return;
+        }
+
+        $created = 0;
+        $updated = 0;
+        $skipped = 0;
+        $errors = [];
+        $rowNum = 1;
+        $userId = (int)($_SESSION['tenant_user_id'] ?? 0);
+
+        try {
+            $this->db->beginTransaction();
+
+            while (($row = fgetcsv($handle, 0, ',')) !== false) {
+                $rowNum++;
+                if ($this->csvRowEmpty($row)) {
+                    continue;
+                }
+
+                $name = trim((string)($row[$map['name']] ?? ''));
+                if ($name === '') {
+                    $skipped++;
+                    $errors[] = "Fila {$rowNum}: sin nombre";
+                    continue;
+                }
+
+                $code = isset($map['code']) ? trim((string)($row[$map['code']] ?? '')) : '';
+                $typeRaw = isset($map['type']) ? strtolower(trim((string)($row[$map['type']] ?? 'product'))) : 'product';
+                $productType = in_array($typeRaw, ['service', 'servicio'], true) ? 'service' : 'product';
+                $categoryName = isset($map['category']) ? trim((string)($row[$map['category']] ?? '')) : '';
+                $cost = isset($map['cost']) ? (float)str_replace([',', ' '], ['.', ''], (string)($row[$map['cost']] ?? 0)) : 0.0;
+                $price = isset($map['price']) ? (float)str_replace([',', ' '], ['.', ''], (string)($row[$map['price']] ?? 0)) : 0.0;
+                $stock = isset($map['stock']) ? (int)$row[$map['stock']] : 0;
+                $minStock = isset($map['min']) ? (int)$row[$map['min']] : 5;
+                $unit = isset($map['unit']) ? trim((string)($row[$map['unit']] ?? 'UNIDAD')) : 'UNIDAD';
+                if ($unit === '') {
+                    $unit = 'UNIDAD';
+                }
+                $statusRaw = isset($map['status']) ? strtolower(trim((string)($row[$map['status']] ?? 'active'))) : 'active';
+                $status = in_array($statusRaw, ['inactive', 'inactivo', '0'], true) ? 'inactive' : 'active';
+                if ($productType === 'service') {
+                    $stock = 0;
+                }
+
+                $categoryId = $this->resolveCategoryId($categoryName);
+
+                $existing = null;
+                if ($code !== '') {
+                    $existing = $this->query("SELECT id, stock, product_type FROM products WHERE code = ? LIMIT 1", [$code])->fetch();
+                }
+
+                if ($existing) {
+                    $id = (int)$existing['id'];
+                    $oldStock = (int)$existing['stock'];
+                    $this->query(
+                        "UPDATE products SET name = ?, product_type = ?, category_id = ?, purchase_price = ?, sale_price = ?,
+                         stock = ?, min_stock = ?, unit = ?, status = ? WHERE id = ?",
+                        [$name, $productType, $categoryId, $cost, $price, $stock, $minStock, $unit, $status, $id]
+                    );
+                    if ($productType === 'product' && $stock !== $oldStock) {
+                        $diff = $stock - $oldStock;
+                        $this->stock->addMovement(
+                            $id,
+                            $diff > 0 ? 'in' : 'out',
+                            abs($diff),
+                            'adjustment',
+                            null,
+                            'Ajuste por importación CSV'
+                        );
+                    }
+                    $updated++;
+                } else {
+                    if ($code === '') {
+                        $code = 'SKU-' . strtoupper(substr(bin2hex(random_bytes(3)), 0, 6));
+                    }
+                    $this->query(
+                        "INSERT INTO products
+                            (code, name, product_type, description, category_id, purchase_price, sale_price,
+                             stock, min_stock, unit, status, created_by)
+                         VALUES (?, ?, ?, '', ?, ?, ?, ?, ?, ?, ?, ?)",
+                        [$code, $name, $productType, $categoryId, $cost, $price, $stock, $minStock, $unit, $status, $userId ?: null]
+                    );
+                    $newId = (int)$this->db->lastInsertId();
+                    if ($stock > 0 && $productType === 'product') {
+                        $this->stock->addMovement($newId, 'in', $stock, 'adjustment', null, 'Stock inicial (importación CSV)');
+                    }
+                    $created++;
+                }
+            }
+
+            $this->db->commit();
+        } catch (\Throwable $e) {
+            if ($this->db->inTransaction()) {
+                $this->db->rollBack();
+            }
+            fclose($handle);
+            $this->respond(false, 'Error al importar: ' . $e->getMessage(), '/app/inventario');
+            return;
+        }
+
+        fclose($handle);
+
+        $msg = "Importación CSV: {$created} creados, {$updated} actualizados";
+        if ($skipped > 0) {
+            $msg .= ", {$skipped} omitidos";
+        }
+        if (!empty($errors) && count($errors) <= 3) {
+            $msg .= ' (' . implode('; ', $errors) . ')';
+        }
+        $this->respond(true, $msg, '/app/inventario');
+    }
+
+    private function csvRowEmpty(array $row): bool
+    {
+        foreach ($row as $cell) {
+            if (trim((string)$cell) !== '') {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private function resolveCategoryId(string $name): ?int
+    {
+        $name = trim($name);
+        if ($name === '') {
+            return null;
+        }
+        $id = $this->query("SELECT id FROM categories WHERE name = ? LIMIT 1", [$name])->fetchColumn();
+        if ($id) {
+            return (int)$id;
+        }
+        $this->query("INSERT INTO categories (name) VALUES (?)", [$name]);
+        return (int)$this->db->lastInsertId();
     }
 }
