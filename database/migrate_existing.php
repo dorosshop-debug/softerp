@@ -166,4 +166,39 @@ try {
     echo '⚠ auditoría cuentas: ' . $e->getMessage() . "\n";
 }
 
+// Índices de rendimiento (idempotente)
+echo "\n=== Índices de rendimiento ===\n";
+foreach ($tenants as $tenant) {
+    $dbName = $tenant['database_name'];
+    echo "Tenant: {$dbName}\n";
+    try {
+        $pdo = $tenantDb->getTenantConnection($dbName, '', '');
+        $indexes = [
+            ['sales', 'idx_sale_date', 'sale_date'],
+            ['sales', 'idx_sales_status_date', 'status, sale_date'],
+            ['products', 'idx_code', 'code'],
+            ['cash_movements', 'idx_session', 'cash_session_id'],
+            ['cash_movements', 'idx_cm_session_type', 'cash_session_id, type'],
+        ];
+        foreach ($indexes as [$table, $name, $cols]) {
+            try {
+                $exists = $pdo->query("SHOW INDEX FROM `{$table}` WHERE Key_name = " . $pdo->quote($name))->fetch();
+                if ($exists) {
+                    echo "  - {$table}.{$name} ya existe\n";
+                    continue;
+                }
+                $pdo->exec("ALTER TABLE `{$table}` ADD INDEX `{$name}` ({$cols})");
+                echo "  ✓ {$table}.{$name} creado\n";
+            } catch (\Throwable $e) {
+                echo "  · {$table}.{$name}: " . $e->getMessage() . "\n";
+            }
+        }
+        \SoftNova\Services\TenantAudit::ensureTable($pdo);
+        (new \SoftNova\Services\JobQueue($pdo)); // ensure table
+        echo "  ✓ activity_logs / job_queue OK\n";
+    } catch (\Throwable $e) {
+        echo "  ERROR: " . $e->getMessage() . "\n";
+    }
+}
+
 echo "=== Migración completada ===\n";

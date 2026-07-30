@@ -108,6 +108,17 @@ class TenantNotificationsController extends TenantController
             "INSERT IGNORE INTO notification_dismissals (user_id, item_key) VALUES (?, ?)",
             [$userId, $key]
         );
+
+        if (preg_match('/^push:(\d+)$/', $key, $m)) {
+            try {
+                $this->query(
+                    "UPDATE push_notifications SET status = 'read', read_at = NOW() WHERE id = ?",
+                    [(int)$m[1]]
+                );
+            } catch (\Throwable $e) {
+                // ignore
+            }
+        }
         
         $this->json(['success' => true, 'message' => 'Notificacion eliminada']);
     }
@@ -207,28 +218,60 @@ class TenantNotificationsController extends TenantController
             $sales = $this->query(
                 "SELECT id, invoice_number, total, sale_date, status
                  FROM sales
-                 WHERE status IN ('completed', 'pending')
+                 WHERE status IN ('completed', 'pending', 'cancelled')
                  ORDER BY sale_date DESC
-                 LIMIT 5"
+                 LIMIT 8"
             )->fetchAll();
             
+            $isPos = TenantMiddleware::isPosUser();
             foreach ($sales as $s) {
+                $status = (string)($s['status'] ?? '');
+                if ($isPos && !in_array($status, ['cancelled', 'pending', 'completed'], true)) {
+                    continue;
+                }
+                $isFail = $status === 'cancelled';
                 $items[] = [
                     'id' => 'sale:' . (int)$s['id'],
-                    'type' => 'sale',
-                    'title' => 'Venta ' . ($s['invoice_number'] ?? '#' . $s['id']),
+                    'type' => $isFail ? 'sale_failed' : 'sale',
+                    'title' => ($isFail ? 'Venta cancelada ' : 'Venta ') . ($s['invoice_number'] ?? '#' . $s['id']),
                     'message' => 'Total: ' . $this->formatMoney((float)$s['total']),
-                    'meta' => $s['status'] === 'completed' ? 'Completada' : 'Pendiente',
-                    'url' => '/app/ventas',
+                    'meta' => $isFail ? 'Fallida / cancelada' : ($status === 'completed' ? 'Completada' : 'Pendiente'),
+                    'url' => $isPos ? '/app/caja' : '/app/ventas',
                     'time' => $s['sale_date'],
-                    'urgent' => false,
+                    'urgent' => $isFail,
                 ];
             }
         } catch (\Throwable $e) {
             error_log('notifications sales: ' . $e->getMessage());
         }
+
+        try {
+            $this->query("SELECT 1 FROM push_notifications LIMIT 0");
+            $pushes = $this->query(
+                "SELECT id, event_type, title, body, created_at, status
+                 FROM push_notifications
+                 WHERE status IN ('pending', 'sent')
+                 ORDER BY created_at DESC
+                 LIMIT 8"
+            )->fetchAll();
+            foreach ($pushes as $p) {
+                $items[] = [
+                    'id' => 'push:' . (int)$p['id'],
+                    'type' => ($p['event_type'] ?? '') === 'sale_failed' ? 'sale_failed' : 'push',
+                    'title' => $p['title'] ?? 'Aviso',
+                    'message' => mb_substr((string)($p['body'] ?? ''), 0, 120),
+                    'meta' => 'Push',
+                    'url' => TenantMiddleware::isPosUser() ? '/app/caja' : '/app/ventas',
+                    'time' => $p['created_at'],
+                    'urgent' => ($p['event_type'] ?? '') === 'sale_failed',
+                ];
+            }
+        } catch (\Throwable $e) {
+            // tabla puede no existir aún
+        }
         
         try {
+            if (!TenantMiddleware::isPosUser()) {
             $movements = $this->query(
                 "SELECT sm.id, sm.type, sm.quantity, sm.notes, sm.created_at, p.name as product_name
                  FROM stock_movements sm
@@ -276,6 +319,7 @@ class TenantNotificationsController extends TenantController
                     'urgent' => true,
                 ];
             }
+            } // fin !isPosUser
         } catch (\Throwable $e) {
             error_log('notifications inventory: ' . $e->getMessage());
         }

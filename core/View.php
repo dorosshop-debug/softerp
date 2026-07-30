@@ -49,8 +49,12 @@ class View
             if (isset($layout)) {
                 $layoutFile = $this->viewPath . 'layouts/' . $layout . '.php';
                 if (file_exists($layoutFile)) {
-                    // Hacer $content disponible para el layout
-                    $layoutData = array_merge($data, ['content' => $content]);
+                    // Hacer $content disponible para el layout (+ scripts de módulo definidos en la vista)
+                    $layoutData = array_merge($data, [
+                        'content' => $content,
+                        'pageScripts' => $pageScripts ?? ($data['pageScripts'] ?? []),
+                        'loadBarcode' => $loadBarcode ?? ($data['loadBarcode'] ?? null),
+                    ]);
                     extract($layoutData);
                     ob_start();
                     require $layoutFile;

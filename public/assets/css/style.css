@@ -2755,6 +2755,12 @@ a.stat-card-link:hover {
     color: var(--color-text-secondary);
     margin: 8px 0;
 }
+.pos-ticket-meta #posPrefijo {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+    color: var(--color-text);
+}
 .pos-total-line {
     font-size: 18px;
     font-weight: 700;
@@ -2838,7 +2844,7 @@ a.stat-card-link:hover {
     align-items: center;
     flex-wrap: wrap;
 }
-.pos-pay-bar .form-control { max-width: 200px; }
+.pos-pay-bar .form-control { max-width: 170px; }
 .pos-search-box {
     position: relative;
     display: flex;
@@ -2938,4 +2944,83 @@ a.stat-card-link:hover {
 .barcode-scan-flash.is-visible {
     opacity: 1;
     transform: translateX(-50%) translateY(0);
+}
+
+.caja-stats-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 12px;
+    padding: 4px 2px;
+}
+.pos-customer-combo {
+    flex: 1;
+    min-width: 180px;
+    max-width: 320px;
+    position: relative;
+}
+.pos-tax-line {
+    font-size: 13px;
+    color: var(--color-text-secondary);
+    margin-bottom: 2px;
+}
+.pos-recent-block {
+    margin: 8px 0 10px;
+}
+.pos-recent-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--color-text-secondary);
+    margin-bottom: 6px;
+}
+.pos-recent-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+.pos-recent-chip {
+    border: 1px solid var(--color-border);
+    background: rgba(13, 124, 74, 0.06);
+    color: var(--color-text);
+    border-radius: 8px;
+    padding: 6px 10px;
+    font-size: 12px;
+    cursor: pointer;
+    max-width: 100%;
+    text-align: left;
+}
+.pos-recent-chip:hover {
+    background: rgba(13, 124, 74, 0.12);
+}
+.pos-recent-chip span {
+    display: block;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 220px;
+}
+.config-users-perms {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 8px;
+    margin-top: 8px;
+}
+.config-users-perms label {
+    display: flex;
+    gap: 6px;
+    align-items: flex-start;
+    font-size: 12px;
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+    padding: 8px;
+    margin: 0;
+}
+.config-users-perms .perm-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 10px;
+    margin-top: 4px;
+    font-size: 11px;
+    color: var(--color-text-secondary);
 }

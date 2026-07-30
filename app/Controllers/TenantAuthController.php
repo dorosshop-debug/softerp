@@ -84,7 +84,7 @@ class TenantAuthController extends Controller
             if ($localRole === 'user') {
                 $localRole = 'manager';
             }
-            if (in_array($localRole, ['mesero', 'waiter', 'auxiliar_mesero'], true)) {
+            if (in_array($localRole, ['mesero', 'waiter', 'auxiliar_mesero', 'pos', 'user_pos'], true)) {
                 $localRole = 'auxiliar';
             }
             $this->ensureTenantUserRoleEnum($tenantConn);
@@ -125,7 +125,21 @@ class TenantAuthController extends Controller
         $_SESSION['tenant_id'] = $user['tenant_id'];
         $_SESSION['tenant_name'] = $user['company_name'];
         $_SESSION['tenant_db_name'] = $user['database_name'];
+        $_SESSION['tenant_db_user'] = $user['database_user'];
+        $_SESSION['tenant_db_pass'] = $user['database_password'];
         $_SESSION['tenant_authenticated'] = true;
+        
+        // Permisos personalizados (rol User) — JSON desde master
+        $decodedPerms = [];
+        if (!empty($user['permissions'])) {
+            $tmp = is_array($user['permissions'])
+                ? $user['permissions']
+                : json_decode((string)$user['permissions'], true);
+            if (is_array($tmp)) {
+                $decodedPerms = $tmp;
+            }
+        }
+        $_SESSION['tenant_permissions'] = $decodedPerms;
         
         // Guardar módulos del plan para filtrar sidebar
         $planModules = json_decode($user['plan_modules'] ?? '[]', true) ?: [];
@@ -137,7 +151,11 @@ class TenantAuthController extends Controller
             [$this->request->ip(), $user['id']]
         );
         
-        redirect(in_array(($user['role'] ?? ''), ['auxiliar', 'mesero'], true) ? '/app/ventas' : '/app/dashboard');
+        $role = strtolower((string)($user['role'] ?? ''));
+        $home = in_array($role, ['auxiliar', 'mesero', 'pos', 'user_pos', 'cashier'], true)
+            ? '/app/caja'
+            : '/app/dashboard';
+        redirect($home);
     }
     
     /**

@@ -41,7 +41,7 @@ $avatarUrl = $settings['user_avatar'] ?? null;
                 <div>
                     <strong style="font-size:16px;"><?php echo htmlspecialchars($currentUser['name'] ?? $userName); ?></strong>
                     <p style="color:var(--color-text-secondary);font-size:13px;margin:4px 0;"><?php echo htmlspecialchars($currentUser['email'] ?? ''); ?></p>
-                    <span class="badge badge-info" style="font-size:11px;"><?php echo ucfirst($currentUser['role'] ?? 'admin'); ?></span>
+                    <span class="badge badge-info" style="font-size:11px;"><?php echo htmlspecialchars(\SoftNova\Core\TenantMiddleware::roleLabel($currentUser['role'] ?? ($_SESSION['tenant_user_role'] ?? 'admin'))); ?></span>
                     <?php if (!empty($currentUser['last_login_at'])): ?>
                         <p style="color:var(--color-text-secondary);font-size:11px;margin-top:4px;">Último acceso: <?php echo date('d/m/Y H:i', strtotime($currentUser['last_login_at'])); ?></p>
                     <?php endif; ?>
@@ -242,6 +242,45 @@ $avatarUrl = $settings['user_avatar'] ?? null;
             </form>
         </div>
     </div>
+
+    <?php if (\SoftNova\Core\TenantMiddleware::isAdmin()): ?>
+    <div class="card neumorphic">
+        <div class="card-header">
+            <h3>Notificaciones de ventas fallidas</h3>
+        </div>
+        <div class="card-body">
+            <p style="font-size:13px;color:var(--color-text-secondary);margin:0 0 14px;">
+                Si una venta falla o se cancela, se crea un aviso en la campana y (opcional) se envía un webhook HTTP POST JSON.
+            </p>
+            <form method="POST" action="<?php echo $viewInstance->route('app/configuracion'); ?>?action=save" data-ajax="true">
+                <?php echo \SoftNova\Core\csrf_field(); ?>
+                <div class="form-group">
+                    <label>Webhook URL (venta fallida)</label>
+                    <input type="url" name="failed_sale_webhook_url" class="form-control"
+                           placeholder="https://ejemplo.com/hooks/sale-failed"
+                           value="<?php echo htmlspecialchars($settings['failed_sale_webhook_url'] ?? ''); ?>">
+                    <small style="color:var(--color-text-secondary);">Deje vacío para desactivar el webhook. El envío se encola y se procesa con los jobs.</small>
+                </div>
+                <button type="submit" class="btn btn-primary">Guardar webhook</button>
+            </form>
+            <hr style="border-color:var(--color-border);margin:18px 0;">
+            <form method="POST" action="<?php echo $viewInstance->route('app/configuracion'); ?>?action=processJobs" data-ajax="true">
+                <?php echo \SoftNova\Core\csrf_field(); ?>
+                <p style="font-size:13px;color:var(--color-text-secondary);margin:0 0 10px;">
+                    Procesa hasta 10 trabajos pendientes (backups, import CSV, webhooks). En producción use cron:
+                    <code>php database/process_jobs.php</code>
+                </p>
+                <button type="submit" class="btn btn-secondary">Procesar cola de jobs ahora</button>
+            </form>
+        </div>
+    </div>
+    <?php endif; ?>
+
+    <?php
+    if (\SoftNova\Core\TenantMiddleware::isAdmin()) {
+        require APP_PATH . '/Views/partials/config_users.php';
+    }
+    ?>
 
     <?php require APP_PATH . '/Views/partials/config_ecommerce.php'; ?>
 

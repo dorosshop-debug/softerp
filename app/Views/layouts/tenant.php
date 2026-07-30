@@ -438,7 +438,24 @@
             if (savedTheme === 'dark') document.body.classList.add('dark-mode');
         });
     </script>
+    <?php
+    $reqPath = (string)(parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH) ?: '');
+    $barcodePages = ['caja', 'ventas', 'inventario', 'cotizaciones', 'proveedores', 'dashboard', 'compras'];
+    $needsBarcode = !empty($loadBarcode);
+    if (!$needsBarcode) {
+        foreach ($barcodePages as $seg) {
+            if (str_contains($reqPath, '/app/' . $seg)) {
+                $needsBarcode = true;
+                break;
+            }
+        }
+    }
+    if ($needsBarcode): ?>
     <script src="<?php echo $viewInstance->asset('js/barcode.js'); ?>"></script>
+    <?php endif; ?>
     <script src="<?php echo $viewInstance->asset('js/app.js'); ?>"></script>
+    <?php foreach ((array)($pageScripts ?? []) as $script): ?>
+    <script src="<?php echo $viewInstance->asset(ltrim((string)$script, '/')); ?>"></script>
+    <?php endforeach; ?>
 </body>
 </html>

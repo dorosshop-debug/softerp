@@ -153,12 +153,25 @@ abstract class TenantController extends Controller
     
     protected function getSetting(string $key, string $default = ''): string
     {
-        $row = $this->query(
-            "SELECT setting_value FROM settings WHERE setting_key = ?",
-            [$key]
-        )->fetch();
-        
-        return $row['setting_value'] ?? $default;
+        $tenantKey = (string)($_SESSION['tenant_db_name'] ?? 'tenant');
+        $cacheKey = 'setting:' . $tenantKey . ':' . $key;
+        return (string)\SoftNova\Core\SimpleCache::instance()->remember($cacheKey, 120, function () use ($key, $default) {
+            $row = $this->query(
+                "SELECT setting_value FROM settings WHERE setting_key = ?",
+                [$key]
+            )->fetch();
+            return $row['setting_value'] ?? $default;
+        });
+    }
+
+    protected function forgetSettingCache(?string $key = null): void
+    {
+        $tenantKey = (string)($_SESSION['tenant_db_name'] ?? 'tenant');
+        if ($key) {
+            \SoftNova\Core\SimpleCache::instance()->forget('setting:' . $tenantKey . ':' . $key);
+            return;
+        }
+        // sin lista: no-op fino; los TTL cortos bastan
     }
     
     protected function companySettings(): array

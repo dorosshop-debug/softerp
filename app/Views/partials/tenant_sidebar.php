@@ -91,7 +91,8 @@ function tenantIcon(string $name): string {
                 <?php endif; ?>
             <?php endforeach; ?>
             
-            <!-- Configuración siempre visible -->
+            <!-- Configuración solo si el rol tiene acceso -->
+            <?php if (\SoftNova\Core\TenantMiddleware::canAccess('configuracion')): ?>
             <li>
                 <a href="<?php echo $viewInstance->route('app/configuracion'); ?>" 
                    class="<?php echo str_contains($currentUri, '/app/configuracion') ? 'active' : ''; ?>">
@@ -104,6 +105,7 @@ function tenantIcon(string $name): string {
                     <span class="nav-text">Configuración</span>
                 </a>
             </li>
+            <?php endif; ?>
         </ul>
     </nav>
     

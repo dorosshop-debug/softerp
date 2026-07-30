@@ -7,8 +7,12 @@ function toggleCredit() {
     var s = document.getElementById('paymentType').value === 'credit';
     document.getElementById('initialPaymentGroup').style.display = s ? 'block' : 'none';
     var terms = document.getElementById('paymentTerms');
-    if (terms && s && terms.value === 'cash') {
-        terms.value = 'net_30';
+    if (terms) {
+        if (s && terms.value === 'cash') {
+            terms.value = 'net_30';
+        } else if (!s) {
+            terms.value = 'cash';
+        }
         onPaymentTermsChange();
     }
 }

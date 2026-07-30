@@ -2,6 +2,8 @@
 $layout = 'tenant';
 $title = 'Caja-POS - ' . ($tenantName ?? 'Sistema');
 $pageTitle = 'Caja-POS';
+$loadBarcode = true;
+$pageScripts = ['js/ventas.js', 'js/caja.js'];
 $tenantName = $tenantName ?? 'Mi Empresa'; $userName = $userName ?? 'Usuario';
 $openSession = $openSession ?? null; $movements = $movements ?? [];
 $todaySales = $todaySales ?? [];
@@ -49,7 +51,59 @@ $warningClass = $hours > 20 ? 'badge-danger' : ($hours > 16 ? 'badge-warning' : 
 $csrfPos = \SoftNova\Core\csrf_token();
 $searchUrl = $viewInstance->route('app/caja') . '?action=searchProducts';
 $saleUrl = $viewInstance->route('app/ventas') . '?action=create';
+$isAdmin = $isAdmin ?? \SoftNova\Core\TenantMiddleware::isAdmin();
+$isPosUser = $isPosUser ?? \SoftNova\Core\TenantMiddleware::isPosUser();
+$taxRate = (float)($taxRate ?? 0);
+$canManageCash = \SoftNova\Core\TenantMiddleware::canDo('create', 'caja');
+$canCloseCash = \SoftNova\Core\TenantMiddleware::canDo('edit', 'caja');
+$canGastos = \SoftNova\Core\TenantMiddleware::canAccess('gastos');
+$canCompras = \SoftNova\Core\TenantMiddleware::canAccess('compras');
+$invoicePreview = ($invoicePrefix ?? 'FAC-') . date('Ymd') . '-XXXX';
+$expenseCategories = $expenseCategories ?? [];
+$expenseSuppliers = $expenseSuppliers ?? [];
+$financialCats = array_filter($expenseCategories, static fn($c) => ($c['kind'] ?? '') === 'financial');
+$operationalCats = array_filter($expenseCategories, static fn($c) => ($c['kind'] ?? '') === 'operational');
 ?>
+
+<?php if ($isAdmin): ?>
+<section class="caja-stats-section card neumorphic" id="cajaStatsSection" style="margin-bottom:20px;">
+    <div class="card-header" style="display:flex;align-items:center;justify-content:space-between;gap:12px;">
+        <h3 style="margin:0;">Resumen de caja</h3>
+        <button type="button" class="btn btn-secondary btn-sm" id="cajaStatsToggle">Ocultar</button>
+    </div>
+    <div class="card-body" id="cajaStatsBody">
+        <div class="stats-grid">
+            <div class="stat-card neumorphic"><h4>Monto Apertura</h4><div class="stat-value"><?php echo fmt($openSession['opening_amount'], $currency); ?></div></div>
+            <div class="stat-card neumorphic"><h4>Ingresos</h4><div class="stat-value" style="color:#10B981;">+<?php echo fmt($totals['incomes'], $currency); ?></div></div>
+            <div class="stat-card neumorphic"><h4>Egresos</h4><div class="stat-value" style="color:#DC2626;">-<?php echo fmt($totals['expenses'], $currency); ?></div></div>
+            <div class="stat-card neumorphic"><h4>Balance Actual</h4><div class="stat-value" style="color:<?php echo $totals['balance']>=0?'#10B981':'#DC2626';?>;"><?php echo fmt($totals['balance'], $currency); ?></div></div>
+        </div>
+    </div>
+</section>
+<?php endif; ?>
+
+<div style="display:flex;gap:15px;margin-bottom:20px;flex-wrap:wrap;align-items:center;">
+    <div style="flex:1;min-width:200px;">
+        <span style="color:var(--color-text-secondary);font-size:13px;">
+            Abierta por: <strong><?php echo htmlspecialchars($openSession['user_name']); ?></strong> · <?php echo date('d/m/Y H:i', strtotime($openSession['opening_date'])); ?>
+        </span>
+        <span class="badge <?php echo $warningClass; ?>" style="margin-left:8px;">
+            ⏱️ <?php echo $hours; ?>h abierta
+            <?php if ($hours > 20): ?> ⚠️ ¡Cierre antes de 24h!<?php endif; ?>
+        </span>
+        <?php if ($hours > 22): ?>
+        <div class="alert alert-error" style="margin-top:8px;font-size:13px;">
+            ⚠️ <strong>¡Atención!</strong> La caja lleva más de 22 horas abierta. Debe cerrarse antes de 24 horas.
+        </div>
+        <?php endif; ?>
+    </div>
+    <?php if ($canManageCash): ?>
+    <button type="button" onclick="openGastoCompraModal()" class="btn btn-primary neumorphic-btn">+ Gasto / Compra</button>
+    <?php endif; ?>
+    <?php if ($canCloseCash): ?>
+    <button onclick="document.getElementById('closeCashModal').style.display='flex'" class="btn btn-danger">Cerrar Caja</button>
+    <?php endif; ?>
+</div>
 
 <?php if ($canSell): ?>
 <!-- POS (venta rápida) -->
@@ -60,26 +114,32 @@ $saleUrl = $viewInstance->route('app/ventas') . '?action=create';
          data-symbol="<?php echo htmlspecialchars($currency['symbol'] ?? '$'); ?>"
          data-decimals="<?php echo (int)($currency['decimals'] ?? 0); ?>"
          data-prefix="<?php echo htmlspecialchars((string)$invoicePrefix); ?>"
+         data-tax-rate="<?php echo htmlspecialchars((string)$taxRate); ?>"
          data-user="<?php echo htmlspecialchars($userName); ?>">
     <div class="pos-sale card neumorphic">
         <div class="pos-sale-head">
             <div class="pos-sale-meta">
                 <label class="pos-label">Cliente</label>
                 <div class="pos-customer-row">
-                    <select id="posCustomer" class="form-control pos-customer">
-                        <option value="">Cliente general</option>
-                        <?php foreach ($posCustomers as $c):
-                            $cname = trim((string)($c['name'] ?? ''));
-                            if ($cname === '') {
-                                $cname = trim(($c['first_name'] ?? '') . ' ' . ($c['last_name'] ?? ''));
-                            }
-                            if ($cname === '') {
-                                $cname = 'Cliente #' . $c['id'];
-                            }
-                        ?>
-                            <option value="<?php echo (int)$c['id']; ?>"><?php echo htmlspecialchars($cname); ?></option>
-                        <?php endforeach; ?>
-                    </select>
+                    <div class="customer-combobox pos-customer-combo" id="posCustomerCombobox">
+                        <input type="hidden" id="posCustomer" value="">
+                        <input type="text" id="posCustomerSearch" class="form-control pos-customer" placeholder="Buscar cliente…" autocomplete="off">
+                        <ul class="combobox-list" id="posCustomerList" hidden>
+                            <li class="combobox-option" data-id="" data-label="Cliente general" data-search="cliente general">Cliente general</li>
+                            <?php foreach ($posCustomers as $c):
+                                $cname = trim((string)($c['name'] ?? ''));
+                                if ($cname === '') {
+                                    $cname = trim(($c['first_name'] ?? '') . ' ' . ($c['last_name'] ?? ''));
+                                }
+                                if ($cname === '') {
+                                    $cname = 'Cliente #' . $c['id'];
+                                }
+                                $csearch = mb_strtolower($cname . ' ' . ($c['document_number'] ?? '') . ' ' . ($c['phone'] ?? ''));
+                            ?>
+                                <li class="combobox-option" data-id="<?php echo (int)$c['id']; ?>" data-label="<?php echo htmlspecialchars($cname); ?>" data-search="<?php echo htmlspecialchars($csearch); ?>"><?php echo htmlspecialchars($cname); ?></li>
+                            <?php endforeach; ?>
+                        </ul>
+                    </div>
                     <?php if (\SoftNova\Core\TenantMiddleware::canDo('create', 'clientes')): ?>
                         <button type="button" class="btn btn-secondary btn-sm" id="posNewCustomerBtn" title="Nuevo cliente">+ Nuevo</button>
                     <?php endif; ?>
@@ -93,15 +153,16 @@ $saleUrl = $viewInstance->route('app/ventas') . '?action=create';
                     <strong id="posAttendant"><?php echo htmlspecialchars(mb_strtoupper($userName)); ?></strong>
                 </div>
                 <div class="pos-ticket-meta">
-                    <span>Nº <strong id="posPrefijo"><?php echo htmlspecialchars((string)$invoicePrefix); ?>…</strong></span>
+                    <span>Nº <strong id="posPrefijo" title="Número de factura"><?php echo htmlspecialchars($invoicePreview); ?></strong></span>
                     <span>Total Items: <strong id="posItemCount">0</strong></span>
                     <span>Registro: <strong id="posClock"><?php echo date('g:i A'); ?></strong></span>
                 </div>
                 <div class="pos-subtotal-line" id="posSubtotalLine" hidden>Subtotal: <span id="posSubtotal"><?php echo fmt(0, $currency); ?></span></div>
                 <div class="pos-discount-line" id="posDiscountLine" hidden>Descuento: <span id="posDiscountAmt"><?php echo fmt(0, $currency); ?></span></div>
+                <div class="pos-tax-line" id="posTaxLine" hidden>IVA: <span id="posTaxAmt"><?php echo fmt(0, $currency); ?></span></div>
                 <div class="pos-total-line">TOTAL: <span id="posTotal"><?php echo fmt(0, $currency); ?></span></div>
             </div>
-            <button type="button" class="pos-pay-btn" id="posPayBtn" disabled>$ PAGO</button>
+            <button type="button" class="pos-pay-btn" id="posPayBtn" disabled title="Se activa cuando la venta tiene productos">Listo</button>
         </div>
         <div class="pos-items-wrap">
             <table class="pos-items-table">
@@ -114,6 +175,16 @@ $saleUrl = $viewInstance->route('app/ventas') . '?action=create';
             </table>
         </div>
         <div class="pos-pay-bar" id="posPayBar" hidden>
+            <select id="posPaymentType" class="form-control" title="Contado o crédito">
+                <option value="full">Contado</option>
+                <option value="credit">Crédito</option>
+            </select>
+            <select id="posPaymentTerms" class="form-control" title="Condición de pago" style="display:none;">
+                <option value="cash">Contado / inmediato</option>
+                <option value="net_15">Crédito 15 días</option>
+                <option value="net_30" selected>Crédito 30 días</option>
+            </select>
+            <input type="number" id="posInitialPayment" class="form-control" step="0.01" min="0" placeholder="Abono inicial" style="display:none;max-width:140px;" title="Abono inicial (crédito)">
             <select id="posPayMethod" class="form-control">
                 <?php foreach ($paymentMethods as $code => $meta): ?>
                     <option value="<?php echo htmlspecialchars($code); ?>" <?php echo $code === 'cash' ? 'selected' : ''; ?>>
@@ -134,39 +205,16 @@ $saleUrl = $viewInstance->route('app/ventas') . '?action=create';
             <input type="text" id="posProductSearch" class="pos-search-input" placeholder="Código de barras o nombre…" autocomplete="off" autofocus data-barcode-input="true">
             <button type="button" class="pos-search-clear" id="posSearchClear" title="Limpiar">&times;</button>
         </div>
+        <div class="pos-recent-block" id="posRecentBlock">
+            <div class="pos-recent-title">Últimos buscados</div>
+            <div class="pos-recent-list" id="posRecentList"></div>
+        </div>
         <div class="pos-search-results" id="posSearchResults">
             <p class="pos-search-hint">Escriba o escanee un código para encontrar productos</p>
         </div>
     </div>
 </section>
 <?php endif; ?>
-
-<!-- CAJA ABIERTA: stats y movimientos -->
-<div class="stats-grid">
-    <div class="stat-card neumorphic"><h4>Monto Apertura</h4><div class="stat-value"><?php echo fmt($openSession['opening_amount'], $currency); ?></div></div>
-    <div class="stat-card neumorphic"><h4>Ingresos</h4><div class="stat-value" style="color:#10B981;">+<?php echo fmt($totals['incomes'], $currency); ?></div></div>
-    <div class="stat-card neumorphic"><h4>Egresos</h4><div class="stat-value" style="color:#DC2626;">-<?php echo fmt($totals['expenses'], $currency); ?></div></div>
-    <div class="stat-card neumorphic"><h4>Balance Actual</h4><div class="stat-value" style="color:<?php echo $totals['balance']>=0?'#10B981':'#DC2626';?>;"><?php echo fmt($totals['balance'], $currency); ?></div></div>
-</div>
-
-<div style="display:flex;gap:15px;margin-bottom:20px;flex-wrap:wrap;align-items:center;">
-    <div style="flex:1;min-width:200px;">
-        <span style="color:var(--color-text-secondary);font-size:13px;">
-            Abierta por: <strong><?php echo htmlspecialchars($openSession['user_name']); ?></strong> · <?php echo date('d/m/Y H:i', strtotime($openSession['opening_date'])); ?>
-        </span>
-        <span class="badge <?php echo $warningClass; ?>" style="margin-left:8px;">
-            ⏱️ <?php echo $hours; ?>h abierta
-            <?php if ($hours > 20): ?> ⚠️ ¡Cierre antes de 24h!<?php endif; ?>
-        </span>
-        <?php if ($hours > 22): ?>
-        <div class="alert alert-error" style="margin-top:8px;font-size:13px;">
-            ⚠️ <strong>¡Atención!</strong> La caja lleva más de 22 horas abierta. Debe cerrarse antes de 24 horas.
-        </div>
-        <?php endif; ?>
-    </div>
-    <button onclick="document.getElementById('movementModal').style.display='flex'" class="btn btn-primary neumorphic-btn">+ Registrar Movimiento</button>
-    <button onclick="document.getElementById('closeCashModal').style.display='flex'" class="btn btn-danger">Cerrar Caja</button>
-</div>
 
 <!-- Ventas de la sesión (mismo formato que módulo Ventas) -->
 <?php
@@ -175,7 +223,7 @@ $canDeleteSale = \SoftNova\Core\TenantMiddleware::canDo('delete', 'ventas');
 $canPaySale = \SoftNova\Core\TenantMiddleware::canDo('create', 'ventas');
 ?>
 <div class="card neumorphic" style="margin-bottom:20px;">
-    <div class="card-header"><h3>📋 Últimas Ventas (<?php echo count($todaySales); ?>)</h3></div>
+    <div class="card-header"><h3>📋 Últimas Ventas (<?php echo (int)($salesPagination['total'] ?? count($todaySales)); ?>)</h3></div>
     <div class="card-body">
         <?php if (empty($todaySales)): ?>
             <p style="text-align:center;color:var(--color-text-secondary);padding:20px;">Aún no hay ventas en esta sesión de caja</p>
@@ -235,6 +283,12 @@ $canPaySale = \SoftNova\Core\TenantMiddleware::canDo('create', 'ventas');
                 <?php endforeach; ?>
                 </tbody>
             </table></div>
+            <?php
+            $pagination = $salesPagination ?? null;
+            $paginationBaseUrl = $viewInstance->route('app/caja');
+            $paginationQuery = [];
+            $viewInstance->partial('pagination', compact('pagination', 'paginationBaseUrl', 'paginationQuery'));
+            ?>
         <?php endif; ?>
     </div>
 </div>
@@ -255,21 +309,129 @@ $canPaySale = \SoftNova\Core\TenantMiddleware::canDo('create', 'ventas');
     </div>
 </div>
 
-<!-- Modales de movimiento y cierre -->
+<!-- Modal Gasto / Compra (alineado con módulos Gastos y Compras) -->
 <div id="movementModal" class="modal-overlay" style="display:none;">
-    <div class="modal-content neumorphic" style="max-width:450px;">
-        <div class="modal-header"><h3>Registrar Movimiento</h3><button onclick="document.getElementById('movementModal').style.display='none'" class="modal-close">&times;</button></div>
-        <form method="POST" action="<?php echo $viewInstance->route('app/caja'); ?>?action=movement" data-ajax="true">
-            <?php echo \SoftNova\Core\csrf_field(); ?><input type="hidden" name="session_id" value="<?php echo $openSession['id']; ?>">
-            <div class="modal-body">
-                <div class="form-group"><label>Tipo *</label><select name="type" class="form-control" required><option value="income">Ingreso (+)</option><option value="expense">Egreso (-)</option></select></div>
-                <div class="form-group"><label>Descripción *</label><input type="text" name="description" class="form-control" placeholder="Ej: Pago proveedor..." required></div>
-                <div class="form-group"><label>Monto (<?php echo $currency['symbol']; ?>) *</label><input type="number" name="amount" class="form-control" step="0.01" min="0.01" placeholder="0" required></div>
+    <div class="modal-content neumorphic" style="max-width:560px;max-height:90vh;overflow-y:auto;">
+        <div class="modal-header">
+            <h3>Registrar gasto o compra</h3>
+            <button type="button" onclick="closeGastoCompraModal()" class="modal-close">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div id="gastoCompraChooser" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                <button type="button" class="btn btn-primary" style="padding:18px;" onclick="showGastoForm()">Registrar gasto</button>
+                <?php if ($canCompras): ?>
+                    <a href="<?php echo $viewInstance->route('app/compras'); ?>" class="btn btn-secondary" style="padding:18px;text-align:center;display:flex;align-items:center;justify-content:center;">Ir a compras</a>
+                <?php else: ?>
+                    <button type="button" class="btn btn-secondary" style="padding:18px;opacity:0.6;" disabled title="Sin permiso de Compras">Compras (sin acceso)</button>
+                <?php endif; ?>
             </div>
-            <div class="modal-footer"><button type="button" class="btn btn-secondary" onclick="document.getElementById('movementModal').style.display='none'">Cancelar</button><button type="submit" class="btn btn-primary">Registrar</button></div>
-        </form>
+            <?php if ($canGastos): ?>
+            <p style="font-size:12px;margin:10px 0 0;">
+                <a href="<?php echo $viewInstance->route('app/gastos'); ?>">Abrir módulo Gastos completo →</a>
+            </p>
+            <?php endif; ?>
+            <p style="font-size:12px;color:var(--color-text-secondary);margin:12px 0 0;">
+                Los gastos usan las mismas categorías y medios de pago del módulo Gastos. Si paga en efectivo, se registra el egreso en esta caja.
+            </p>
+            <div id="gastoFormWrap" style="display:none;margin-top:16px;">
+                <button type="button" class="btn btn-sm btn-secondary" style="margin-bottom:12px;" onclick="showGastoChooser()">← Volver</button>
+                <form method="POST" action="<?php echo $viewInstance->route('app/caja'); ?>?action=expense" data-ajax="true" enctype="multipart/form-data">
+                    <?php echo \SoftNova\Core\csrf_field(); ?>
+                    <input type="hidden" name="session_id" value="<?php echo (int)$openSession['id']; ?>">
+                    <div class="form-group">
+                        <label>Descripción *</label>
+                        <input type="text" name="description" class="form-control" required placeholder="Ej. Comisión datáfono / arriendo">
+                    </div>
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                        <div class="form-group">
+                            <label>Monto *</label>
+                            <input type="number" step="0.01" min="0.01" name="amount" class="form-control" required>
+                        </div>
+                        <div class="form-group">
+                            <label>Fecha</label>
+                            <input type="date" name="expense_date" class="form-control" value="<?php echo date('Y-m-d'); ?>">
+                        </div>
+                    </div>
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                        <div class="form-group">
+                            <label>Categoría *</label>
+                            <select name="category_id" class="form-control" required>
+                                <option value="">Seleccionar…</option>
+                                <optgroup label="Gastos financieros">
+                                    <?php foreach ($financialCats as $c): ?>
+                                        <option value="<?php echo (int)$c['id']; ?>"><?php echo htmlspecialchars($c['name']); ?></option>
+                                    <?php endforeach; ?>
+                                </optgroup>
+                                <optgroup label="Gastos operativos">
+                                    <?php foreach ($operationalCats as $c): ?>
+                                        <option value="<?php echo (int)$c['id']; ?>" <?php echo ($c['code'] ?? '') === 'general' ? 'selected' : ''; ?>><?php echo htmlspecialchars($c['name']); ?></option>
+                                    <?php endforeach; ?>
+                                </optgroup>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Medio de pago</label>
+                            <select name="payment_method" class="form-control">
+                                <?php echo \SoftNova\Services\PaymentMethodCatalog::optionsHtml('cash'); ?>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>Proveedor</label>
+                        <select name="supplier_id" class="form-control">
+                            <option value="">Sin proveedor</option>
+                            <?php foreach ($expenseSuppliers as $s): ?>
+                                <option value="<?php echo (int)$s['id']; ?>"><?php echo htmlspecialchars($s['name']); ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                        <div class="form-group">
+                            <label>N° comprobante</label>
+                            <input type="text" name="receipt_number" class="form-control" placeholder="Referencia">
+                        </div>
+                        <div class="form-group">
+                            <label>Foto / PDF</label>
+                            <input type="file" name="receipt_file" class="form-control" accept="image/jpeg,image/png,image/webp,application/pdf">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>Notas</label>
+                        <textarea name="notes" class="form-control" rows="2"></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label style="display:flex;align-items:center;gap:8px;">
+                            <input type="checkbox" name="affect_cash" value="1" checked>
+                            Ya pagado (si es efectivo, registra egreso en caja)
+                        </label>
+                    </div>
+                    <div class="modal-footer" style="padding:0;margin-top:12px;">
+                        <button type="button" class="btn btn-secondary" onclick="closeGastoCompraModal()">Cancelar</button>
+                        <button type="submit" class="btn btn-primary">Guardar gasto</button>
+                    </div>
+                </form>
+            </div>
+        </div>
     </div>
 </div>
+
+<script>
+function openGastoCompraModal() {
+    showGastoChooser();
+    document.getElementById('movementModal').style.display = 'flex';
+}
+function closeGastoCompraModal() {
+    document.getElementById('movementModal').style.display = 'none';
+}
+function showGastoChooser() {
+    document.getElementById('gastoCompraChooser').style.display = 'grid';
+    document.getElementById('gastoFormWrap').style.display = 'none';
+}
+function showGastoForm() {
+    document.getElementById('gastoCompraChooser').style.display = 'none';
+    document.getElementById('gastoFormWrap').style.display = 'block';
+}
+</script>
 
 <div id="closeCashModal" class="modal-overlay" style="display:none;">
     <div class="modal-content neumorphic" style="max-width:450px;">
@@ -288,7 +450,7 @@ $canPaySale = \SoftNova\Core\TenantMiddleware::canDo('create', 'ventas');
 <?php endif; ?>
 
 <!-- Historial de cierres -->
-<?php if (!empty($historySessions)): ?>
+<?php if ($isAdmin && !empty($historySessions)): ?>
 <div class="card neumorphic" style="margin-top:20px;">
     <div class="card-header"><h3>📦 Historial de Cierres</h3></div>
     <div class="card-body">
@@ -380,5 +542,3 @@ $canPaySale = \SoftNova\Core\TenantMiddleware::canDo('create', 'ventas');
     window.invRouteVentasDetail = '<?php echo $viewInstance->route('app/ventas'); ?>?action=detail';
     window.invRouteVentasShare = '<?php echo $viewInstance->route('app/ventas'); ?>?action=share';
 </script>
-<script src="<?php echo $viewInstance->asset('js/ventas.js'); ?>"></script>
-<script src="<?php echo $viewInstance->asset('js/caja.js'); ?>"></script>

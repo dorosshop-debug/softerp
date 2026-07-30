@@ -28,6 +28,11 @@ class TenantCajaController extends TenantController
             $this->addMovement();
             return;
         }
+        if ($action === 'expense' && $this->request->method() === 'POST') {
+            TenantMiddleware::authorize('caja', 'create');
+            $this->registerExpense();
+            return;
+        }
         if ($action === 'pdf' && $this->request->method() === 'GET') {
             $this->closingPdf();
             return;
@@ -47,6 +52,7 @@ class TenantCajaController extends TenantController
         
         $movements = [];
         $todaySales = [];
+        $salesPagination = null;
         $totals = ['incomes' => 0, 'expenses' => 0, 'balance' => 0];
         $salesIncome = 0;
         
@@ -67,6 +73,13 @@ class TenantCajaController extends TenantController
                 [$openSession['id']]
             )->fetch();
             
+            $salesTotal = (int)$this->query(
+                "SELECT COUNT(*) FROM sales
+                 WHERE status != 'cancelled' AND sale_date >= ?",
+                [$openSession['opening_date']]
+            )->fetchColumn();
+            $salesPagination = $this->paginate($salesTotal, 20);
+
             $todaySales = $this->query(
                 "SELECT s.id, s.invoice_number, s.total, s.sale_date, s.payment_method, s.payment_status, s.status,
                         c.name as customer_name, u.name as user_name,
@@ -76,40 +89,68 @@ class TenantCajaController extends TenantController
                  LEFT JOIN users u ON s.user_id = u.id
                  WHERE s.status != 'cancelled'
                    AND s.sale_date >= ?
-                 ORDER BY s.sale_date DESC",
+                 ORDER BY s.sale_date DESC
+                 LIMIT {$salesPagination['perPage']} OFFSET {$salesPagination['offset']}",
                 [$openSession['opening_date']]
             )->fetchAll();
             
             $movementSaleIds = [];
             foreach ($movements as $mov) {
-                if ($mov['reference_type'] === 'sale' && $mov['reference_id']) {
-                    $movementSaleIds[] = (int)$mov['reference_id'];
+                if (($mov['reference_type'] ?? '') === 'sale' && !empty($mov['reference_id'])) {
+                    $movementSaleIds[(int)$mov['reference_id']] = true;
                 }
             }
-            foreach ($todaySales as $sale) {
-                if (!in_array((int)$sale['id'], $movementSaleIds, true)) {
-                    $salesIncome += (float)$sale['total'];
+            // Ingresos de ventas en efectivo (toda la sesión, no solo la página)
+            $allCashSales = $this->query(
+                "SELECT s.id, s.total, s.payment_method, s.payment_status,
+                        COALESCE((SELECT SUM(sp.amount) FROM sale_payments sp WHERE sp.sale_id = s.id), 0) as paid_amount
+                 FROM sales s
+                 WHERE s.status != 'cancelled' AND s.sale_date >= ?",
+                [$openSession['opening_date']]
+            )->fetchAll();
+            foreach ($allCashSales as $sale) {
+                $saleId = (int)$sale['id'];
+                if (isset($movementSaleIds[$saleId])) {
+                    continue;
+                }
+                $method = (string)($sale['payment_method'] ?? 'cash');
+                if (!\SoftNova\Services\PaymentMethodCatalog::affectsCash($method)) {
+                    continue;
+                }
+                $paid = (float)($sale['paid_amount'] ?? 0);
+                if (($sale['payment_status'] ?? '') === 'paid' && $paid <= 0) {
+                    $paid = (float)$sale['total'];
+                }
+                if ($paid > 0) {
+                    $salesIncome += $paid;
                 }
             }
             
             $totals['incomes'] = (float)$totals['incomes'] + $salesIncome;
-            $totals['balance'] = $openSession['opening_amount'] + $totals['incomes'] - (float)$totals['expenses'];
+            $totals['expenses'] = (float)$totals['expenses'];
+            $totals['balance'] = (float)$openSession['opening_amount'] + $totals['incomes'] - $totals['expenses'];
         }
         
-        $historySessions = $this->query(
-            "SELECT cs.*, u.name as user_name
-             FROM cash_sessions cs
-             JOIN users u ON cs.user_id = u.id
-             WHERE cs.status = 'closed'
-             ORDER BY cs.closing_date DESC LIMIT 10"
-        )->fetchAll();
+        $historySessions = [];
+        if (TenantMiddleware::isAdmin()) {
+            $historySessions = $this->query(
+                "SELECT cs.*, u.name as user_name
+                 FROM cash_sessions cs
+                 JOIN users u ON cs.user_id = u.id
+                 WHERE cs.status = 'closed'
+                 ORDER BY cs.closing_date DESC LIMIT 10"
+            )->fetchAll();
+        }
 
         $posCustomers = [];
         $paymentMethods = [];
+        $taxRate = 0.0;
+        $expenseCategories = [];
+        $expenseSuppliers = [];
         if ($openSession) {
             try {
                 $posCustomers = $this->query(
-                    "SELECT id, name, first_name, last_name
+                    "SELECT id, name, first_name, last_name, document_number, phone
                      FROM customers
                      WHERE status = 'active'
                      ORDER BY COALESCE(NULLIF(TRIM(name), ''), first_name) ASC
@@ -119,17 +160,37 @@ class TenantCajaController extends TenantController
                 $posCustomers = [];
             }
             $paymentMethods = \SoftNova\Services\PaymentMethodCatalog::all();
+            $taxRate = (float)$this->getSetting('tax_rate', '0');
+            try {
+                $catSvc = new \SoftNova\Services\ExpenseCategoryService($this->db);
+                $expenseCategories = $catSvc->listActive();
+            } catch (\Throwable $e) {
+                $expenseCategories = [];
+            }
+            try {
+                $expenseSuppliers = $this->query(
+                    "SELECT id, name FROM suppliers WHERE status = 'active' ORDER BY name ASC LIMIT 300"
+                )->fetchAll();
+            } catch (\Throwable $e) {
+                $expenseSuppliers = [];
+            }
         }
         
         $this->view('tenant.caja', $this->tenantViewData([
             'openSession' => $openSession,
             'movements' => $movements,
             'todaySales' => $todaySales,
+            'salesPagination' => $salesPagination ?? null,
             'totals' => $totals,
             'historySessions' => $historySessions,
             'posCustomers' => $posCustomers,
             'paymentMethods' => $paymentMethods,
+            'expenseCategories' => $expenseCategories,
+            'expenseSuppliers' => $expenseSuppliers,
             'invoicePrefix' => $this->getSetting('invoice_prefix', 'FAC-'),
+            'taxRate' => $taxRate,
+            'isAdmin' => TenantMiddleware::isAdmin(),
+            'isPosUser' => TenantMiddleware::isPosUser(),
             'formatMoney' => fn($a) => $this->formatMoney($a),
         ]));
     }
@@ -291,6 +352,143 @@ class TenantCajaController extends TenantController
         
         $label = $type === 'income' ? 'Ingreso' : 'Egreso';
         $this->respond(true, "{$label} registrado: " . $this->formatMoney($amount), '/app/caja');
+    }
+
+    /**
+     * Registrar gasto desde Caja-POS (mismo flujo del módulo Gastos).
+     */
+    private function registerExpense(): void
+    {
+        if (!$this->validateCsrfOrFail('/app/caja')) {
+            return;
+        }
+
+        $sessionId = (int)$this->request->post('session_id');
+        $session = $this->query(
+            "SELECT id FROM cash_sessions WHERE id = ? AND status = 'open'",
+            [$sessionId]
+        )->fetch();
+        if (!$session) {
+            $this->respond(false, 'La caja no esta abierta', '/app/caja');
+            return;
+        }
+
+        $description = trim((string)$this->request->post('description', ''));
+        $amount = (float)$this->request->post('amount', 0);
+        $categoryId = (int)$this->request->post('category_id', 0);
+        $expenseDate = (string)($this->request->post('expense_date') ?: date('Y-m-d'));
+        $supplierId = $this->request->post('supplier_id') ? (int)$this->request->post('supplier_id') : null;
+        $paymentMethod = \SoftNova\Services\PaymentMethodCatalog::normalize($this->request->post('payment_method', 'cash'));
+        $receiptNumber = trim((string)$this->request->post('receipt_number', ''));
+        $notes = trim((string)$this->request->post('notes', ''));
+        $affectCash = $this->request->post('affect_cash') === '1';
+
+        if ($description === '' || $amount <= 0) {
+            $this->respond(false, 'Descripcion y monto son requeridos', '/app/caja');
+            return;
+        }
+
+        $catSvc = new \SoftNova\Services\ExpenseCategoryService($this->db);
+        $cat = $categoryId > 0 ? $catSvc->find($categoryId) : null;
+        $category = $cat ? (string)$cat['name'] : 'General';
+
+        $receipt = $this->storeExpenseReceipt();
+        if ($receipt === false) {
+            $this->respond(false, 'Comprobante inválido (JPG/PNG/WebP/PDF, máx. 5 MB)', '/app/caja');
+            return;
+        }
+
+        try {
+            $this->db->beginTransaction();
+            $this->query(
+                "INSERT INTO expenses
+                    (description, amount, category, category_id, expense_date, supplier_id,
+                     payment_method, receipt_number, receipt_path, receipt_original_name, receipt_mime,
+                     notes, user_id)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                [
+                    $description,
+                    $amount,
+                    $category,
+                    $cat ? (int)$cat['id'] : null,
+                    $expenseDate,
+                    $supplierId,
+                    $paymentMethod,
+                    $receiptNumber ?: null,
+                    $receipt['path'] ?? null,
+                    $receipt['original'] ?? null,
+                    $receipt['mime'] ?? null,
+                    $notes ?: null,
+                    $_SESSION['tenant_user_id'] ?? null,
+                ]
+            );
+            $expenseId = (int)$this->db->lastInsertId();
+            $this->db->commit();
+        } catch (\Throwable $e) {
+            if ($this->db->inTransaction()) {
+                $this->db->rollBack();
+            }
+            $this->respond(false, 'No se pudo registrar el gasto: ' . $e->getMessage(), '/app/caja');
+            return;
+        }
+
+        try {
+            (new \SoftNova\Services\AccountingService($this->db))->postExpense($expenseId, $affectCash);
+        } catch (\Throwable $e) {
+            error_log('Contabilidad gasto caja ' . $expenseId . ': ' . $e->getMessage());
+        }
+
+        if ($affectCash && \SoftNova\Services\PaymentMethodCatalog::affectsCash($paymentMethod)) {
+            (new \SoftNova\Services\CashService($this->db))->registerMovement(
+                $amount,
+                'Gasto: ' . $description,
+                'expense',
+                'expense',
+                $expenseId
+            );
+        }
+
+        $this->respond(true, 'Gasto registrado: ' . $this->formatMoney($amount), '/app/caja');
+    }
+
+    /** @return array{path:?string,original:?string,mime:?string}|null|false */
+    private function storeExpenseReceipt(): array|null|false
+    {
+        if (empty($_FILES['receipt_file']['tmp_name'])) {
+            return null;
+        }
+        if (!is_uploaded_file($_FILES['receipt_file']['tmp_name'])) {
+            return false;
+        }
+        if ((int)($_FILES['receipt_file']['size'] ?? 0) > 5242880) {
+            return false;
+        }
+        $finfo = new \finfo(FILEINFO_MIME_TYPE);
+        $mime = $finfo->file($_FILES['receipt_file']['tmp_name']) ?: '';
+        $map = [
+            'image/jpeg' => 'jpg',
+            'image/png' => 'png',
+            'image/webp' => 'webp',
+            'application/pdf' => 'pdf',
+        ];
+        if (!isset($map[$mime])) {
+            return false;
+        }
+        $tenantKey = preg_replace('/[^a-zA-Z0-9_-]/', '', (string)($_SESSION['tenant_db_name'] ?? 'tenant')) ?: 'tenant';
+        $dir = STORAGE_PATH . '/expenses/' . $tenantKey;
+        if (!is_dir($dir)) {
+            @mkdir($dir, 0755, true);
+        }
+        $filename = 'exp_' . time() . '_' . bin2hex(random_bytes(4)) . '.' . $map[$mime];
+        $dest = $dir . '/' . $filename;
+        if (!move_uploaded_file($_FILES['receipt_file']['tmp_name'], $dest)) {
+            return false;
+        }
+        return [
+            'path' => $tenantKey . '/' . $filename,
+            'original' => (string)($_FILES['receipt_file']['name'] ?? $filename),
+            'mime' => $mime,
+        ];
     }
     
     private function closingPdf(): void

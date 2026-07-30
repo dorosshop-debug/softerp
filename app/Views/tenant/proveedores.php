@@ -2,6 +2,7 @@
 $layout = 'tenant';
 $title = 'Proveedores - ' . ($tenantName ?? 'Sistema');
 $pageTitle = 'Gestión de Proveedores';
+$loadBarcode = true;
 $tenantName = $tenantName ?? 'Mi Empresa'; $userName = $userName ?? 'Usuario';
 $suppliers = $suppliers ?? [];
 ?>

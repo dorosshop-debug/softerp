@@ -84,14 +84,14 @@ abstract class Controller
     /**
      * Responde con JSON en peticiones AJAX o redirige en peticiones normales
      */
-    protected function respond(bool $success, string $message, string $redirect = ''): void
+    protected function respond(bool $success, string $message, string $redirect = '', array $extra = []): void
     {
         if ($this->wantsJson()) {
-            $this->json([
+            $this->json(array_merge([
                 'success' => $success,
                 'message' => $message,
                 'redirect' => !empty($redirect) ? base_url($redirect) : ''
-            ]);
+            ], $extra));
             return;
         }
         

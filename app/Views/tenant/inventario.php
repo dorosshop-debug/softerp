@@ -2,6 +2,8 @@
 $layout = 'tenant';
 $title = 'Inventario - ' . ($tenantName ?? 'Sistema');
 $pageTitle = 'Gestión de Inventario';
+$loadBarcode = true;
+$pageScripts = ['js/inventario.js'];
 $tenantName = $tenantName ?? 'Mi Empresa';
 $userName = $userName ?? 'Usuario';
 $products = $products ?? [];
@@ -463,4 +465,3 @@ $exportQuery = http_build_query(array_merge(['action' => 'export'], $filters['qu
     window.invRouteDetail = '<?php echo $viewInstance->route('app/inventario'); ?>?action=detail';
     window.invRouteVentas = '<?php echo $viewInstance->route('app/ventas'); ?>';
 </script>
-<script src="<?php echo $viewInstance->asset('js/inventario.js'); ?>"></script>

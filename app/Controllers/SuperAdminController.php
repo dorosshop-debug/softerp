@@ -565,18 +565,32 @@ class SuperAdminController extends Controller
         $processedPermissions = [];
         if ($role === 'user' && is_array($permissions)) {
             foreach ($permissions as $module => $actions) {
+                if (!is_array($actions)) {
+                    continue;
+                }
                 $processedPermissions[$module] = [
-                    'view' => !empty($actions['view']),
+                    'view' => !empty($actions['view']) || !empty($actions['create']) || !empty($actions['edit']) || !empty($actions['delete']) || !empty($actions['export']),
+                    'create' => !empty($actions['create']) || !empty($actions['edit']),
                     'edit' => !empty($actions['edit']),
+                    'delete' => !empty($actions['delete']),
+                    'export' => !empty($actions['export']),
                 ];
+                if (!$processedPermissions[$module]['view']
+                    && !$processedPermissions[$module]['create']
+                    && !$processedPermissions[$module]['edit']
+                    && !$processedPermissions[$module]['delete']
+                    && !$processedPermissions[$module]['export']) {
+                    unset($processedPermissions[$module]);
+                }
             }
         }
         
-        // Auxiliar: permisos fijos (ventas + inventario limitado)
+        // Auxiliar / User POS: permisos fijos Caja-POS
         if ($role === 'auxiliar') {
             $processedPermissions = [
-                'ventas' => ['view' => true, 'edit' => true],
-                'inventario' => ['view' => true, 'edit' => false],
+                'caja' => ['view' => true, 'create' => true, 'edit' => true],
+                'ventas' => ['view' => true, 'create' => true],
+                'clientes' => ['view' => true, 'create' => true],
             ];
         }
         

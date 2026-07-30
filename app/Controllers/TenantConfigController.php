@@ -103,6 +103,27 @@ class TenantConfigController extends Controller
             $this->mlOAuthCallback();
             return;
         }
+
+        if ($action === 'createTeamUser' && $this->request->method() === 'POST') {
+            \SoftNova\Core\TenantMiddleware::authorize('configuracion', 'edit');
+            $this->createTeamUser();
+            return;
+        }
+        if ($action === 'updateTeamUser' && $this->request->method() === 'POST') {
+            \SoftNova\Core\TenantMiddleware::authorize('configuracion', 'edit');
+            $this->updateTeamUser();
+            return;
+        }
+        if ($action === 'toggleTeamUser' && $this->request->method() === 'POST') {
+            \SoftNova\Core\TenantMiddleware::authorize('configuracion', 'edit');
+            $this->toggleTeamUser();
+            return;
+        }
+        if ($action === 'processJobs' && $this->request->method() === 'POST') {
+            \SoftNova\Core\TenantMiddleware::authorize('configuracion', 'edit');
+            $this->processJobs();
+            return;
+        }
         
         // Cargar settings actuales
         $settings = [];
@@ -179,6 +200,43 @@ class TenantConfigController extends Controller
             $catalogStatuses = [];
         }
         $ecomProvider = (string)$this->request->get('provider', 'woocommerce');
+
+        $teamUsers = [];
+        $userLimit = ['current' => 0, 'max' => 0];
+        $planModules = $_SESSION['tenant_modules'] ?? [];
+        $assignableModules = TenantMiddleware::assignableModules();
+        if (TenantMiddleware::isAdmin()) {
+            try {
+                $masterDb = \SoftNova\Core\Database::getInstance();
+                $tenantId = (int)($_SESSION['tenant_id'] ?? 0);
+                $teamUsers = $masterDb->query(
+                    "SELECT id, name, email, role, permissions, status, last_login_at, created_at
+                     FROM tenant_users
+                     WHERE tenant_id = ?
+                     ORDER BY FIELD(role, 'admin', 'user', 'auxiliar'), name ASC",
+                    [$tenantId]
+                )->fetchAll();
+                $plan = $masterDb->query(
+                    "SELECT sp.max_users, sp.modules
+                     FROM tenants t
+                     JOIN subscription_plans sp ON t.subscription_plan_id = sp.id
+                     WHERE t.id = ? LIMIT 1",
+                    [$tenantId]
+                )->fetch();
+                $userLimit = [
+                    'current' => count($teamUsers),
+                    'max' => (int)($plan['max_users'] ?? 0),
+                ];
+                if (!empty($plan['modules'])) {
+                    $decoded = json_decode((string)$plan['modules'], true);
+                    if (is_array($decoded)) {
+                        $planModules = $decoded;
+                    }
+                }
+            } catch (\Throwable $e) {
+                $teamUsers = [];
+            }
+        }
         
         $this->view('tenant.config', [
             'settings' => $settings,
@@ -192,9 +250,296 @@ class TenantConfigController extends Controller
             'catalogStatuses' => $catalogStatuses,
             'ecomProvider' => $ecomProvider,
             'mlOAuthRedirect' => \SoftNova\Core\route('app/configuracion') . '?action=ml-oauth-callback',
+            'teamUsers' => $teamUsers,
+            'userLimit' => $userLimit,
+            'planModules' => $planModules,
+            'assignableModules' => $assignableModules,
             'tenantName' => $_SESSION['tenant_name'] ?? 'Mi Empresa',
             'userName' => $_SESSION['tenant_user_name'] ?? 'Usuario',
         ]);
+    }
+
+    private function processTeamPermissions(string $role, $raw): array
+    {
+        if ($role === 'auxiliar') {
+            return [
+                'caja' => ['view' => true, 'create' => true, 'edit' => true],
+                'ventas' => ['view' => true, 'create' => true],
+                'clientes' => ['view' => true, 'create' => true],
+            ];
+        }
+        $out = [];
+        if (!is_array($raw)) {
+            return $out;
+        }
+        $allowed = array_keys(TenantMiddleware::assignableModules());
+        foreach ($raw as $module => $actions) {
+            $module = (string)$module;
+            if (!in_array($module, $allowed, true) || !is_array($actions)) {
+                continue;
+            }
+            $row = [
+                'view' => !empty($actions['view']) || !empty($actions['create']) || !empty($actions['edit']) || !empty($actions['delete']) || !empty($actions['export']),
+                'create' => !empty($actions['create']) || !empty($actions['edit']),
+                'edit' => !empty($actions['edit']),
+                'delete' => !empty($actions['delete']),
+                'export' => !empty($actions['export']),
+            ];
+            if ($row['view'] || $row['create'] || $row['edit'] || $row['delete'] || $row['export']) {
+                $out[$module] = $row;
+            }
+        }
+        return $out;
+    }
+
+    private function syncLocalTenantUser(string $name, string $email, string $passwordHash, string $masterRole, string $status = 'active'): void
+    {
+        $localRole = $masterRole === 'user' ? 'manager' : ($masterRole === 'auxiliar' ? 'auxiliar' : $masterRole);
+        if ($localRole === 'admin') {
+            $localRole = 'manager'; // no crear admins locales desde esta vía
+        }
+        try {
+            $existing = $this->query("SELECT id FROM users WHERE email = ? LIMIT 1", [$email])->fetch();
+            if ($existing) {
+                if ($passwordHash !== '') {
+                    $this->query(
+                        "UPDATE users SET name = ?, role = ?, password = ?, status = ? WHERE id = ?",
+                        [$name, $localRole, $passwordHash, $status, $existing['id']]
+                    );
+                } else {
+                    $this->query(
+                        "UPDATE users SET name = ?, role = ?, status = ? WHERE id = ?",
+                        [$name, $localRole, $status, $existing['id']]
+                    );
+                }
+            } elseif ($passwordHash !== '') {
+                $this->query(
+                    "INSERT INTO users (name, email, password, role, status) VALUES (?, ?, ?, ?, ?)",
+                    [$name, $email, $passwordHash, $localRole, $status]
+                );
+            }
+        } catch (\Throwable $e) {
+            error_log('syncLocalTenantUser: ' . $e->getMessage());
+        }
+    }
+
+    private function createTeamUser(): void
+    {
+        if (!$this->validateCsrfOrFail('/app/configuracion')) {
+            return;
+        }
+        if (!TenantMiddleware::isAdmin()) {
+            $this->respond(false, 'Solo el administrador puede crear usuarios', '/app/configuracion');
+            return;
+        }
+
+        $name = trim((string)$this->request->post('name', ''));
+        $email = strtolower(trim((string)$this->request->post('email', '')));
+        $password = (string)$this->request->post('password', '');
+        $role = strtolower(trim((string)$this->request->post('role', 'user')));
+        if (!in_array($role, ['user', 'auxiliar'], true)) {
+            $this->respond(false, 'Rol no permitido. Use User o User POS.', '/app/configuracion');
+            return;
+        }
+        if ($name === '' || $email === '' || $password === '') {
+            $this->respond(false, 'Complete nombre, email y contraseña', '/app/configuracion');
+            return;
+        }
+        if (strlen($password) < 8) {
+            $this->respond(false, 'La contraseña debe tener al menos 8 caracteres', '/app/configuracion');
+            return;
+        }
+
+        $tenantId = (int)($_SESSION['tenant_id'] ?? 0);
+        $masterDb = \SoftNova\Core\Database::getInstance();
+
+        $plan = $masterDb->query(
+            "SELECT sp.max_users FROM tenants t
+             JOIN subscription_plans sp ON t.subscription_plan_id = sp.id
+             WHERE t.id = ? LIMIT 1",
+            [$tenantId]
+        )->fetch();
+        $maxUsers = (int)($plan['max_users'] ?? 0);
+        $currentUsers = (int)$masterDb->query(
+            "SELECT COUNT(*) AS c FROM tenant_users WHERE tenant_id = ?",
+            [$tenantId]
+        )->fetch()['c'];
+        if ($maxUsers > 0 && $currentUsers >= $maxUsers) {
+            $this->respond(false, "Límite de usuarios del plan alcanzado ({$maxUsers})", '/app/configuracion');
+            return;
+        }
+
+        $exists = $masterDb->query(
+            "SELECT id FROM tenant_users WHERE email = ? LIMIT 1",
+            [$email]
+        )->fetch();
+        if ($exists) {
+            $this->respond(false, 'Ya existe un usuario con ese email', '/app/configuracion');
+            return;
+        }
+
+        $perms = $this->processTeamPermissions($role, $this->request->post('permissions', []));
+        if ($role === 'user' && $perms === []) {
+            $this->respond(false, 'Seleccione al menos un módulo para el usuario User', '/app/configuracion');
+            return;
+        }
+
+        $hash = password_hash($password, PASSWORD_ARGON2ID);
+        try {
+            $masterDb->query(
+                "INSERT INTO tenant_users (tenant_id, name, email, password, role, permissions, status, created_at)
+                 VALUES (?, ?, ?, ?, ?, ?, 'active', NOW())",
+                [$tenantId, $name, $email, $hash, $role, json_encode($perms, JSON_UNESCAPED_UNICODE)]
+            );
+        } catch (\Throwable $e) {
+            $this->respond(false, 'No se pudo crear el usuario: ' . $e->getMessage(), '/app/configuracion');
+            return;
+        }
+
+        $this->syncLocalTenantUser($name, $email, $hash, $role, 'active');
+        try {
+            \SoftNova\Services\TenantAudit::log($this->db, 'create', 'usuarios', 'Usuario creado: ' . $email . ' (' . $role . ')');
+        } catch (\Throwable $e) { /* ignore */ }
+        $this->respond(true, 'Usuario creado correctamente', '/app/configuracion');
+    }
+
+    private function updateTeamUser(): void
+    {
+        if (!$this->validateCsrfOrFail('/app/configuracion')) {
+            return;
+        }
+        if (!TenantMiddleware::isAdmin()) {
+            $this->respond(false, 'Solo el administrador puede editar usuarios', '/app/configuracion');
+            return;
+        }
+
+        $id = (int)$this->request->post('id', 0);
+        $name = trim((string)$this->request->post('name', ''));
+        $email = strtolower(trim((string)$this->request->post('email', '')));
+        $password = (string)$this->request->post('password', '');
+        $role = strtolower(trim((string)$this->request->post('role', 'user')));
+        $tenantId = (int)($_SESSION['tenant_id'] ?? 0);
+
+        if ($id <= 0 || $name === '' || $email === '') {
+            $this->respond(false, 'Datos incompletos', '/app/configuracion');
+            return;
+        }
+        if (!in_array($role, ['user', 'auxiliar'], true)) {
+            $this->respond(false, 'Rol no permitido', '/app/configuracion');
+            return;
+        }
+        if ($password !== '' && strlen($password) < 8) {
+            $this->respond(false, 'La contraseña debe tener al menos 8 caracteres', '/app/configuracion');
+            return;
+        }
+
+        $masterDb = \SoftNova\Core\Database::getInstance();
+        $user = $masterDb->query(
+            "SELECT * FROM tenant_users WHERE id = ? AND tenant_id = ? LIMIT 1",
+            [$id, $tenantId]
+        )->fetch();
+        if (!$user) {
+            $this->respond(false, 'Usuario no encontrado', '/app/configuracion');
+            return;
+        }
+        if (($user['role'] ?? '') === 'admin') {
+            $this->respond(false, 'No se puede editar un administrador desde aquí', '/app/configuracion');
+            return;
+        }
+
+        $dup = $masterDb->query(
+            "SELECT id FROM tenant_users WHERE email = ? AND id != ? LIMIT 1",
+            [$email, $id]
+        )->fetch();
+        if ($dup) {
+            $this->respond(false, 'Ese email ya está en uso', '/app/configuracion');
+            return;
+        }
+
+        $perms = $this->processTeamPermissions($role, $this->request->post('permissions', []));
+        if ($role === 'user' && $perms === []) {
+            $this->respond(false, 'Seleccione al menos un módulo', '/app/configuracion');
+            return;
+        }
+
+        $hash = $password !== '' ? password_hash($password, PASSWORD_ARGON2ID) : '';
+        try {
+            if ($hash !== '') {
+                $masterDb->query(
+                    "UPDATE tenant_users SET name = ?, email = ?, password = ?, role = ?, permissions = ?, updated_at = NOW() WHERE id = ? AND tenant_id = ?",
+                    [$name, $email, $hash, $role, json_encode($perms, JSON_UNESCAPED_UNICODE), $id, $tenantId]
+                );
+            } else {
+                $masterDb->query(
+                    "UPDATE tenant_users SET name = ?, email = ?, role = ?, permissions = ?, updated_at = NOW() WHERE id = ? AND tenant_id = ?",
+                    [$name, $email, $role, json_encode($perms, JSON_UNESCAPED_UNICODE), $id, $tenantId]
+                );
+            }
+        } catch (\Throwable $e) {
+            $this->respond(false, 'No se pudo actualizar: ' . $e->getMessage(), '/app/configuracion');
+            return;
+        }
+
+        $this->syncLocalTenantUser($name, $email, $hash, $role, (string)($user['status'] ?? 'active'));
+        try {
+            \SoftNova\Services\TenantAudit::log($this->db, 'update', 'usuarios', 'Usuario editado: ' . $email . ' (' . $role . ')', $id);
+        } catch (\Throwable $e) { /* ignore */ }
+        $this->respond(true, 'Usuario actualizado', '/app/configuracion');
+    }
+
+    private function toggleTeamUser(): void
+    {
+        if (!$this->validateCsrfOrFail('/app/configuracion')) {
+            return;
+        }
+        if (!TenantMiddleware::isAdmin()) {
+            $this->respond(false, 'Solo el administrador puede cambiar el estado', '/app/configuracion');
+            return;
+        }
+        $id = (int)$this->request->post('id', 0);
+        $tenantId = (int)($_SESSION['tenant_id'] ?? 0);
+        $masterDb = \SoftNova\Core\Database::getInstance();
+        $user = $masterDb->query(
+            "SELECT * FROM tenant_users WHERE id = ? AND tenant_id = ? LIMIT 1",
+            [$id, $tenantId]
+        )->fetch();
+        if (!$user) {
+            $this->respond(false, 'Usuario no encontrado', '/app/configuracion');
+            return;
+        }
+        if (($user['role'] ?? '') === 'admin') {
+            $this->respond(false, 'No se puede desactivar un administrador desde aquí', '/app/configuracion');
+            return;
+        }
+        if ((int)$id === (int)($_SESSION['tenant_master_user_id'] ?? 0)) {
+            $this->respond(false, 'No puede desactivarse a sí mismo', '/app/configuracion');
+            return;
+        }
+        $newStatus = ($user['status'] ?? '') === 'active' ? 'inactive' : 'active';
+        $masterDb->query(
+            "UPDATE tenant_users SET status = ?, updated_at = NOW() WHERE id = ? AND tenant_id = ?",
+            [$newStatus, $id, $tenantId]
+        );
+        try {
+            $this->query("UPDATE users SET status = ? WHERE email = ?", [$newStatus, $user['email']]);
+        } catch (\Throwable $e) {
+            // ignore
+        }
+        $this->respond(true, $newStatus === 'active' ? 'Usuario activado' : 'Usuario desactivado', '/app/configuracion');
+    }
+
+    private function processJobs(): void
+    {
+        if (!$this->validateCsrfOrFail('/app/configuracion')) {
+            return;
+        }
+        if (!TenantMiddleware::isAdmin()) {
+            $this->respond(false, 'Solo admin', '/app/configuracion');
+            return;
+        }
+        $results = (new \SoftNova\Services\JobRunner($this->db))->process(10);
+        $ok = count(array_filter($results, static fn($r) => !empty($r['ok'])));
+        $this->respond(true, "Jobs procesados: {$ok}/" . count($results), '/app/configuracion');
     }
 
     private function saveCatalogIntegration(): void
@@ -297,11 +642,18 @@ class TenantConfigController extends Controller
             return;
         }
         
-        $fields = ['currency', 'company_name', 'tax_name', 'tax_rate', 'invoice_prefix', 'low_stock_alert', 'language'];
+        $fields = ['currency', 'company_name', 'tax_name', 'tax_rate', 'invoice_prefix', 'low_stock_alert', 'language', 'failed_sale_webhook_url'];
         
         foreach ($fields as $field) {
             $value = $this->request->post($field);
             if ($value !== null) {
+                if ($field === 'failed_sale_webhook_url') {
+                    $value = trim((string)$value);
+                    if ($value !== '' && !filter_var($value, FILTER_VALIDATE_URL)) {
+                        $this->respond(false, 'URL de webhook inválida', '/app/configuracion');
+                        return;
+                    }
+                }
                 $this->upsertSetting($field, (string)$value);
             }
         }
@@ -335,6 +687,8 @@ class TenantConfigController extends Controller
                 [$key, $value]
             );
         }
+        $tenantKey = (string)($_SESSION['tenant_db_name'] ?? 'tenant');
+        \SoftNova\Core\SimpleCache::instance()->forget('setting:' . $tenantKey . ':' . $key);
     }
     
     private function requireAdmin(): bool
@@ -366,6 +720,16 @@ class TenantConfigController extends Controller
         }
         
         $svc = new TenantBackupService();
+        // Backups pesados o programados: encolar
+        $async = (string)$this->request->post('async', '0') === '1';
+        if ($async) {
+            $jobId = (new \SoftNova\Services\JobQueue($this->db))->push('backup', [
+                'db_name' => $dbName,
+                'label' => 'manual-async',
+            ], 40);
+            $this->respond(true, "Backup encolado (job #{$jobId})", '/app/configuracion');
+            return;
+        }
         $result = $svc->createBackup($dbName, 'manual');
         if (empty($result['success'])) {
             $this->respond(false, $result['message'] ?? 'Error al crear backup');

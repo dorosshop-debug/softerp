@@ -2,6 +2,7 @@
 $layout = 'tenant';
 $title = 'Compras - ' . ($tenantName ?? 'Sistema');
 $pageTitle = 'Compras / Órdenes de compra';
+$loadBarcode = true;
 $tenantName = $tenantName ?? 'Mi Empresa';
 $userName = $userName ?? 'Usuario';
 $orders = $orders ?? [];

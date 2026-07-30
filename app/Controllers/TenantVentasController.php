@@ -408,11 +408,25 @@ class TenantVentasController extends TenantController
             $msg = $paymentType === 'credit' && $paymentStatus !== 'paid'
                 ? 'Venta a credito creada: ' . $invoiceNumber . ' (Pendiente: ' . $this->formatMoney($total - $initialPayment) . ')'
                 : 'Venta creada: ' . $invoiceNumber;
-            $this->respond(true, $msg . $einvoiceNote, '/app/ventas');
+            try {
+                \SoftNova\Services\TenantAudit::log($this->db, 'create', 'ventas', 'Venta creada: ' . $invoiceNumber, $saleId);
+            } catch (\Throwable $e) { /* ignore */ }
+            $this->respond(true, $msg . $einvoiceNote, '/app/ventas', [
+                'invoice_number' => $invoiceNumber,
+                'sale_id' => $saleId,
+            ]);
         } catch (\Exception $e) {
             if ($this->db->inTransaction()) {
                 $this->db->rollBack();
             }
+            try {
+                (new \SoftNova\Services\FailedSaleNotifier($this->db))->notify(
+                    0,
+                    (string)($invoiceNumber ?? 'N/A'),
+                    'Error al registrar venta: ' . $e->getMessage(),
+                    (float)($total ?? 0)
+                );
+            } catch (\Throwable $n) { /* ignore */ }
             $this->respond(false, 'Error: ' . $e->getMessage(), '/app/ventas');
         }
     }
@@ -541,6 +555,17 @@ class TenantVentasController extends TenantController
             if ($result['reversed_cash'] > 0) {
                 $msg .= ' Caja ajustada: -' . $this->formatMoney($result['reversed_cash']);
             }
+            try {
+                $saleRow = $result['sale'] ?? [];
+                $inv = (string)($saleRow['invoice_number'] ?? ('#' . $id));
+                \SoftNova\Services\TenantAudit::log($this->db, 'cancel', 'ventas', 'Venta cancelada: ' . $inv, $id);
+                (new \SoftNova\Services\FailedSaleNotifier($this->db))->notify(
+                    $id,
+                    $inv,
+                    'Venta cancelada por usuario',
+                    (float)($saleRow['total'] ?? 0)
+                );
+            } catch (\Throwable $e) { /* ignore */ }
             $this->respond(true, $msg, '/app/ventas');
         } catch (\Exception $e) {
             $this->respond(false, 'Error: ' . $e->getMessage(), '/app/ventas');

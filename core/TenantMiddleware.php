@@ -9,6 +9,27 @@ namespace SoftNova\Core;
 class TenantMiddleware
 {
     /**
+     * Módulos disponibles para asignar a usuarios (rol User)
+     */
+    public static function assignableModules(): array
+    {
+        return [
+            'dashboard' => 'Dashboard',
+            'caja' => 'Caja-POS',
+            'ventas' => 'Ventas',
+            'inventario' => 'Inventario',
+            'compras' => 'Compras',
+            'clientes' => 'Clientes',
+            'proveedores' => 'Proveedores',
+            'cotizaciones' => 'Cotizaciones',
+            'gastos' => 'Gastos',
+            'reportes' => 'Reportes',
+            'contabilidad' => 'Contabilidad',
+            'nomina' => 'Nómina',
+        ];
+    }
+
+    /**
      * Verificar que el usuario esté autenticado como tenant
      */
     public static function auth(): bool
@@ -35,18 +56,43 @@ class TenantMiddleware
     }
     
     /**
-     * Verificar que el tenant tenga acceso a un módulo específico
+     * Verificar que el tenant tenga acceso a un módulo específico (plan o sesión)
      */
     public static function hasModule(string $module): bool
     {
-        // Los admins del tenant tienen acceso a todo
-        if (($_SESSION['tenant_user_role'] ?? '') === 'admin') {
+        if (self::getRole() === 'admin') {
             return true;
         }
-        
-        // Verificar permisos del usuario
-        $permissions = $_SESSION['tenant_permissions'] ?? [];
-        return in_array($module, $permissions);
+        $planModules = $_SESSION['tenant_modules'] ?? [];
+        if (empty($planModules)) {
+            return self::canAccess($module);
+        }
+        return in_array($module, $planModules, true) && self::canAccess($module);
+    }
+
+    /**
+     * Etiqueta amigable del rol
+     */
+    public static function roleLabel(?string $role = null): string
+    {
+        $role = strtolower(trim((string)($role ?? self::getRole())));
+        return match ($role) {
+            'admin', 'administrator' => 'Administrador',
+            'user', 'manager' => 'User',
+            'auxiliar', 'mesero', 'pos', 'user_pos', 'waiter', 'cashier' => 'User POS',
+            'viewer' => 'Solo lectura',
+            default => ucfirst($role ?: 'Usuario'),
+        };
+    }
+
+    public static function isAdmin(): bool
+    {
+        return self::getRole() === 'admin';
+    }
+
+    public static function isPosUser(): bool
+    {
+        return in_array(self::getRole(), ['auxiliar', 'mesero', 'pos', 'user_pos', 'cashier'], true);
     }
     
     /**
@@ -62,38 +108,47 @@ class TenantMiddleware
             'modules' => ['dashboard', 'caja', 'ventas', 'inventario', 'clientes', 'proveedores', 'compras', 'cotizaciones', 'gastos', 'contabilidad', 'nomina', 'reportes'],
             'actions' => ['create', 'edit', 'delete', 'view', 'export'],
         ];
+        // User POS: solo Caja-POS para vender (sin eliminar ventas ni ver reportes financieros de tarjetas en UI)
+        $pos = [
+            'modules' => ['caja', 'ventas', 'clientes'],
+            'actions' => ['view'],
+            'module_actions' => [
+                'caja' => ['view', 'create', 'edit'],
+                'ventas' => ['view', 'create'],
+                'clientes' => ['view', 'create'],
+            ],
+        ];
         
         return [
             'admin' => $admin,
-            // Rol master tenant_users.role = 'user' (mapa a permisos operativos)
             'user' => $manager,
             'manager' => $manager,
-            'cashier' => [
-                'modules' => ['dashboard', 'caja', 'ventas', 'clientes', 'gastos'],
-                'actions' => ['create', 'view'],
-            ],
+            'cashier' => $pos,
             'viewer' => [
                 'modules' => ['dashboard', 'reportes'],
                 'actions' => ['view'],
             ],
-            // Auxiliar / Mesero: ventas (crear, sin eliminar) + inventario (solo ver / carrito)
-            'auxiliar' => [
-                'modules' => ['ventas', 'inventario'],
-                'actions' => ['view'],
-                'module_actions' => [
-                    'ventas' => ['view', 'create'],
-                    'inventario' => ['view'],
-                ],
-            ],
-            'mesero' => [
-                'modules' => ['ventas', 'inventario'],
-                'actions' => ['view'],
-                'module_actions' => [
-                    'ventas' => ['view', 'create'],
-                    'inventario' => ['view'],
-                ],
-            ],
+            'auxiliar' => $pos,
+            'mesero' => $pos,
+            'pos' => $pos,
+            'user_pos' => $pos,
         ];
+    }
+
+    /**
+     * Permisos personalizados del rol User (JSON de sesión).
+     * null = usar mapa del rol; array (aunque vacío) = restricción explícita.
+     */
+    private static function customPermissions(): ?array
+    {
+        if (!array_key_exists('tenant_permissions', $_SESSION)) {
+            return null;
+        }
+        $p = $_SESSION['tenant_permissions'];
+        if (!is_array($p)) {
+            return null;
+        }
+        return $p;
     }
     
     /**
@@ -102,11 +157,10 @@ class TenantMiddleware
     public static function getRole(): string
     {
         $role = strtolower(trim((string)($_SESSION['tenant_user_role'] ?? 'viewer')));
-        // Compatibilidad: roles legacy / vacios / alias
         if ($role === '' || $role === 'administrator') {
             $role = 'admin';
         }
-        if ($role === 'waiter' || $role === 'auxiliar_mesero' || $role === 'auxiliar/mesero') {
+        if (in_array($role, ['waiter', 'auxiliar_mesero', 'auxiliar/mesero', 'user_pos', 'user-pos'], true)) {
             $role = 'auxiliar';
         }
         return $role;
@@ -117,11 +171,18 @@ class TenantMiddleware
      */
     public static function homePath(): string
     {
-        $role = self::getRole();
-        if (in_array($role, ['auxiliar', 'mesero'], true)) {
-            return '/app/ventas';
+        if (self::isPosUser()) {
+            return '/app/caja';
         }
-        return '/app/dashboard';
+        if (self::canAccess('dashboard')) {
+            return '/app/dashboard';
+        }
+        foreach (['caja', 'ventas', 'inventario', 'clientes'] as $m) {
+            if (self::canAccess($m)) {
+                return '/app/' . $m;
+            }
+        }
+        return '/app/configuracion';
     }
     
     /**
@@ -130,8 +191,24 @@ class TenantMiddleware
     public static function canAccess(string $module): bool
     {
         $role = self::getRole();
-        $perms = self::rolePermissions();
+        if ($role === 'admin') {
+            return true;
+        }
+
+        $custom = self::customPermissions();
+        if ($role === 'user' && $custom !== null) {
+            if ($custom === []) {
+                // Sin módulos elegidos: mapa manager por defecto
+            } else {
+                $mod = $custom[$module] ?? null;
+                if (!is_array($mod)) {
+                    return false;
+                }
+                return !empty($mod['view']) || !empty($mod['create']) || !empty($mod['edit']) || !empty($mod['delete']) || !empty($mod['export']);
+            }
+        }
         
+        $perms = self::rolePermissions();
         if (!isset($perms[$role])) {
             return false;
         }
@@ -146,8 +223,38 @@ class TenantMiddleware
     public static function canDo(string $action, ?string $module = null): bool
     {
         $role = self::getRole();
-        $perms = self::rolePermissions();
+        if ($role === 'admin') {
+            return true;
+        }
+
+        $custom = self::customPermissions();
+        if ($role === 'user' && $custom !== null && $custom !== [] && $module !== null) {
+            $mod = $custom[$module] ?? [];
+            if (!is_array($mod) || empty($mod['view'])) {
+                // view implícito si tiene create/edit
+                if (empty($mod['create']) && empty($mod['edit']) && empty($mod['delete']) && empty($mod['export'])) {
+                    return false;
+                }
+            }
+            if ($action === 'view') {
+                return !empty($mod['view']) || !empty($mod['create']) || !empty($mod['edit']) || !empty($mod['delete']);
+            }
+            if ($action === 'create') {
+                return !empty($mod['create']) || !empty($mod['edit']);
+            }
+            if ($action === 'edit') {
+                return !empty($mod['edit']);
+            }
+            if ($action === 'delete') {
+                return !empty($mod['delete']) || !empty($mod['edit']);
+            }
+            if ($action === 'export') {
+                return !empty($mod['export']) || !empty($mod['edit']);
+            }
+            return !empty($mod[$action]);
+        }
         
+        $perms = self::rolePermissions();
         if (!isset($perms[$role])) {
             return false;
         }
@@ -222,6 +329,12 @@ class TenantMiddleware
         if ($tenantId <= 0) {
             return $cache = $default;
         }
+
+        $cacheKey = 'plan_context:' . $tenantId;
+        $cached = SimpleCache::instance()->get($cacheKey);
+        if (is_array($cached) && isset($cached['tier'])) {
+            return $cache = $cached;
+        }
         
         try {
             $db = Database::getInstance();
@@ -235,7 +348,6 @@ class TenantMiddleware
                     [$tenantId]
                 )->fetch();
             } catch (\Throwable $e) {
-                // Columna features puede no existir aun
                 $row = $db->query(
                     "SELECT sp.name, sp.monthly_price, sp.modules
                      FROM tenants t
@@ -267,13 +379,15 @@ class TenantMiddleware
                     ? (bool)$features['export']
                     : ($reports === 'full');
                 
-                return $cache = [
+                $result = [
                     'tier' => in_array($tier, ['basic', 'pro', 'premium', 'custom'], true) ? $tier : 'basic',
                     'reports' => $reports === 'full' ? 'full' : 'basic',
                     'export' => $export,
                     'plan_name' => $planName,
                     'upgrade_plans' => 'Pro o Premium',
                 ];
+                SimpleCache::instance()->set($cacheKey, $result, 300);
+                return $cache = $result;
             }
             
             $name = mb_strtolower($planName);
@@ -284,13 +398,15 @@ class TenantMiddleware
                 $isFull = ((float)($row['monthly_price'] ?? 0)) >= 50;
             }
             
-            return $cache = [
+            $result = [
                 'tier' => $isFull ? (preg_match('/premium|enterprise/', $name) ? 'premium' : (preg_match('/personal|custom/', $name) ? 'custom' : 'pro')) : 'basic',
                 'reports' => $isFull ? 'full' : 'basic',
                 'export' => $isFull,
                 'plan_name' => $planName,
                 'upgrade_plans' => 'Pro o Premium',
             ];
+            SimpleCache::instance()->set($cacheKey, $result, 300);
+            return $cache = $result;
         } catch (\Throwable $e) {
             error_log('getPlanContext: ' . $e->getMessage());
             return $cache = $default;

@@ -2,6 +2,8 @@
 $layout = 'tenant';
 $title = 'Cotizaciones - ' . ($tenantName ?? 'Sistema');
 $pageTitle = 'Gestión de Cotizaciones';
+$loadBarcode = true;
+$pageScripts = ['js/cotizaciones.js'];
 $tenantName = $tenantName ?? 'Mi Empresa'; $userName = $userName ?? 'Usuario';
 $quotes = $quotes ?? []; $products = $products ?? []; $customers = $customers ?? [];
 $currency = $currency ?? ['symbol'=>'$','decimals'=>0];
@@ -197,4 +199,3 @@ function fmtQ(float $a, array $c): string { return $c['symbol'].' '.number_forma
 window.quoteRouteCreate = '<?php echo $viewInstance->route('app/cotizaciones'); ?>?action=create';
 window.quoteRouteDetail = '<?php echo $viewInstance->route('app/cotizaciones'); ?>?action=detail';
 </script>
-<script src="<?php echo $viewInstance->asset('js/cotizaciones.js'); ?>"></script>

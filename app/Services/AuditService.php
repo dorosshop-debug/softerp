@@ -52,6 +52,10 @@ class AuditService
      */
     private static function getCurrentUserName(): ?string
     {
+        if (!empty($_SESSION['tenant_user_name'])) {
+            return (string)$_SESSION['tenant_user_name'];
+        }
+
         if (!empty($_SESSION['super_admin_name'])) {
             return $_SESSION['super_admin_name'];
         }
@@ -68,6 +72,12 @@ class AuditService
      */
     private static function getCurrentUserId(): ?int
     {
+        if (!empty($_SESSION['tenant_master_user_id'])) {
+            return (int)$_SESSION['tenant_master_user_id'];
+        }
+        if (!empty($_SESSION['tenant_user_id'])) {
+            return (int)$_SESSION['tenant_user_id'];
+        }
         if (!empty($_SESSION['super_admin_id'])) {
             return (int) $_SESSION['super_admin_id'];
         }

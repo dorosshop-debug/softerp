@@ -25,12 +25,14 @@ desktop.ini
 /storage/cache/*
 /storage/sessions/*
 /storage/backups/*
+/storage/imports/*
 /storage/installed.lock
 /storage/app.key
 !/storage/logs/.gitkeep
 !/storage/cache/.gitkeep
 !/storage/sessions/.gitkeep
 !/storage/backups/.gitkeep
+!/storage/imports/.gitkeep
 
 # Base de datos
 *.sqlite

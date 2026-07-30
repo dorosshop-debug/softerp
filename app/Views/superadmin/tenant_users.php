@@ -82,8 +82,8 @@ $moduleNames = [
                                     <?php
                                     $roleLabels = [
                                         'admin' => 'Administrador',
-                                        'user' => 'Usuario',
-                                        'auxiliar' => 'Auxiliar/Mesero',
+                                        'user' => 'User',
+                                        'auxiliar' => 'User POS',
                                     ];
                                     $roleBadge = $user['role'] === 'admin' ? 'badge-success' : ($user['role'] === 'auxiliar' ? 'badge-warning' : 'badge-info');
                                     ?>
@@ -95,7 +95,7 @@ $moduleNames = [
                                     <?php if ($user['role'] === 'admin'): ?>
                                         <span class="badge badge-success">Todos los modulos</span>
                                     <?php elseif ($user['role'] === 'auxiliar'): ?>
-                                        <span class="badge badge-warning">Ventas + Inventario (carrito)</span>
+                                        <span class="badge badge-warning">Solo Caja-POS (vender)</span>
                                     <?php elseif ($permissionCount > 0): ?>
                                         <span class="badge badge-info"><?php echo $permissionCount; ?> modulos</span>
                                     <?php else: ?>
@@ -148,33 +148,35 @@ $moduleNames = [
                 <label>Rol *</label>
                 <select name="role" id="userRole" required class="neumorphic-input" onchange="togglePermissionsSection()">
                     <option value="admin">Administrador</option>
-                    <option value="user">Usuario</option>
-                    <option value="auxiliar">Auxiliar/Mesero</option>
+                    <option value="user">User (permisos por módulo)</option>
+                    <option value="auxiliar">User POS</option>
                 </select>
                 <small id="roleHint" style="display:none;color:var(--color-text-secondary);font-size:12px;margin-top:6px;">
-                    Auxiliar/Mesero: solo Ventas (crear, sin eliminar) e Inventario (carrito a venta; sin crear/editar/eliminar productos).
+                    User POS: solo Caja-POS para vender. Sin tarjetas financieras ni historial de cierres. Recibe avisos del admin y ventas canceladas.
                 </small>
             </div>
             
             <div id="permissionsSection" class="permissions-section" style="display: none; margin-top: 20px; padding: 20px; background-color: var(--color-secondary); border-radius: 8px; border: 1px solid var(--color-border);">
-                <h4 style="margin-bottom: 15px; color: var(--color-primary);">Permisos por Modulo</h4>
-                <p style="margin-bottom: 15px; color: var(--color-text-secondary); font-size: 13px;">Selecciona que modulos podra ver y/o editar este usuario.</p>
+                <h4 style="margin-bottom: 15px; color: var(--color-primary);">Permisos por módulo</h4>
+                <p style="margin-bottom: 15px; color: var(--color-text-secondary); font-size: 13px;">Elija Ver / Crear / Editar / Eliminar / Exportar por módulo (igual que Configuración del tenant).</p>
                 
-                <div class="permissions-header" style="display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 10px; padding: 10px; font-weight: 600; color: var(--color-primary); border-bottom: 1px solid var(--color-border);">
-                    <span>Modulo</span>
+                <div class="permissions-header" style="display: grid; grid-template-columns: 1.6fr repeat(5, 1fr); gap: 8px; padding: 10px; font-weight: 600; color: var(--color-primary); border-bottom: 1px solid var(--color-border); font-size: 12px;">
+                    <span>Módulo</span>
                     <span style="text-align: center;">Ver</span>
+                    <span style="text-align: center;">Crear</span>
                     <span style="text-align: center;">Editar</span>
+                    <span style="text-align: center;">Eliminar</span>
+                    <span style="text-align: center;">Exportar</span>
                 </div>
                 
                 <?php foreach ($availableModules as $module): ?>
-                    <div class="permission-row" style="display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 10px; padding: 10px; align-items: center; border-bottom: 1px solid var(--color-border);">
+                    <div class="permission-row" style="display: grid; grid-template-columns: 1.6fr repeat(5, 1fr); gap: 8px; padding: 10px; align-items: center; border-bottom: 1px solid var(--color-border);">
                         <span><?php echo $moduleNames[$module]; ?></span>
+                        <?php foreach (['view','create','edit','delete','export'] as $act): ?>
                         <label style="display: flex; justify-content: center; align-items: center; cursor: pointer;">
-                            <input type="checkbox" name="permissions[<?php echo $module; ?>][view]" value="1" class="permission-view" data-module="<?php echo $module; ?>">
+                            <input type="checkbox" name="permissions[<?php echo $module; ?>][<?php echo $act; ?>]" value="1" class="permission-<?php echo $act; ?>" data-module="<?php echo $module; ?>" data-action="<?php echo $act; ?>">
                         </label>
-                        <label style="display: flex; justify-content: center; align-items: center; cursor: pointer;">
-                            <input type="checkbox" name="permissions[<?php echo $module; ?>][edit]" value="1" class="permission-edit" data-module="<?php echo $module; ?>">
-                        </label>
+                        <?php endforeach; ?>
                     </div>
                 <?php endforeach; ?>
             </div>
@@ -196,7 +198,7 @@ function togglePermissionsSection() {
         section.style.display = 'block';
     } else {
         section.style.display = 'none';
-        document.querySelectorAll('.permission-view, .permission-edit').forEach(checkbox => {
+        document.querySelectorAll('#permissionsSection input[type=checkbox]').forEach(checkbox => {
             checkbox.checked = false;
         });
     }
@@ -205,22 +207,19 @@ function togglePermissionsSection() {
 document.addEventListener('DOMContentLoaded', function() {
     togglePermissionsSection();
     
-    document.querySelectorAll('.permission-edit').forEach(editCheckbox => {
-        editCheckbox.addEventListener('change', function() {
+    document.querySelectorAll('#permissionsSection input[type=checkbox]').forEach(cb => {
+        cb.addEventListener('change', function() {
             const module = this.dataset.module;
-            const viewCheckbox = document.querySelector('.permission-view[data-module="' + module + '"]');
-            if (this.checked && viewCheckbox) {
-                viewCheckbox.checked = true;
+            const action = this.dataset.action;
+            if (!module) return;
+            const viewCb = document.querySelector('.permission-view[data-module="' + module + '"]');
+            if (this.checked && action !== 'view' && viewCb) {
+                viewCb.checked = true;
             }
-        });
-    });
-    
-    document.querySelectorAll('.permission-view').forEach(viewCheckbox => {
-        viewCheckbox.addEventListener('change', function() {
-            const module = this.dataset.module;
-            const editCheckbox = document.querySelector('.permission-edit[data-module="' + module + '"]');
-            if (!this.checked && editCheckbox) {
-                editCheckbox.checked = false;
+            if (action === 'view' && !this.checked) {
+                document.querySelectorAll('#permissionsSection input[data-module="' + module + '"]').forEach(x => {
+                    if (x !== this) x.checked = false;
+                });
             }
         });
     });

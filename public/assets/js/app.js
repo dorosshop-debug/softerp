@@ -506,9 +506,11 @@ function setSelectedCustomer(id, label) {
             list.appendChild(li);
         }
     }
-    // Caja-POS: selector simple
+    // Caja-POS: selector simple o combobox
     var posSelect = document.getElementById('posCustomer');
-    if (posSelect && id) {
+    var posSearch = document.getElementById('posCustomerSearch');
+    var posList = document.getElementById('posCustomerList');
+    if (posSelect && posSelect.tagName === 'SELECT' && id) {
         var opt = posSelect.querySelector('option[value="' + id + '"]');
         if (!opt) {
             opt = document.createElement('option');
@@ -517,6 +519,22 @@ function setSelectedCustomer(id, label) {
             posSelect.appendChild(opt);
         }
         posSelect.value = String(id);
+    }
+    if (posSelect && posSelect.tagName === 'INPUT' && id) {
+        posSelect.value = String(id);
+        if (posSearch) posSearch.value = label || ('Cliente #' + id);
+        if (posList) {
+            var exists = posList.querySelector('.combobox-option[data-id="' + id + '"]');
+            if (!exists) {
+                var li = document.createElement('li');
+                li.className = 'combobox-option';
+                li.setAttribute('data-id', id);
+                li.setAttribute('data-label', label);
+                li.setAttribute('data-search', (label || '').toLowerCase());
+                li.textContent = label;
+                posList.appendChild(li);
+            }
+        }
     }
 }
 

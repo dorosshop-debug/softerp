@@ -2,6 +2,8 @@
 $layout = 'tenant';
 $title = 'Ventas - ' . ($tenantName ?? 'Sistema');
 $pageTitle = 'Punto de Venta';
+$loadBarcode = true;
+$pageScripts = ['js/ventas.js'];
 $tenantName = $tenantName ?? 'Mi Empresa';
 $userName = $userName ?? 'Usuario';
 $sales = $sales ?? [];
@@ -196,19 +198,18 @@ function fmtV(float $a, array $c): string
             </div>
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:15px;">
                 <div class="form-group">
-                    <label>Tipo de documento</label>
-                    <select name="document_type" id="documentType" class="form-control">
-                        <?php foreach (\SoftNova\Services\SalesDocumentService::documentTypes() as $code => $lab): ?>
-                            <option value="<?php echo htmlspecialchars($code); ?>"><?php echo htmlspecialchars($lab); ?></option>
-                        <?php endforeach; ?>
-                    </select>
-                </div>
-                <div class="form-group">
                     <label>Condición de pago</label>
                     <select name="payment_terms" id="paymentTerms" class="form-control" onchange="onPaymentTermsChange()">
                         <?php foreach (\SoftNova\Services\SalesDocumentService::paymentTerms() as $code => $lab): ?>
                             <option value="<?php echo htmlspecialchars($code); ?>"><?php echo htmlspecialchars($lab); ?></option>
                         <?php endforeach; ?>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Tipo de Pago <span class="field-tip" data-tip="Contado: cobra el monto completo ahora. A Crédito: deja saldo pendiente y genera una cuenta por cobrar.">?</span></label>
+                    <select name="payment_type" id="paymentType" class="form-control" onchange="toggleCredit()">
+                        <option value="full">Contado</option>
+                        <option value="credit">A Crédito</option>
                     </select>
                 </div>
             </div>
@@ -228,19 +229,12 @@ function fmtV(float $a, array $c): string
             </div>
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:15px;">
                 <div class="form-group">
-                    <label>Tipo de Pago <span class="field-tip" data-tip="Totalidad: cobra el monto completo ahora. A Crédito: deja saldo pendiente y genera una cuenta por cobrar.">?</span></label>
-                    <select name="payment_type" id="paymentType" class="form-control" onchange="toggleCredit()">
-                        <option value="full">Totalidad</option>
-                        <option value="credit">A Crédito</option>
-                    </select>
-                </div>
-                <div class="form-group">
                     <label>Método de Pago <span class="field-tip" data-tip="Medio con el que se recibe el dinero (efectivo, tarjeta, transferencia u otro).">?</span></label>
                     <select name="payment_method" class="form-control">
                         <?php echo \SoftNova\Services\PaymentMethodCatalog::optionsHtml('cash'); ?>
                     </select>
                 </div>
-                <div class="form-group" id="initialPaymentGroup" style="display:none;grid-column:1/-1;">
+                <div class="form-group" id="initialPaymentGroup" style="display:none;">
                     <label>Abono Inicial <span class="field-tip" data-tip="Monto que el cliente paga hoy. El resto queda como cuenta por cobrar.">?</span></label>
                     <input type="number" name="initial_payment" class="form-control" step="0.01" min="0" placeholder="0">
                 </div>
@@ -324,4 +318,3 @@ function fmtV(float $a, array $c): string
     window.invRouteVentasDetail = '<?php echo $viewInstance->route('app/ventas'); ?>?action=detail';
     window.invRouteVentasShare = '<?php echo $viewInstance->route('app/ventas'); ?>?action=share';
 </script>
-<script src="<?php echo $viewInstance->asset('js/ventas.js'); ?>"></script>
